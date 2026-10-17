@@ -1,0 +1,4 @@
+.claude/worktrees/
+tests/.cache/
+.lua/
+.luarocks/

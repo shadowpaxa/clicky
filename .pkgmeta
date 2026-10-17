@@ -1,0 +1,11 @@
+# BigWigs packager: leave the development files out of the zip (dotfiles always are).
+ignore:
+  - tests
+  - docs
+  - CLAUDE.md
+  - README.md
+
+# Release notes are written by hand instead of built from commit messages.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown

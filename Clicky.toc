@@ -1,0 +1,17 @@
+## Interface: 120105
+## Title: Clicky
+## Notes: Summon Random Favorite Mount, but for toys, and for macros of toys you make. Type /clicky to open the Toy Box.
+## Author: shadowpaxa
+## Version: 0.3.0
+## SavedVariables: ClickyDB
+## X-Wago-ID: j6jAEMNR
+
+Core.lua
+DB.lua
+Codec.lua
+Toys.lua
+MacroStore.lua
+Macros.lua
+Commands.lua
+Menu.lua
+Panel.lua

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime.version": "Lua 5.1",
+  "workspace.library": ["tests/.cache/vscode-wow-api/Annotations/Core"],
+  "workspace.ignoreDir": ["tests", ".claude", ".lua", ".luarocks"],
+  "workspace.checkThirdParty": false,
+  "diagnostics.globals": ["ClickyDB", "SLASH_CLICKY1"]
+}

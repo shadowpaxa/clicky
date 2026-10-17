@@ -1,0 +1,8 @@
+-- busted config: run `busted` from the repo root (see CLAUDE.md for installing it for LuaJIT).
+return {
+	default = {
+		ROOT = { "tests" },
+		pattern = "^test_",
+		lpath = "tests/?.lua",
+	},
+}

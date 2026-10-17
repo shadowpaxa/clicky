@@ -1,0 +1,26 @@
+# Packages Clicky and uploads it to Wago when an annotated tag is pushed, after CI passes.
+# A tag containing "alpha" or "beta" uploads as that release type; any other tag as a release.
+name: Package and release
+
+on:
+  push:
+    tags:
+      - '**'
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+    steps:
+      - name: Clone project
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # full history, for the changelog since the last tag
+
+      - name: Package and release
+        uses: BigWigsMods/packager@v2

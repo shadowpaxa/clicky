@@ -1,0 +1,40 @@
+# Runs tests/run.sh (luacheck, the tests and the API check) on every push and pull request, and
+# before each release (release.yml calls it).
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone project
+        uses: actions/checkout@v7
+
+      - name: Install LuaJIT
+        uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: "luajit-2.1"
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@v6
+
+      - name: Install busted and luacheck
+        run: luarocks install busted && luarocks install luacheck
+
+      - name: Install lua-language-server
+        run: |
+          mkdir -p "$RUNNER_TEMP/luals"
+          curl -fsSL https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-linux-x64.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/luals"
+          echo "$RUNNER_TEMP/luals/bin" >> "$GITHUB_PATH"
+
+      - name: Run tests
+        run: tests/run.sh
+        env:
+          BUSTED: busted
