@@ -4,5 +4,5 @@
   "workspace.library": ["tests/.cache/vscode-wow-api/Annotations/Core"],
   "workspace.ignoreDir": ["tests", ".claude", ".lua", ".luarocks"],
   "workspace.checkThirdParty": false,
-  "diagnostics.globals": ["ClickyDB", "SLASH_CLICKY1"]
+  "diagnostics.globals": ["SLASH_CLICKY1"]
 }

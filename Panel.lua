@@ -1,9 +1,9 @@
 -- The Clicky panel, docked to the right edge of the Toy Box: one scrolling list of macros, each
 -- collapsed by default. Click a macro to show or hide its toys. Drag a macro's icon to put it
--- on a bar; right-click a macro to rename or delete it; right-click a toy for the same menu as
--- the Toy Box. It's parented to the Toy Box, so it shows only on the Toy Box tab. A macro whose
--- toys can't be read has a greyed icon with a warning mark and "?" for its count; hovering over
--- it says why, and clicking it shows the same message as an error.
+-- on a bar; right-click a macro to rename or delete it; right-click
+-- a toy for the same menu as the Toy Box. It's parented to the Toy Box, so it shows only on the
+-- Toy Box tab. A macro whose toys can't be read has a greyed icon with a warning mark and "?" for
+-- its count; hovering over it says why, and clicking it shows the same message as an error.
 --   ns.OnMacrosChanged()   refreshes the panel next frame, if it's shown
 --   ns.PanelRows()         the rows the panel lists (see Rows below); for tests
 
@@ -53,7 +53,8 @@ end
 -- Rows. The list holds three kinds of element, all drawn by the same pooled button:
 --   { kind = "macro", macro = m, count = n,   a macro, with its expand arrow, drag icon and toy
 --     unreadable = why }                      count; why is ns.Unreadable(m), and the count "?"
---   { kind = "toy", itemID = itemID }         a toy in an expanded macro
+--   { kind = "toy", itemID = itemID,          a toy in an expanded macro, greyed if the player
+--     owned = bool }                          doesn't own it
 --   { kind = "note", text = text }            a line of help text
 
 local function Row_OnClick(row, mouseButton)
@@ -83,6 +84,9 @@ local function ShowMacroTooltip(owner, data)
 		GameTooltip:AddLine(data.unreadable, 1, 0.82, 0, true)
 	end
 	GameTooltip:AddLine("Drag to an action bar.", 1, 1, 1)
+	if not data.unreadable then
+		GameTooltip:AddLine("On the bar, right-click it to choose a toy.", 1, 1, 1)
+	end
 	GameTooltip:Show()
 end
 
@@ -173,7 +177,8 @@ local function InitRow(row, data)
 	elseif kind == "toy" then
 		local _, name, icon = C_ToyBox.GetToyInfo(data.itemID)
 		row.toyIcon:SetTexture(icon)
-		row.name:SetFontObject("GameFontNormal")
+		row.toyIcon:SetDesaturated(not data.owned)
+		row.name:SetFontObject(data.owned and "GameFontNormal" or "GameFontDisable")
 		row.name:SetPoint("LEFT", row.toyIcon, "RIGHT", 8, 0)
 		row.name:SetPoint("RIGHT", -4, 0)
 		row.name:SetText(name or "")
@@ -191,20 +196,20 @@ local function PanelRows()
 	local data = {}
 	for _, m in ipairs(ns.GetMacros()) do
 		local unreadable = ns.Unreadable(m)
-		local toys = unreadable and {} or ns.GetMacroToys(m)
+		local toys = unreadable and {} or ns.GetMacroToys(m, true)
 		data[#data + 1] = { kind = "macro", macro = m, count = unreadable and "?" or #toys, unreadable = unreadable }
 		if ns.expanded[m.id] and not unreadable then
 			for _, itemID in ipairs(toys) do
-				data[#data + 1] = { kind = "toy", itemID = itemID }
+				data[#data + 1] = { kind = "toy", itemID = itemID, owned = PlayerHasToy(itemID) }
 			end
 			if #toys == 0 then
-				data[#data + 1] = { kind = "note", text = m.builtin and "Star toys in the Toy Box to add them."
-					or "Right-click toys in the Toy Box to add them." }
+				data[#data + 1] = { kind = "note", text = m.builtin and "Star toys to add them."
+					or "Right-click toys to add them." }
 			end
 		end
 	end
 	if not ns.HasOwnMacros() then
-		data[#data + 1] = { kind = "note", text = "Right-click a toy, then Add to new macro..." }
+		data[#data + 1] = { kind = "note", text = "Right-click a toy to make one." }
 	end
 	return data
 end
@@ -253,9 +258,20 @@ local function CreatePanel()
 	view:SetElementInitializer("Button", InitRow)
 	ScrollUtil.InitScrollBoxListWithScrollBar(list, scrollBar, view)
 
-	panel:SetScript("OnShow", Refresh)
-	if panel:IsVisible() then
+	-- WoW places windows such as /macro beside the Collections window by its layout width, which
+	-- doesn't include this panel; while it shows, widen that width, as the Calendar does for its
+	-- side panel (Blizzard_Calendar.lua, CalendarCreateEventFrame_OnShow).
+	panel:SetScript("OnShow", function()
+		SetUIPanelAttribute(CollectionsJournal, "extraWidth", panel:GetWidth() + 2)
+		UpdateUIPanelPositions(CollectionsJournal)
 		Refresh()
+	end)
+	panel:SetScript("OnHide", function()
+		SetUIPanelAttribute(CollectionsJournal, "extraWidth", nil)
+		UpdateUIPanelPositions(CollectionsJournal)
+	end)
+	if panel:IsVisible() then
+		panel:GetScript("OnShow")()
 	end
 end
 

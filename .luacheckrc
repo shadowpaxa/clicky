@@ -12,9 +12,8 @@ ignore = {
 	"212/self", -- methods that don't use self
 }
 
--- Globals Clicky sets: its saved data, its slash command, and entries in Blizzard's tables.
+-- Globals Clicky sets: its slash command, and entries in Blizzard's tables.
 globals = {
-	"ClickyDB",
 	"SLASH_CLICKY1",
 	"SlashCmdList",
 	"StaticPopupDialogs",
@@ -33,7 +32,9 @@ read_globals = {
 	"C_ToyBox",
 	"CANCEL",
 	"COLLECTIONS_JOURNAL_TAB_INDEX_TOYS",
+	"CollectionsJournal",
 	"Constants",
+	"CooldownFrame_Set",
 	"CreateDataProvider",
 	"CreateFrame",
 	"CreateMacro",
@@ -55,7 +56,10 @@ read_globals = {
 	"PlayerHasToy",
 	"ScrollBoxConstants",
 	"ScrollUtil",
+	"SecureHandlerSetFrameRef",
+	"SecureHandlerWrapScript",
 	"SetCollectionsJournalShown",
+	"SetUIPanelAttribute",
 	"StaticPopup_Show",
 	"StaticPopup_StandardEditBoxOnEscapePressed",
 	"StaticPopup_StandardNonEmptyTextHandler",
@@ -63,6 +67,7 @@ read_globals = {
 	"ToyBox",
 	"UIErrorsFrame",
 	"UIParent",
+	"UpdateUIPanelPositions",
 	"wipe",
 }
 

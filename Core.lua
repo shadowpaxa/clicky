@@ -1,8 +1,9 @@
 -- Clicky: "Summon Random Favorite Mount", but for toys, and for any macro of toys you make.
 --
--- UseToy() is protected, so each macro's toy is used by a hidden SecureActionButton (type "toy").
--- The macro runs it with /click. Out of combat, Clicky picks a fresh random toy from the macro
--- right before each click (PreClick) and lines up the next one afterwards (PostClick).
+-- UseToy() is protected (warcraft.wiki.gg API UseToy), so each macro's toy is used by a hidden
+-- SecureActionButton (type "toy").
+-- The macro runs it with /click. The button gets a random toy from the macro before each click
+-- (PreClick out of combat, a secure snippet in combat); a right-click opens the macro's drawer.
 --
 -- Favorites is a built-in macro backed by the Toy Box star. Every other Clicky macro is a general
 -- macro that holds its own toys in a "#clicky" line (Macros.lua), so it follows the player to
@@ -11,7 +12,8 @@
 -- Files load in .toc order and share one namespace table, ns. Each file keeps its state local
 -- and puts on ns only what other files call; the list is at the top of each file. This one has
 -- the shared names, messages, tracing, change notification and event wiring:
---   ns.FAVORITES_BUTTON, ns.FAVORITES_MACRO, ns.FAVORITES_ICON, ns.SET_BUTTON_PREFIX
+--   ns.FAVORITES_BUTTON, ns.FAVORITES_MACRO, ns.FAVORITES_ICON, ns.SET_BUTTON_PREFIX,
+--   ns.DRAWER_BUTTON_PREFIX
 --   ns.Print(msg), ns.ShowError(msg)
 --   ns.Trace(format, ...), ns.IsTracing(), ns.SetTracing(on)
 --   ns.Changed()                   something the panel shows changed; calls ns.OnMacrosChanged
@@ -20,12 +22,12 @@
 
 local addonName, ns = ...
 
--- Players' macros /click these buttons by name, and the macro names are what's on their bars,
--- so none of these can change.
+-- Players' macros /click these buttons by name, so the button names can't change.
 ns.FAVORITES_BUTTON = "ClickyButton"
-ns.FAVORITES_MACRO = "Clicky"
+ns.FAVORITES_MACRO = "Favorites" -- its macro's name when Clicky makes it
 ns.FAVORITES_ICON = "Trade_Archaeology_ChestofTinyGlassAnimals" -- the Toy Box portrait
 ns.SET_BUTTON_PREFIX = "ClickySet" -- followed by the macro's id (an older name; bars depend on it)
+ns.DRAWER_BUTTON_PREFIX = "ClickyP" -- followed by the id (0 for Favorites): right-click opens the drawer
 
 local tracing = false -- /clicky trace: print every pick, click and change
 
@@ -71,9 +73,7 @@ function ns.Changed()
 end
 
 ------------------------------------------------------------------------------------------
--- Events. Files register handlers as they load; an event's handlers run in .toc order, so
--- DB.lua's ADDON_LOADED (which readies ClickyDB) runs before anything that reads it, and
--- Toys.lua's before Macros.lua's.
+-- Events. Files register handlers as they load; an event's handlers run in .toc order.
 -- ADDON_LOADED handlers run only for Clicky itself.
 
 local handlers = {}

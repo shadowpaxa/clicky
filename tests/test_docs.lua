@@ -14,11 +14,11 @@ local function ReadReadme()
 end
 local README = ReadReadme()
 
--- The README's text matching pattern's first capture; fails if the README no longer says it.
+-- The README's text matching pattern's captures; fails if the README no longer says it.
 local function Says(pattern, what)
-	local found = README:match(pattern)
-	assert(found, ("README.md no longer states %s (pattern %q)"):format(what, pattern))
-	return found
+	local found = { README:match(pattern) }
+	assert(found[1], ("README.md no longer states %s (pattern %q)"):format(what, pattern))
+	return unpack(found)
 end
 
 local PIRATE, ORB = 101, 102
@@ -40,6 +40,19 @@ describe("README.md", function()
 		local cap = tonumber(Says("\n%- (%d+) toys per macro", "the toys-per-macro limit"))
 		local world = World()
 		eq(cap, world.ns.MACRO_TOY_CAP, "README's toys per macro")
+	end)
+
+	it("Adding and removing toys: a macro with too many lines of its own", function()
+		local message = Says('adding one says "([^"]+)"', "the too-long message"):gsub("%s+", " ")
+		local toys = {}
+		for i = 1, 300 do toys[i] = { id = 1000 + i } end
+		local world = wow.New({ toys = toys })
+		local m = assert(world.ns.MakeMacro("Illusion", toys[1].id))
+		local body = world.macros[1].body
+		world:EditMacroInUI(1, nil, body .. "\n/say " .. ("x"):rep(255 - #body - 6))
+		local ok, err = world.ns.SetToy(m, toys[300].id, true)
+		eq(ok, nil, "refused")
+		eq(err, message, "README's message")
 	end)
 
 	it("Limits: macro name length", function()
@@ -83,7 +96,7 @@ describe("README.md", function()
 	end)
 
 	it("Troubleshooting: the message when no toys are usable", function()
-		local phrase = Says('you\'ll see "([^"]+)" and the macro\'s name', "the no-usable-toys message")
+		local phrase = Says('you\'ll%s+see "([^"]+)" and the macro\'s%s+name', "the no-usable-toys message")
 		local world = World()
 		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
 		world.ns.PickupMacro(m)
@@ -98,7 +111,7 @@ describe("README.md", function()
 	it("Troubleshooting: an unreadable macro's toy count", function()
 		local mark = Says('greyed out with "([^"]+)" for its toy count', "the unreadable count mark")
 		local world = World()
-		world:CreateMacroInUI("Broken", "/click [nocombat] ClickySet4\n#clicky broken")
+		world:CreateMacroInUI("Broken", "/click ClickySet4\n#clicky broken")
 		local count
 		for _, row in ipairs(world.ns.PanelRows()) do
 			if row.kind == "macro" and row.macro.name == "Broken" then count = row.count end
@@ -107,7 +120,7 @@ describe("README.md", function()
 	end)
 
 	it("Adding and removing toys: the toy menu's entry labels", function()
-		local add = Says("you'll see %*%*([^*]+)%*%* followed by each\nmacro's name", "the Add to label")
+		local add = Says("you'll%s+see %*%*([^*]+)%*%* followed by each%s+macro's name", "the Add to label")
 		local remove = Says("or %*%*([^*]+)%*%* for macros the toy is already in", "the Remove from label")
 		local world = World()
 		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))

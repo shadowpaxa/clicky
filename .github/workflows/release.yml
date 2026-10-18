@@ -1,5 +1,6 @@
 # Packages Clicky and uploads it to Wago when an annotated tag is pushed, after CI passes.
-# A tag containing "alpha" or "beta" uploads as that release type; any other tag as a release.
+# A tag containing "alpha" or "beta" uploads as that release type; any other tag as a release
+# (BigWigsMods packager, release.sh).
 name: Package and release
 
 on:
@@ -20,7 +21,7 @@ jobs:
       - name: Clone project
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # full history, for the changelog since the last tag
+          fetch-depth: 0  # full history and tags: the packager names the version after the tag (packager README)
 
       - name: Package and release
         uses: BigWigsMods/packager@v2

@@ -1,5 +1,5 @@
 -- Every toy in the game, read from the game's own data, which macros are encoded against; and
--- per-toy checks.
+-- toy cooldowns.
 --   ns.GetToyList()            { ids (sorted item IDs), index (itemID -> 0-based position), set
 --                              (itemID -> true), highest (the last item ID), checks }
 --   ns.ToysUpTo(highest)       ids, checks: the toys with item IDs up to highest (a macro's list)
@@ -8,17 +8,15 @@
 --   ns.IsToyOnCooldown(itemID)
 --
 -- The list comes from asking the game, for every item ID in turn, whether it's a toy
--- (C_ToyBox.GetToyLink returns nil for an item that isn't one). It doesn't depend on which toys the
--- player owns, so learning a toy never changes it, and it's the same on every character and
--- account on the same patch. It never reads or changes the Toy Box's filters: those are the
--- player's own saved settings.
+-- (C_ToyBox.GetToyLink returns nil for an item that isn't one, warcraft.wiki.gg API
+-- C_ToyBox.GetToyLink). It doesn't ask which toys the player owns, so learning a toy never changes
+-- it. It never reads or changes the Toy Box's filters: those are the player's own saved settings.
 
 local _, ns = ...
 
 local GCD_THRESHOLD = 1.5 -- cooldowns at or below this are the global cooldown, not the toy's
--- Toy item IDs are sparse; the widest gap between two toys today is 11,406 (items 1973 to
--- 13379). The probe stops this far past the last toy it found, so every computer stops at the
--- same place.
+-- Toy item IDs are sparse. The probe stops this far past the last toy it found, so every computer
+-- stops at the same place.
 local PROBE_PAST_LAST_TOY = 50000
 
 local list -- ns.GetToyList()'s result, once probed

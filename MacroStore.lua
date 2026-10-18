@@ -3,47 +3,54 @@
 -- deletes them; Macros.lua decides what to write. Macros can't be created, edited or deleted in
 -- combat; callers check first.
 --   ns.ReadMacros()      records (see below)
---   ns.FindFavoritesMacro(), ns.PickupFavoritesMacro()
+--   ns.FindFavoritesMacro()                   -> { index, name, icon, body } | nil
+--   ns.MakeFavoritesMacro(name)               -> index | nil, reason
 --   ns.CreateGeneralMacro(name, icon, body)   -> index | nil, reason
 --   ns.EditMacroAt(index, name, icon, body)   -> index | nil, reason
 --   ns.DeleteMacroAt(index)
---   ns.MACRO_BODY_LIMIT, ns.ClickLine(id), ns.NewBody(id, data), ns.SetDataLine(body, data),
---   ns.SetButtonID(body, oldID, newID), ns.ParseBody(body), ns.TruncateMacroName(name)
---                        game-independent; on ns so offline tests can reach them
+--   ns.NewBody(id, data), ns.SetDataLine(body, data), ns.SetButtonID(body, oldID, newID),
+--   ns.TruncateMacroName(name)                game-independent
+--   ns.MACRO_BODY_LIMIT, ns.ClickLine(id)   for tests
 --
 -- A Clicky macro's body is
---   /click [nocombat] ClickySet<id>
+--   /click [btn:2]ClickyP<id>;ClickySet<id>
 --   #clicky <data>
--- plus any lines the player adds. Lines starting with "#" aren't run, so the data line is inert.
--- The /click line is what players' bars depend on and is never rewritten, except to give a
--- copied macro a button of its own.
+-- plus any lines the player adds. The data line does nothing when the macro runs (seen in play).
+-- /click with no mouse button clicks with "LeftButton" (SlashCommands.lua, SLASH_COMMAND.CLICK),
+-- so [btn:2] is the button the player clicked the macro with: a right-click goes to ClickyP<id>,
+-- which opens the macro's drawer (Drawer.lua), anything else to ClickySet<id>, which uses a toy.
+-- Favorites' macro is the general macro whose line is /click [btn:2]ClickyP0;ClickyButton, with no
+-- data line. The /click line is what players' bars depend on: it's only rewritten to give a copied
+-- macro buttons of its own.
 
 local _, ns = ...
 
 local MACRO_NAME_LIMIT = 16
--- MacroFrameText has letters="255" (Blizzard_MacroUI.xml), and EditMacro truncates longer bodies.
+-- MacroFrameText has letters="255" (Blizzard_MacroUI.xml), and EditMacro saves only the first 255
+-- characters (warcraft.wiki.gg API EditMacro).
 local MACRO_BODY_LIMIT = 255
 local DATA_PREFIX = "#clicky "
 local FULL_ERROR = "Your general macros are full. Delete one in /macro and try again."
 
--- Macro names are capped; cut on a character boundary rather than mid-way through one.
+-- Macro names are capped at 16 characters: /macro's name box has letters="16"
+-- (SharedUIPanelTemplates.xml) and passes what it holds to CreateMacro and EditMacro.
 local function TruncateMacroName(name)
-	if #name <= MACRO_NAME_LIMIT then
-		return name
-	end
-	local cut = MACRO_NAME_LIMIT
-	while cut > 0 do
-		local nextByte = name:byte(cut + 1)
-		if not nextByte or nextByte < 0x80 or nextByte >= 0xC0 then
-			break
+	local letters = 0
+	for at = 1, #name do
+		local byte = name:byte(at)
+		-- A UTF-8 character starts with any byte but a continuation byte (0x80-0xBF).
+		if byte < 0x80 or byte >= 0xC0 then
+			letters = letters + 1
+			if letters > MACRO_NAME_LIMIT then
+				return name:sub(1, at - 1)
+			end
 		end
-		cut = cut - 1
 	end
-	return name:sub(1, cut)
+	return name
 end
 
 local function ClickLine(id)
-	return "/click [nocombat] " .. ns.SET_BUTTON_PREFIX .. id
+	return ("/click [btn:2]%s%d;%s%d"):format(ns.DRAWER_BUTTON_PREFIX, id, ns.SET_BUTTON_PREFIX, id)
 end
 
 local function NewBody(id, data)
@@ -62,13 +69,17 @@ local function IsClickLine(line)
 	return line:find("^%s*/click") ~= nil
 end
 
+-- ParseBody reads ids with tonumber, so "ClickySet01" is id 1 and must match here too.
+local function ButtonPattern(prefix, id)
+	return prefix .. "0*" .. id .. "%f[%W]"
+end
+
 -- The id of the first ClickySet button a /click line in body clicks, and the data line's data.
 local function ParseBody(body)
 	local id, data
 	for _, line in ipairs(Lines(body or "")) do
 		if not id and IsClickLine(line) then
-			local n = line:match(ns.SET_BUTTON_PREFIX .. "(%d+)%f[%W]")
-			id = tonumber(n)
+			id = tonumber(line:match(ns.SET_BUTTON_PREFIX .. "(%d+)%f[%W]"))
 		end
 		if not data and line:sub(1, #DATA_PREFIX) == DATA_PREFIX then
 			data = strtrim(line:sub(#DATA_PREFIX + 1))
@@ -77,28 +88,34 @@ local function ParseBody(body)
 	return id, data
 end
 
--- Replaces the data line, or adds one after the first /click line.
+-- Replaces the data line, or adds one after the first /click line; data nil removes it.
 local function SetDataLine(body, data)
 	local lines, at = Lines(body), nil
 	for i, line in ipairs(lines) do
 		if line:sub(1, #DATA_PREFIX) == DATA_PREFIX then
-			lines[i] = DATA_PREFIX .. data
+			if data then
+				lines[i] = DATA_PREFIX .. data
+			else
+				table.remove(lines, i)
+			end
 			return table.concat(lines, "\n")
 		end
 		if not at and IsClickLine(line) then
 			at = i
 		end
 	end
-	table.insert(lines, (at or 0) + 1, DATA_PREFIX .. data)
+	if data then
+		table.insert(lines, (at or 0) + 1, DATA_PREFIX .. data)
+	end
 	return table.concat(lines, "\n")
 end
 
 local function SetButtonID(body, oldID, newID)
 	local lines = Lines(body)
-	local pattern = ns.SET_BUTTON_PREFIX .. oldID .. "%f[%W]"
 	for i, line in ipairs(lines) do
 		if IsClickLine(line) then
-			lines[i] = line:gsub(pattern, ns.SET_BUTTON_PREFIX .. newID)
+			line = line:gsub(ButtonPattern(ns.SET_BUTTON_PREFIX, oldID), ns.SET_BUTTON_PREFIX .. newID)
+			lines[i] = line:gsub(ButtonPattern(ns.DRAWER_BUTTON_PREFIX, oldID), ns.DRAWER_BUTTON_PREFIX .. newID)
 		end
 	end
 	return table.concat(lines, "\n")
@@ -108,7 +125,6 @@ ns.MACRO_BODY_LIMIT = MACRO_BODY_LIMIT
 ns.TruncateMacroName = TruncateMacroName
 ns.ClickLine = ClickLine
 ns.NewBody = NewBody
-ns.ParseBody = ParseBody
 ns.SetDataLine = SetDataLine
 ns.SetButtonID = SetButtonID
 
@@ -170,30 +186,22 @@ function ns.DeleteMacroAt(index)
 end
 
 ------------------------------------------------------------------------------------------
--- Favorites' macro has no data: its toys are the Toy Box stars.
+-- Favorites' macro: found by its /click line, whatever its name.
 
-local FAVORITES_BODY = "/click [nocombat] " .. ns.FAVORITES_BUTTON
+local FAVORITES_LINE = ("/click [btn:2]%s0;%s"):format(ns.DRAWER_BUTTON_PREFIX, ns.FAVORITES_BUTTON)
 
 function ns.FindFavoritesMacro()
 	for index = 1, GetNumMacros() do
-		local _, _, body = GetMacroInfo(index)
-		if body and strtrim(body) == FAVORITES_BODY then
-			return index
+		local name, icon, body = GetMacroInfo(index)
+		for _, line in ipairs(Lines(body or "")) do
+			if strtrim(line) == FAVORITES_LINE then
+				return { index = index, name = name, icon = icon, body = body }
+			end
 		end
 	end
 	return nil
 end
 
-function ns.PickupFavoritesMacro()
-	local index = ns.FindFavoritesMacro()
-	if not index then
-		local err
-		index, err = ns.CreateGeneralMacro(ns.FAVORITES_MACRO, ns.FAVORITES_ICON, FAVORITES_BODY)
-		if not index then
-			ns.ShowError(err)
-			return
-		end
-	end
-	ns.Trace("[macro Favorites] picked up %d", index)
-	PickupMacro(index)
+function ns.MakeFavoritesMacro(name)
+	return ns.CreateGeneralMacro(name, ns.FAVORITES_ICON, FAVORITES_LINE)
 end

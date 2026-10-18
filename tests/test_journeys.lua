@@ -45,7 +45,7 @@ local function World(options)
 	return wow.New(options)
 end
 
--- The same account logging in again: on the same computer (its saved data) or another (none).
+-- The same account logging in again, on this computer or another: only the macros carry over.
 local function NextLogin(world, options)
 	options = options or {}
 	options.account = world.account
@@ -171,10 +171,40 @@ local function ExpectUnreadable(world, name, message, slot)
 	end
 end
 
+-- The toys in a macro's drawer, in order, as its buttons hold them.
+local function DrawerToys(world, name)
+	local drawer = assert(world.ns.GetDrawer(Macro(world, name).id), "no drawer")
+	local toys = {}
+	for i = 1, drawer.count do
+		toys[i] = drawer.buttons[i]:GetAttribute("item")
+	end
+	return toys
+end
+
+local function DrawerOpen(world, name)
+	return world.ns.GetDrawer(Macro(world, name).id).frame:IsShown()
+end
+
+-- Journey 14's step: click a toy in the open drawer.
+local function ClickInDrawer(world, name, itemID)
+	local drawer = world.ns.GetDrawer(Macro(world, name).id)
+	for i = 1, drawer.count do
+		local button = drawer.buttons[i]
+		if button:GetAttribute("item") == itemID then
+			button:Click("LeftButton", false)
+			return
+		end
+	end
+	error("not in the drawer: " .. itemID, 2)
+end
+
+local LINE = "/click [btn:2]ClickyP%d;ClickySet%d"
+local FAVORITES_LINE = "/click [btn:2]ClickyP0;ClickyButton"
+
 describe("journeys", function()
 	it("1. Discover macros: the panel lists Favorites, collapsed, and the hint", function()
 		local world = World()
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, then Add to new macro..." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy to make one." })
 		eq(PanelRow(world, "Favorites").count, 2, "Favorites' count")
 	end)
 
@@ -220,28 +250,9 @@ describe("journeys", function()
 			world:PressBar(1)
 			eq(world:LastUsed(), PIRATE, "only the usable, ready toy")
 		end
-		world:FailHere(PIRATE)
-		world:PressBar(1)
+		world.toys[PIRATE].cooldown = 300
 		world:PressBar(1)
 		eq(world:LastError(), "No usable toys in Illusion.")
-		world:ChangeZone()
-		world:PressBar(1)
-		eq(world:LastUsed(), PIRATE, "a new zone gives a failed toy another chance")
-	end)
-
-	it("2. Dress up: a UI error long after a click doesn't count against the toy", function()
-		local world = World()
-		world:Fire("UI_ERROR_MESSAGE", 0, "secret") -- before any click: nothing to blame
-		MakeMacro(world, PIRATE, "Illusion")
-		PutOnBar(world, "Illusion", 1)
-		world:PressBar(1)
-		eq(world:LastUsed(), PIRATE)
-		world:Advance(2) -- past the one-second window
-		world:Fire("UI_ERROR_MESSAGE", 0, "secret")
-		world:PressBar(1)
-		eq(#world.used, 2, "picked again")
-		eq(world:LastUsed(), PIRATE)
-		eq(world:LastError(), nil, "no \"No usable toys\"")
 	end)
 
 	it("2. Dress up: a toy on the global cooldown is still picked", function()
@@ -253,31 +264,58 @@ describe("journeys", function()
 		list(UsedToys(world, 1), { PIRATE, ORB })
 	end)
 
-	it("2. Dress up: does nothing in combat", function()
-		local world = World()
-		MakeMacro(world, PIRATE, "Illusion")
-		PutOnBar(world, "Illusion", 1)
-		world:EnterCombat()
-		world:PressBar(1)
-		eq(#world.used, 0, "no toy in combat")
-		world:LeaveCombat()
-		world:PressBar(1)
-		eq(world:LastUsed(), PIRATE, "works again after combat")
-	end)
-
-	it("2. Dress up: a /click without [nocombat] in combat uses the lined-up toy and changes nothing", function()
+	it("2. Dress up: in combat, random toys from those ready when the fight started", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
 		AddTo(world, ORB, "Illusion")
-		-- The player's own macro (or a key binding) clicks the button in combat, when its
-		-- attributes are locked.
-		world.bars[1] = world:CreateMacroInUI("Mine", "/click ClickySet1")
-		local linedUp = world.env.ClickySet1:GetAttribute("toy")
+		AddTo(world, GNOME, "Illusion")
+		AddTo(world, HAT, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		world.toys[HAT].cooldown = 300
 		world:EnterCombat()
-		world:PressBar(1)
-		eq(world:LastUsed(), linedUp, "the toy lined up before combat")
+		world.toys[HAT].cooldown = 0 -- off cooldown mid-fight: waits for the fight to end
+		world.toys[ORB].cooldown = 300 -- on cooldown mid-fight: can still come up
+		list(UsedToys(world, 1, 60), { PIRATE, ORB, GNOME }, "the toys ready when the fight started")
+		eq(#world.used, 60, "a toy every click")
+		for i = 2, #world.used do
+			ok(world.used[i] ~= world.used[i - 1], "repeated " .. world.used[i])
+		end
+		eq(world.env.ClickySet1:GetAttribute("readycount"), 3, "the list it picks from")
 		world:LeaveCombat()
-		list(UsedToys(world, 1), { PIRATE, ORB }, "picks again after combat")
+		world.toys[ORB].cooldown = 0
+		list(UsedToys(world, 1, 60), { PIRATE, ORB, GNOME, HAT }, "after the fight, the toys ready now")
+	end)
+
+	it("2. Dress up: the first click in combat doesn't repeat the last toy used before it", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		for _ = 1, 10 do
+			world:PressBar(1)
+			local before = world:LastUsed()
+			world:EnterCombat()
+			world:PressBar(1)
+			ok(world:LastUsed() ~= before, "repeated " .. before)
+			world:LeaveCombat()
+		end
+	end)
+
+	it("2. Dress up: in combat with nothing ready, the error; out of combat, cooldowns still skipped", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		world.toys[PIRATE].cooldown = 300
+		world.toys[ORB].cooldown = 300
+		world:EnterCombat()
+		world.toys[PIRATE].cooldown = 0
+		world:TakeErrors()
+		world:PressBar(1)
+		eq(#world.used, 0, "nothing was ready when the fight started")
+		list(world:TakeErrors(), { "No usable toys in Illusion." })
+		world:LeaveCombat()
+		list(UsedToys(world, 1), { PIRATE }, "out of combat, the toy on cooldown is skipped")
 	end)
 
 	it("3. Make a macro: a general macro with the toy and its icon, shown expanded", function()
@@ -289,15 +327,18 @@ describe("journeys", function()
 		local macro = world.macros[1]
 		eq(macro.name, "Illusion")
 		eq(macro.icon, 1001, "the toy's icon")
-		ok(macro.body:find("^/click %[nocombat%] ClickySet1\n#clicky "), "its /click line, then its toys: " .. macro.body)
+		eq(macro.body:match("^[^\n]*"), LINE:format(1, 1), "its /click line")
+		ok(macro.body:find("^[^\n]*\n#clicky "), "then its toys: " .. macro.body)
 	end)
 
-	it("3. Make a macro: names are cut to 16 characters, on a character boundary", function()
+	it("3. Make a macro: names are cut to 16 characters, however many bytes they take", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion modification")
 		eq(world.macros[1].name, "Illusion modific")
 		has(PanelTexts(world), "Illusion modific")
-		eq(world.ns.TruncateMacroName("Illusion modifié"), "Illusion modifi", "\"é\" would be bytes 16-17")
+		eq(world.ns.TruncateMacroName("Illusion modifiée"), "Illusion modifié", "\"é\" is bytes 16-17")
+		MakeMacro(world, ORB, "Иллюзия и шляпы!") -- 16 letters, 29 bytes
+		ok(world:FindMacroByName("Иллюзия и шляпы!"), "kept whole")
 	end)
 
 	it("3. Make a macro: an empty or taken name is refused with the reason", function()
@@ -363,26 +404,27 @@ describe("journeys", function()
 
 	it("4. Add toys: a data line goes right after the /click line, keeping the player's lines in order", function()
 		local ns = World().ns
-		eq(ns.SetDataLine("#showtooltip\n/click [nocombat] ClickySet1\n/say hi", "abc"),
-			"#showtooltip\n/click [nocombat] ClickySet1\n#clicky abc\n/say hi")
-		eq(ns.SetDataLine("#showtooltip\n/click [nocombat] ClickySet1\n#clicky old\n/say hi", "abc"),
-			"#showtooltip\n/click [nocombat] ClickySet1\n#clicky abc\n/say hi", "an existing one is replaced in place")
+		eq(ns.SetDataLine("#showtooltip\n/click ClickySet1\n/say hi", "abc"),
+			"#showtooltip\n/click ClickySet1\n#clicky abc\n/say hi")
+		eq(ns.SetDataLine("#showtooltip\n/click ClickySet1\n#clicky old\n/say hi", "abc"),
+			"#showtooltip\n/click ClickySet1\n#clicky abc\n/say hi", "an existing one is replaced in place")
 	end)
 
-	it("4. Add toys: the 150-toy cap fits in one macro while the game has up to 2,900 toys", function()
+	it("4. Add toys: the 150-toy cap fits while the game has up to 2,290 toys", function()
 		local ns = World().ns
 		eq(ns.MACRO_TOY_CAP, 150)
-		eq(ns.TOY_BOUND, 2900)
+		eq(ns.TOY_BOUND, 2290)
 		eq(ns.CATCH_UP_LIMIT, 16)
 		eq(ns.CHECK_COUNT, 16)
 		eq(ns.CHECK_PRIME, 2097143)
 		-- Codec.lua's arithmetic.
-		eq(#ns.ClickLine(150), 30, "the /click line with a three-digit id")
-		local dataChars = ns.MACRO_BODY_LIMIT - 30 - 1 - #"#clicky "
-		eq(dataChars, 216)
-		eq(dataChars * 6, 1296)
-		eq(150 * 5 + math.floor(2750 / 16), 921, "the worst case's positions with Rice parameter 4")
-		ok(6 + 21 + 12 + 16 * 21 + 921 <= 1296, "header, highest, count, check numbers and positions fit")
+		eq(#ns.ClickLine(150), 37, "the /click line with a three-digit id")
+		local bits = (ns.MACRO_BODY_LIMIT - 37 - 1 - #"#clicky ") * 6
+		eq(bits, 1254)
+		local fixed = 6 + 21 + 12 + 16 * 21
+		eq(fixed, 375, "header, highest, count and check numbers")
+		eq(150 * 4 + math.floor((2290 - 150) / 8), 867, "the worst case with Rice parameter 3")
+		ok(fixed + 867 + 12 <= bits, "fits, with the checksum")
 		-- The longest check numbers there are, so nothing depends on their values.
 		local checks = {}
 		for j = 1, 16 do checks[j] = ns.CHECK_PRIME - 1 end
@@ -409,7 +451,6 @@ describe("journeys", function()
 		for k = 0, ns.MACRO_TOY_CAP do
 			ok(Longest(ns.TOY_BOUND, k) <= ns.MACRO_BODY_LIMIT, k .. " toys")
 		end
-		ok(Longest(ns.TOY_BOUND, 151) > ns.MACRO_BODY_LIMIT, "the cap is what fits")
 	end)
 
 	it("4. Add toys: the toys read back exactly, whatever the collection", function()
@@ -419,11 +460,11 @@ describe("journeys", function()
 			local owned = math.random(1, 4095)
 			local highest = math.random(1, ns.CHECK_PRIME - 1)
 			local k = math.random(0, math.min(ns.MACRO_TOY_CAP, owned))
-			local pick, positions = {}, {}
+			local chosen, positions = {}, {}
 			while #positions < k do
 				local p = math.random(0, owned - 1)
-				if not pick[p] then
-					pick[p] = true
+				if not chosen[p] then
+					chosen[p] = true
 					positions[#positions + 1] = p
 				end
 			end
@@ -439,12 +480,17 @@ describe("journeys", function()
 		local zeros = {}
 		for j = 1, 16 do zeros[j] = 0 end
 		local good = ns.EncodeToys(300, 6, zeros, { 0, 1 })
-		eq(#good, 63, "the header character, 62 characters of highest, count and check numbers, then the toys")
+		eq(#good, 65, "the header character, 62 characters of highest, count, check numbers and toys, then the checksum")
 		list({ ns.DecodeToys(good:sub(1, 62)) }, { nil, "damaged" }, "too short")
+		for i = 2, #good do
+			-- Any one character typed differently, as a hand edit in /macro might: never other toys.
+			local c = good:sub(i, i) == "A" and "B" or "A"
+			list({ ns.DecodeToys(good:sub(1, i - 1) .. c .. good:sub(i + 1)) }, { nil, "damaged" }, "character " .. i .. " changed")
+		end
 		list({ ns.DecodeToys(good:sub(1, 30) .. "|" .. good:sub(32)) }, { nil, "damaged" }, "not the alphabet")
-		list({ ns.DecodeToys("g" .. good:sub(2)) }, { nil, "newer" }, "a newer format")
-		list({ ns.DecodeToys("I" .. good:sub(2)) }, { nil, "damaged" }, "an unreleased build's format")
-		list({ ns.DecodeToys("Q" .. good:sub(2)) }, { nil, "damaged" }, "the other unreleased format")
+		list({ ns.DecodeToys("w" .. good:sub(2)) }, { nil, "newer" }, "a newer format")
+		list({ ns.DecodeToys("I" .. good:sub(2)) }, { nil, "damaged" }, "format 1, a development build's")
+		list({ ns.DecodeToys("Q" .. good:sub(2)) }, { nil, "damaged" }, "format 2, a development build's")
 		list({ ns.DecodeToys(ns.EncodeToys(300, 2, zeros, { 0, 5 })) }, { nil, "damaged" }, "a position past the count")
 		local tooBig = { 2 ^ 21 - 1 }
 		for j = 2, 16 do tooBig[j] = 0 end
@@ -456,7 +502,7 @@ describe("journeys", function()
 	it("10. A patch adds toys: the toys added since are worked out exactly, or not at all", function()
 		local ns = World().ns
 		math.randomseed(11)
-		-- Item IDs like the game's (toys go up to about 286,660).
+		-- Item IDs spread like the game's.
 		local pool, seen = {}, {}
 		while #pool < 3017 do
 			local id = math.random(1, 286660)
@@ -509,7 +555,7 @@ describe("journeys", function()
 		eq(ns.FindLearned(before, ns.CheckNumbers(before), 117, ns.CheckNumbers(now)), nil, "fewer toys than before")
 	end)
 
-	it("13. A patch takes toys out: one or two are worked out exactly, more are refused", function()
+	it("13. A patch takes toys out: up to 16 are worked out exactly, more are refused", function()
 		local ns = World().ns
 		math.randomseed(12)
 		local pool, seen = {}, {}
@@ -532,18 +578,21 @@ describe("journeys", function()
 			for i = n - m + 1, n do gone[#gone + 1] = pool[i] end
 			return before, now, gone
 		end
-		for _ = 1, 200 do
-			local before, now, gone = Case(math.random(20, 1200), math.random(1, 2))
-			local found = assert(ns.FindRemoved(now, ns.CheckNumbers(now), #before, ns.CheckNumbers(before)))
-			list(Sorted(found), Sorted(gone), "one or two solved for directly")
+		local function Highest(t)
+			return math.max(unpack(t))
 		end
-		local before, now = Case(500, 3)
-		eq(ns.FindRemoved(now, ns.CheckNumbers(now), 500, ns.CheckNumbers(before)), nil, "three is too many")
-		for _ = 1, 100 do
+		for m = 1, 16 do
+			local before, now, gone = Case(math.random(20, 1200), m)
+			local found = assert(ns.FindRemoved(now, ns.CheckNumbers(now), #before, ns.CheckNumbers(before), Highest(before)))
+			list(Sorted(found), Sorted(gone), m .. " gone")
+		end
+		local before, now = Case(500, 17)
+		eq(ns.FindRemoved(now, ns.CheckNumbers(now), 500, ns.CheckNumbers(before), Highest(before)), nil, "17 is too many")
+		for _ = 1, 10 do
 			-- Gone and added since: refused, never other toys.
 			local b, n = Case(math.random(20, 1200), 2)
 			n[#n + 1] = pool[1250]
-			eq(ns.FindRemoved(n, ns.CheckNumbers(n), #b, ns.CheckNumbers(b)), nil, "never other toys")
+			eq(ns.FindRemoved(n, ns.CheckNumbers(n), #b, ns.CheckNumbers(b), Highest(b)), nil, "never other toys")
 		end
 	end)
 
@@ -564,14 +613,14 @@ describe("journeys", function()
 	it("5. See a macro: macros start closed each session", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
-		list(PanelTexts(NextLogin(world, { saved = world:Saved() })), { "Favorites", "Illusion" })
+		list(PanelTexts(NextLogin(world)), { "Favorites", "Illusion" })
 	end)
 
 	it("5. See a macro: a macro that gets a deleted macro's id starts closed", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion") -- id 1, open when made
 		MakeMacro(world, HAT, "Hats")
-		world.env.DeleteMacro(1)
+		world.env.DeleteMacro(Macro(world, "Illusion").index)
 		world:CreateMacroInUI("Hats 2", world:FindMacroByName("Hats").body)
 		ok(world:FindMacroByName("Hats 2").body:find("ClickySet1%f[%D]"), "the copy took id 1")
 		list(PanelTexts(world), { "Favorites", "Hats", "  Pirate Hat", "Hats 2" })
@@ -582,7 +631,7 @@ describe("journeys", function()
 		world.ns.expanded[0] = true
 		world.env.C_ToyBox.SetIsFavorite(PIRATE, true)
 		list(PanelTexts(world), { "Favorites", "  Fairy Wings", "  Pirate's Costume", "  Treasure Chest",
-			"Right-click a toy, then Add to new macro..." })
+			"Right-click a toy to make one." })
 	end)
 
 	it("5. See a macro: an open macro with no toys says how to add them", function()
@@ -592,8 +641,8 @@ describe("journeys", function()
 		world.env.C_ToyBox.SetIsFavorite(WINGS, false)
 		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
 		world.ns.expanded[0] = true
-		list(PanelTexts(world), { "Favorites", "Star toys in the Toy Box to add them.", "Illusion",
-			"Right-click toys in the Toy Box to add them." })
+		list(PanelTexts(world), { "Favorites", "Star toys to add them.", "Illusion",
+			"Right-click toys to add them." })
 	end)
 
 	it("6. Remove a toy: other macros keep it", function()
@@ -622,8 +671,8 @@ describe("journeys", function()
 		PutOnBar(world, "Favorites", 1)
 		PutOnBar(world, "Favorites", 2)
 		eq(#world.macros, 1, "made once")
-		eq(world.macros[1].name, "Clicky")
-		eq(world.macros[1].body, "/click [nocombat] ClickyButton")
+		eq(world.macros[1].name, "Favorites")
+		eq(world.macros[1].body, FAVORITES_LINE)
 		world:PressBar(1)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "used a favorite")
 
@@ -635,34 +684,53 @@ describe("journeys", function()
 		list(full:TakeErrors(), { FULL })
 	end)
 
-	it("7. Put a macro on a bar: Favorites uses the existing Clicky macro", function()
-		local world = World({ macros = { { name = "Clicky", icon = "x", body = "/click [nocombat] ClickyButton" } } })
+	it("7. Put a macro on a bar: clicking a macro with no toys says how to add some", function()
+		local world = World()
+		world.env.C_ToyBox.SetIsFavorite(WINGS, false)
+		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
 		PutOnBar(world, "Favorites", 1)
+		local m = MakeMacro(world, PIRATE, "Illusion")
+		assert(world.ns.SetToy(m, PIRATE, false))
+		PutOnBar(world, "Illusion", 2)
+		world:TakeErrors()
+		world:PressBar(1)
+		world:PressBar(2)
+		list(world:TakeErrors(), { "Favorites has no toys. Star toys in the Toy Box to add them.",
+			"Illusion has no toys. Right-click toys in the Toy Box to add them." })
+	end)
+
+	it("7. Put a macro on a bar: Favorites uses its existing macro, whatever it's called", function()
+		local world = World({ macros = { { name = "Stars", icon = "x", body = "#showtooltip\n" .. FAVORITES_LINE } } })
+		eq(PanelRow(world, "Stars").macro, world.ns.favorites, "Favorites, by its macro's name")
+		PutOnBar(world, "Stars", 1)
 		eq(#world.macros, 1, "no second macro")
 		world:PressBar(1)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "used a favorite")
 	end)
 
-	it("7. Put a macro on a bar: a macro named Clicky doesn't take over Favorites", function()
-		local world = World()
+	it("7. Put a macro on a bar: a player's macro named Favorites isn't Favorites'", function()
+		local world = World({ macros = { { name = "Favorites", icon = "x", body = "/say hi" } } })
 		MakeMacro(world, PIRATE, "Clicky")
 		PutOnBar(world, "Clicky", 1)
 		PutOnBar(world, "Favorites", 2)
-		eq(#world.macros, 2, "Favorites gets its own macro")
+		eq(#world.macros, 3, "Favorites gets its own macro")
+		local bodies = {}
+		for _, macro in ipairs(world.macros) do bodies[#bodies + 1] = macro.body end
+		has(bodies, "/say hi", "the player's macro is untouched")
 		world:PressBar(2)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "the Favorites button uses a favorite")
 		world:PressBar(1)
 		eq(world:LastUsed(), PIRATE)
 	end)
 
-	it("7. Put a macro on a bar: a player's macro with more than Favorites' line isn't Favorites'", function()
-		local mine = "/click [nocombat] ClickyButton\n/say Party time!"
+	it("7. Put a macro on a bar: a player's macro clicking ClickyButton another way isn't Favorites'", function()
+		local mine = "/click ClickyButton\n/say Party time!"
 		local world = World({ macros = { { name = "Party", icon = "x", body = mine } } })
 		world.ns.PickupMacro(world.ns.favorites)
 		eq(#world.macros, 2, "Favorites gets its own macro")
-		eq(world.cursor, world.macros[2])
-		eq(world.macros[2].body, "/click [nocombat] ClickyButton")
-		eq(world.macros[1].body, mine, "the player's macro is untouched")
+		eq(world.cursor, world:FindMacroByName("Favorites"))
+		eq(world.cursor.body, FAVORITES_LINE)
+		eq(world:FindMacroByName("Party").body, mine, "the player's macro is untouched")
 	end)
 
 	it("8. Rename: the bar button keeps working; a taken name is refused", function()
@@ -671,7 +739,7 @@ describe("journeys", function()
 		MakeMacro(world, HAT, "Hats")
 		PutOnBar(world, "Ilusion", 1)
 		assert(world.ns.RenameMacro(Macro(world, "Ilusion"), "Illusion"))
-		eq(world.macros[1].name, "Illusion", "the macro is renamed")
+		ok(world:FindMacroByName("Illusion"), "the macro is renamed")
 		has(PanelTexts(world), "Illusion")
 		world:PressBar(1)
 		eq(world:LastUsed(), PIRATE)
@@ -681,10 +749,14 @@ describe("journeys", function()
 	it("8. Delete: removes the macro and empties its button", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
+		world:Advance(1)
+		eq(world.ns.GetDrawer(1).count, 1)
 		assert(world.ns.DeleteMacro(Macro(world, "Illusion")))
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, then Add to new macro..." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy to make one." })
 		eq(#world.macros, 0, "the macro is gone")
 		eq(world.env.ClickySet1:GetAttribute("type"), nil, "its button is emptied")
+		world.env.ClickyP1:Click("LeftButton", false) -- a copy left in character macros
+		ok(not world.ns.GetDrawer(1).frame:IsShown(), "and its drawer")
 	end)
 
 	it("8. Delete: never touches a macro the player wrote", function()
@@ -709,7 +781,7 @@ describe("journeys", function()
 		ok(world.macros[1].body:find("^#showtooltip\n/click"), "the player's own lines are kept")
 		eq(#UsedToys(world, 1), 2, "and it still works")
 		world.env.DeleteMacro(1)
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, then Add to new macro..." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy to make one." })
 	end)
 
 	it("8. Upkeep: every macro change is refused in combat", function()
@@ -723,7 +795,7 @@ describe("journeys", function()
 		list({ world.ns.DeleteMacro(m) }, { nil, COMBAT }, "delete")
 		world:TakeErrors()
 		world.ns.PickupMacro(m)
-		list(world:TakeErrors(), { COMBAT }, "pick up")
+		list(world:TakeErrors(), { "Can't drag macros in combat." }, "pick up")
 		eq(world.cursor, nil)
 		world:LeaveCombat()
 		eq(#world.macros, 1)
@@ -740,7 +812,7 @@ describe("journeys", function()
 		list(UsedToys(laptop, 1), { PIRATE, GNOME }, "the bar button uses its toys")
 		list(PanelToys(laptop, "Illusion"), { "Gnomish Gravity Well", "Pirate's Costume" })
 		AddTo(laptop, ORB, "Illusion")
-		local back = NextLogin(laptop, { saved = desktop:Saved() })
+		local back = NextLogin(laptop)
 		list(UsedToys(back, 1), { PIRATE, ORB, GNOME }, "changes made on the laptop come back")
 	end)
 
@@ -768,7 +840,7 @@ describe("journeys", function()
 		world:LearnToy({ id = NEW_TOY, name = "Wand" })
 		eq(world.macros[1].body, before, "learning a toy changes nothing")
 		list(UsedToys(world, 1), { PIRATE, HAT })
-		-- A toy learned while Clicky isn't running changes nothing either.
+		-- The collection changing while Clicky isn't running changes nothing either.
 		world.toys[ORB].owned = false
 		local laptop = NextLogin(world)
 		list(UsedToys(laptop, 1), { PIRATE, HAT }, "another computer reads it")
@@ -839,8 +911,8 @@ describe("journeys", function()
 		list(UsedToys(NextLogin(world), 1), { PIRATE, HAT }, "back when it's owned again")
 	end)
 
-	it("13. A patch takes one or two toys out of the game: macros keep working without them", function()
-		for _, gone in ipairs({ { HAT }, { HAT, GNOME } }) do
+	it("13. A patch takes toys out of the game: macros keep working without them", function()
+		for _, gone in ipairs({ { HAT }, { HAT, GNOME }, { HAT, GNOME, ORB } }) do
 			local world = World()
 			MakeMacro(world, PIRATE, "Illusion")
 			AddTo(world, HAT, "Illusion")
@@ -856,12 +928,14 @@ describe("journeys", function()
 		end
 	end)
 
-	it("13. A patch takes three toys out of the game: a macro saved before can't be read", function()
-		local world = World()
+	it("13. A patch takes more than 16 toys out of the game: a macro saved before can't be read", function()
+		local toys = Toys()
+		for i = 1, 17 do toys[#toys + 1] = { id = 1000 + i, name = "Old " .. i, owned = false } end
+		local world = World({ toys = toys })
 		MakeMacro(world, PIRATE, "Illusion")
 		AddTo(world, HAT, "Illusion")
 		PutOnBar(world, "Illusion", 1)
-		for _, id in ipairs({ ORB, GNOME, WINGS }) do world:RemoveToyFromGame(id) end
+		for i = 1, 17 do world:RemoveToyFromGame(1000 + i) end
 		ExpectUnreadable(NextLogin(world), "Illusion", UNREADABLE, 1)
 	end)
 
@@ -878,7 +952,7 @@ describe("journeys", function()
 		world:PressBar(2)
 		eq(#world.used, 0, "a cut-off line loads nothing either")
 		assert(ns.RenameMacro(Macro(world, "Broken"), "Fixed later"))
-		eq(world.macros[1].name, "Fixed later", "it can be renamed")
+		ok(world:FindMacroByName("Fixed later"), "it can be renamed")
 		assert(ns.DeleteMacro(Macro(world, "Fixed later")))
 		eq(#world.macros, 1, "it can be deleted")
 	end)
@@ -888,16 +962,16 @@ describe("journeys", function()
 		local ns = world.ns
 		local toyList = ns.GetToyList()
 		local data = ns.EncodeToys(toyList.highest, #toyList.ids, toyList.checks, { 0 })
-		world:CreateMacroInUI("Future", ns.NewBody(4, "g" .. data:sub(2)))
+		world:CreateMacroInUI("Future", ns.NewBody(4, "w" .. data:sub(2)))
 		ExpectUnreadable(world, "Future", NEWER)
 	end)
 
 	it("11. Can't be read: a macro the player breaks in /macro can't be changed", function()
 		local world = World()
 		local m = MakeMacro(world, PIRATE, "Illusion")
-		world:EditMacroInUI(1, nil, "/click [nocombat] ClickySet1\n#clicky broken")
+		world:EditMacroInUI(1, nil, "/click ClickySet1\n#clicky broken")
 		list({ world.ns.SetToy(m, ORB, true) }, { nil, UNREADABLE })
-		eq(world.macros[1].body, "/click [nocombat] ClickySet1\n#clicky broken", "left as it is")
+		eq(world.macros[1].body, "/click ClickySet1\n#clicky broken", "left as it is")
 	end)
 
 	it("12. Copy a macro: pasted on another account, it works there too", function()
@@ -908,6 +982,15 @@ describe("journeys", function()
 		other.toys[ORB].owned = false
 		other.bars[1] = other:CreateMacroInUI("Pasted", desktop.macros[1].body)
 		list(UsedToys(other, 1), { PIRATE }, "the toys this account owns")
+		list(PanelToys(other, "Pasted"), { "Orb of Deception", "Pirate's Costume" }, "every toy in it, owned or not")
+		for _, row in ipairs(other.ns.PanelRows()) do
+			if row.itemID then eq(row.owned, row.itemID == PIRATE, "only the owned toy looks owned") end
+		end
+		eq(PanelRow(other, "Pasted").count, 2)
+		other:Advance(1) -- drawers are filled a few at a time
+		list(DrawerToys(other, "Pasted"), { PIRATE }, "the drawer has only toys it can use")
+		has(MenuLabels(other, ORB), "Remove from Pasted", "an unowned toy can still be taken out")
+		assert(other.ns.SetToy(Macro(other, "Pasted"), ORB, false))
 		list(PanelToys(other, "Pasted"), { "Pirate's Costume" })
 	end)
 
@@ -916,13 +999,25 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		AddTo(world, ORB, "Illusion")
 		PutOnBar(world, "Illusion", 1)
-		world.bars[2] = world:CreateMacroInUI("Illusion 2", world.macros[1].body)
-		ok(world.macros[2].body:find("ClickySet2"), "the copy clicks a button of its own: " .. world.macros[2].body)
-		ok(world.macros[1].body:find("ClickySet1%f[%D]"), "the original keeps its /click line")
+		-- Named so it's listed before the original: general macros are sorted by name.
+		world.bars[2] = world:CreateMacroInUI("Costumes", world.macros[1].body)
+		local copy, original = world:FindMacroByName("Costumes"), world:FindMacroByName("Illusion")
+		ok(copy.body:find("ClickySet2"), "the copy clicks a button of its own: " .. copy.body)
+		ok(original.body:find("ClickySet1%f[%D]"), "the original keeps its /click line")
 		list(UsedToys(world, 2), { PIRATE, ORB }, "the copy has the same toys")
-		assert(world.ns.SetToy(Macro(world, "Illusion 2"), ORB, false))
+		assert(world.ns.SetToy(Macro(world, "Costumes"), ORB, false))
 		list(UsedToys(world, 2), { PIRATE })
 		list(UsedToys(world, 1), { PIRATE, ORB }, "the original is unchanged")
+	end)
+
+	it("7. Put a macro on a bar: the player's own macro can /click a Clicky macro's button", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		-- A macro of the player's own: a random Illusion toy, then a spell.
+		world.bars[2] = world:CreateMacroInUI("Disguise", "/click ClickySet1\n/cast Fireball")
+		list(UsedToys(world, 2), { PIRATE, ORB }, "a random toy from Illusion")
+		eq(#world.ns.GetMacros(), 2, "Favorites and Illusion: the player's macro isn't a Clicky macro")
 	end)
 
 	it("12. Copy a macro: a copy in character macros isn't read; it clicks the original's button", function()
@@ -946,7 +1041,7 @@ describe("journeys", function()
 		local copy = world.macros[1].body
 		world:CreateMacroInUI("M1 copy", copy)
 		world:Slash("/clicky debug")
-		local message = "|cff33ff99Clicky|r: M1 copy clicks the same button as another macro and couldn't get its own. "
+		local message = "|cff33ff99Clicky|r: M1 copy is a copy of another Clicky macro and couldn't be separated from it. "
 			.. "That macro is too long to update. Remove your own lines from it in /macro."
 		local times = 0
 		for _, line in ipairs(world.prints) do
@@ -957,14 +1052,16 @@ describe("journeys", function()
 		eq(world:FindMacroByName("M1 copy").body, copy, "left as it is")
 	end)
 
-	it("12. Copy a macro: a re-save and a copy made in combat wait for combat to end", function()
+	it("12. Copy a macro: logging in during combat, a re-save and a copy wait for combat to end", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
 		PutOnBar(world, "Illusion", 1)
 		PatchAdds(world, { 400 }) -- after its toys: it reads, then is re-saved for the new list
+		local before = world.macros[1].body
+		-- Copied where Clicky wasn't running.
+		table.insert(world.account.macros, { name = "Illusion 2", body = before })
 		local later = NextLogin(world, { combat = true })
-		local before = later.macros[1].body
-		later.bars[2] = later:CreateMacroInUI("Illusion 2", before)
+		later.bars[2] = later.macros[2]
 		later:Slash("/clicky debug")
 		has(later.prints, "|cff33ff99Clicky|r: waiting: buttons to make: 2, copies to separate: 1, macros to re-save: 1")
 		eq(later.macros[1].body, before, "nothing written in combat")
@@ -981,73 +1078,130 @@ describe("journeys", function()
 		has(later.prints, "|cff33ff99Clicky|r: waiting: nothing")
 	end)
 
-	-- Every format Clicky has ever written into a player's macros, exactly as written. Macros
-	-- live in players' games, so each must keep reading as it did; a new format version needs a
-	-- sample here before this test passes.
+	-- The format Clicky writes into players' macros, exactly as written. Macros live in players'
+	-- games, so it must keep reading as it did; a new format version needs a sample here before
+	-- this test passes.
 	local WRITTEN_FORMATS = {
-		-- Format 2 (owned-toy positions), from a real macro: 17 toys, 801 owned when saved.
-		[2] = { data = "VMhdL+KjPj1LMuzFu5uxoPoDjB0KLAmpJpdBLlTQMp0+Y5c+G4JPocUlgq7//aAWAHFARPXj4VwPCPH",
-			count = 801, positions = { 410, 411, 434, 435, 443, 449, 450, 468, 484, 508, 548, 615, 676, 680, 747, 763, 771 } },
-		-- Format 3: Pirate's Costume and Pirate Hat out of the test's six toys, up to item 300.
-		[3] = { data = "YAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf",
+		-- Format 4: Pirate's Costume and Pirate Hat out of the test's six toys, up to item 300.
+		[4] = { data = "gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c",
 			highest = 300, count = 6, positions = { 0, 3 } },
 	}
 
-	it("Saved macros: every format Clicky has written still reads exactly as it did", function()
+	it("Saved macros: every format Clicky writes still reads exactly as it did", function()
 		local ns = World().ns
-		local newest = 0
+		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+		local function Version(data) return math.floor((alphabet:find(data:sub(1, 1), 1, true) - 1) / 8) end
 		for version, sample in pairs(WRITTEN_FORMATS) do
 			local d = assert(ns.DecodeToys(sample.data), "format " .. version .. " no longer reads")
 			eq(d.count, sample.count, "format " .. version)
 			eq(d.highest, sample.highest, "format " .. version)
 			list(d.positions, sample.positions, "format " .. version)
-			newest = math.max(newest, version)
 		end
-		local current = ns.EncodeToys(300, 6, ns.CheckNumbers({ 1 }), {})
-		local version = math.floor((("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"):find(current:sub(1, 1), 1, true) - 1) / 8)
-		eq(newest, version, "the format Clicky writes now has a sample here")
+		ok(WRITTEN_FORMATS[Version(ns.EncodeToys(300, 6, ns.CheckNumbers({ 1 }), { 0 }))], "the format written has a sample here")
+		list({ ns.DecodeToys("w" .. WRITTEN_FORMATS[4].data:sub(2)) }, { nil, "newer" }, "a newer format")
+		-- Format 3 (written by 0.3.0-alpha1) had no checksum, so it could be edited into other toys.
+		list({ ns.DecodeToys("YAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf") }, { nil, "damaged" },
+			"format 3 reads as damaged")
 	end)
 
-	-- A development build saved macros as format 2: positions among the player's own toys.
-	local function LegacyBody(world, id, toys)
-		local ns = world.ns
-		local owned = {}
-		for _, t in ipairs(Toys()) do
-			if world.toys[t.id] and world.toys[t.id].owned then owned[#owned + 1] = t.id end
-		end
-		table.sort(owned)
-		local positions = {}
-		for i, itemID in ipairs(owned) do
-			for _, wanted in ipairs(toys) do
-				if itemID == wanted then positions[#positions + 1] = i - 1 end
-			end
-		end
-		return ns.NewBody(id, ns.EncodeLegacyToys(#owned, ns.CheckNumbers(owned), positions))
-	end
-
-	it("Upgrade: a macro saved by the earlier build is read and re-saved", function()
+	it("14. Use the drawer: right-click opens it; clicking a toy uses it, and saves nothing", function()
 		local world = World()
-		local legacy = LegacyBody(world, 1, { PIRATE, HAT })
-		world.bars[1] = world:CreateMacroInUI("Hearthstone", legacy)
-		list(UsedToys(world, 1), { PIRATE, HAT })
-		ok(world.macros[1].body ~= legacy, "re-saved in the current format")
-		list(UsedToys(NextLogin(world), 1), { PIRATE, HAT }, "and read as that from then on")
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		AddTo(world, HAT, "Illusion")
+		world.toys[HAT].owned = false
+		PutOnBar(world, "Illusion", 1)
+		local body = world.macros[1].body
+		world:PressBar(1, "RightButton")
+		ok(DrawerOpen(world, "Illusion"), "the drawer opened")
+		list(DrawerToys(world, "Illusion"), { ORB, PIRATE }, "the owned toys, in the panel's order")
+		ClickInDrawer(world, "Illusion", ORB)
+		eq(world:LastUsed(), ORB, "used at once")
+		ok(not DrawerOpen(world, "Illusion"), "and the drawer closed")
+		eq(world.macros[1].body, body, "nothing saved")
+		world:EnterCombat()
+		world:PressBar(1, "RightButton")
+		ClickInDrawer(world, "Illusion", ORB)
+		eq(world:LastUsed(), ORB, "in combat too")
+		world:LeaveCombat()
+		eq(world.macros[1].body, body)
 	end)
 
-	it("Upgrade: an earlier build's macro waits for the player's toys to load", function()
+	it("14. Favorites' drawer: the starred toys; clicking one uses it", function()
 		local world = World()
-		local legacy = LegacyBody(world, 1, { PIRATE, HAT })
-		local later = NextLogin(world, { toysLoading = true })
-		later.bars[1] = later:CreateMacroInUI("Hearthstone", legacy)
-		eq(PanelRow(later, "Hearthstone").count, "?", "not read against a half-loaded collection")
-		later:LoadToys()
-		list(UsedToys(later, 1), { PIRATE, HAT }, "read once the toys have loaded")
+		PutOnBar(world, "Favorites", 1)
+		eq(world.macros[1].body, FAVORITES_LINE)
+		world:PressBar(1, "RightButton")
+		list(DrawerToys(world, "Favorites"), { WINGS, CHEST }, "Fairy Wings, Treasure Chest")
+		ClickInDrawer(world, "Favorites", CHEST)
+		eq(world:LastUsed(), CHEST)
+		eq(world.macros[1].body, FAVORITES_LINE, "nothing saved")
+	end)
+
+	it("14. Drawers: every button and opener exists after login; drawers fill a few at a time, or when combat starts", function()
+		local desktop = World()
+		MakeMacro(desktop, PIRATE, "Illusion")
+		AddTo(desktop, ORB, "Illusion")
+		PutOnBar(desktop, "Illusion", 1)
+		PutOnBar(desktop, "Favorites", 2)
+		local later = NextLogin(desktop)
+		ok(later.env.ClickyP1 and later.env.ClickyP0, "the openers exist")
+		eq(later.ns.GetDrawer(1).count, 0, "not filled yet")
+		later:Advance(1)
+		eq(later.ns.GetDrawer(1).count, 2, "filled soon after login")
+		eq(later.ns.GetDrawer(0).count, 2)
+		local fight = NextLogin(desktop)
+		fight:EnterCombat()
+		fight:PressBar(1, "RightButton")
+		ok(DrawerOpen(fight, "Illusion"), "opens in combat straight after login")
+		list(DrawerToys(fight, "Illusion"), { ORB, PIRATE }, "filled when combat started")
+	end)
+
+	it("14. Drawers: Escape closes an open drawer, in combat too, and leaves no key binding behind", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		list(world:OverrideKeys(), {}, "no binding while it's closed")
+		world:PressBar(1, "RightButton")
+		list(world:OverrideKeys(), { "ESCAPE" }, "Escape is bound while it's open")
+		ok(world:PressKey("ESCAPE"), "Escape goes to the drawer")
+		ok(not DrawerOpen(world, "Illusion"), "Escape closed it")
+		list(world:OverrideKeys(), {}, "the binding is gone")
+		world:EnterCombat()
+		world:PressBar(1, "RightButton")
+		ok(world:PressKey("ESCAPE"))
+		ok(not DrawerOpen(world, "Illusion"), "in combat too")
+		world:PressBar(1, "RightButton")
+		ClickInDrawer(world, "Illusion", ORB)
+		list(world:OverrideKeys(), {}, "closing it any other way clears it too")
+		world:PressBar(1, "RightButton")
+		world:MouseAway()
+		list(world:OverrideKeys(), {}, "and when it hides by itself")
+	end)
+
+	it("8. Rename or delete: Favorites' macro like any other; it's found by its line", function()
+		local world = World()
+		PutOnBar(world, "Favorites", 1)
+		assert(world.ns.RenameMacro(world.ns.favorites, "Stars"))
+		eq(world.macros[1].name, "Stars", "renamed")
+		eq(world.ns.PanelRows()[1].macro.name, "Stars", "still first in the panel")
+		world:PressBar(1)
+		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "still works on the bar")
+		list({ world.ns.MakeMacro("stars", PIRATE) }, { nil, "There's already a macro called Stars." })
+		assert(world.ns.DeleteMacro(world.ns.favorites))
+		eq(#world.macros, 0, "deleted")
+		eq(world.ns.PanelRows()[1].macro, world.ns.favorites, "Favorites stays in the panel")
+		PutOnBar(world, "Stars", 2)
+		eq(#world.macros, 1, "made again when dragged")
+		eq(world.macros[1].body, FAVORITES_LINE)
 	end)
 
 	it("Debugging: /clicky status and debug report on macros", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
-		world:CreateMacroInUI("Broken", "/click [nocombat] ClickySet4\n#clicky broken")
+		world:CreateMacroInUI("Broken", "/click ClickySet4\n#clicky broken")
+		world:Advance(1) -- drawers are filled a few at a time after login
 		world:Slash("/clicky status")
 		has(world.prints, "|cff33ff99Clicky|r: 6 toys owned.")
 		has(world.prints, "|cff33ff99Clicky|r: Broken: " .. UNREADABLE)
@@ -1055,34 +1209,19 @@ describe("journeys", function()
 		local all = table.concat(world.prints, "\n")
 		ok(all:find("toy list: 6 toys %(game counts 6%), highest item 300, probed item IDs 1%-50300"), all)
 		ok(all:find("ms, owned: 6"), all)
-		ok(all:find("holds up to 150 toys and catches up on up to 16 added %(guaranteed while the game has up to 2900 toys%)"), all)
+		ok(all:find("a macro holds up to 150 toys and catches up on up to 16 toys added or taken out\n"), all)
 		ok(all:find("Illusion %(ClickySet1%).-state ready, data %d+ chars saved for 6 toys up to item 300"), all)
 		ok(all:find("state unreadable %(damaged%)"), all)
+		ok(all:find("Illusion %(ClickySet1%).-ready for combat nil, drawer 1 toys"), all)
+		ok(all:find("Favorites %(ClickyButton%).-ready for combat nil, drawer 2 toys, .-macro: none, state ready"), all)
 	end)
 
-	it("Saved data: older data is brought up to date; data from a newer Clicky is left as it is", function()
-		local ns = World().ns
-		local db = { toys = { [PIRATE] = true } }
-		for version = 1, ns.DB_VERSION do ns.migrations[version](db) end
-		eq(db.toys, nil, "the migrations themselves")
-		local unversioned = World({ saved = { toys = { [PIRATE] = true } } })
-		eq(unversioned:Saved().version, unversioned.ns.DB_VERSION)
-		eq(unversioned:Saved().toys, nil)
-		local one = World({ saved = { version = 1, toys = { [PIRATE] = true } } })
-		eq(one:Saved().version, one.ns.DB_VERSION)
-		eq(one:Saved().toys, nil, "the known-toys cache is gone")
-		local newer = World({ saved = { version = 99, toys = { [PIRATE] = true } } })
-		eq(newer:Saved().version, 99)
-		list(newer:Saved().toys, { [PIRATE] = true })
-	end)
-
-	-- The Toy Box filters are the player's own saved settings: an earlier Clicky widened and
-	-- restored them, and a bad restore left a player's Toy Box empty even with Clicky disabled.
+	-- The Toy Box filters are the player's own saved settings: changing them outlives the addon.
 	it("Never changes the player's settings: the code calls no setting-changing function", function()
 		local forbidden = { "SetCollectedShown", "SetUncollectedShown", "SetUnusableShown",
 			"SetSourceTypeFilter", "SetExpansionTypeFilter", "SetAllSourceTypeFilters",
 			"SetAllExpansionTypeFilters", "SetFilterString", "ForceToyRefilter", "SetDefaultFilters",
-			"SetCVar", "ConsoleExec" }
+			"SetCVar", "ConsoleExec", "SaveBindings", "SetBinding(" }
 		local toc = assert(io.open("Clicky.toc"))
 		local files = {}
 		for line in toc:lines() do
@@ -1099,4 +1238,147 @@ describe("journeys", function()
 			end
 		end
 	end)
+
+	-- Runs fn, failing instead of hanging if it never returns (count hooks need the interpreter).
+	local function Finishes(fn, what)
+		require("jit").off()
+		local steps = 0
+		debug.sethook(function()
+			steps = steps + 1
+			if steps > 2000 then error("never finished: " .. what, 2) end
+		end, "", 100000)
+		local result = { pcall(fn) }
+		debug.sethook()
+		require("jit").on()
+		assert(result[1], result[2])
+		return unpack(result, 2)
+	end
+
+	-- The ClickySet ids the account's general macros click, in order.
+	local function SetIDs(world)
+		local ids = {}
+		for _, macro in ipairs(world.macros) do
+			ids[#ids + 1] = tonumber(macro.body:match("ClickySet(%d+)")) or -1
+		end
+		return ids
+	end
+
+	it("12. Copy a macro: a copy made where Clicky wasn't running gets its own button at the next login", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		-- Copied in /macro on a computer without Clicky (or with it disabled): WoW saves it to
+		-- the account as it is.
+		table.insert(world.account.macros, { name = "Illusion 2", body = world.macros[1].body })
+		local later = Finishes(function() return NextLogin(world) end, "logging in")
+		list(SetIDs(later), { 1, 2 }, "each macro clicks its own button")
+	end)
+
+	it("12. Copy a macro: two copies arriving at login each get their own button", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		table.insert(world.account.macros, { name = "Illusion 2", body = world.macros[1].body })
+		table.insert(world.account.macros, { name = "Illusion 3", body = world.macros[1].body })
+		local later = Finishes(function() return NextLogin(world) end, "logging in")
+		list(SetIDs(later), { 1, 2, 3 }, "each macro clicks its own button")
+	end)
+
+	it("12. Copy a macro: a copy whose /click line writes the id with a leading zero doesn't hang the game", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		local body = world.macros[1].body:gsub("ClickySet1", "ClickySet01")
+		Finishes(function() world:CreateMacroInUI("Zed", body) end, "pasting the macro")
+		list(SetIDs(world), { 1, 2 }, "each macro clicks its own button")
+	end)
+
+	it("12. Copy a macro: copies arriving at login don't take an id another macro clicks", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		MakeMacro(world, ORB, "Orb")
+		table.insert(world.account.macros, { name = "Orb 2", body = world.macros[2].body })
+		local later = Finishes(function() return NextLogin(world) end, "logging in")
+		list(SetIDs(later), { 1, 2, 3 }, "each macro clicks its own button")
+	end)
+
+	-- Hand edits the checksum is meant to catch (Codec.lua: "a hand-edited line then reads
+	-- as damaged rather than as other toys"; journey 11: "It never uses toys that weren't put in it").
+	local function RealisticData(ns)
+		local zeros = {}
+		for j = 1, 16 do zeros[j] = 0 end
+		-- 40 toys in a row out of 1,000: runs of zero bits, so "A" (0) characters in the toys.
+		local positions = {}
+		for i = 1, 40 do positions[i] = 100 + i end
+		return ns.EncodeToys(250000, 1000, zeros, positions), positions
+	end
+
+	it("11. Can't be read: the first character typed as format 3 never reads as other toys", function()
+		local ns = World().ns
+		local data, positions = RealisticData(ns)
+		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+		local header = alphabet:find(data:sub(1, 1), 1, true) - 1
+		local r = header % 8
+		local edited = alphabet:sub(3 * 8 + r + 1, 3 * 8 + r + 1) .. data:sub(2)
+		local d = ns.DecodeToys(edited)
+		ok(d == nil or table.concat(d.positions, ",") == table.concat(positions, ","),
+			"one character changed reads as other toys: " .. (d and table.concat(d.positions, ",") or ""))
+	end)
+
+	it("11. Can't be read: one character deleted or added never reads as other toys", function()
+		local ns = World().ns
+		local data, positions = RealisticData(ns)
+		local want = table.concat(positions, ",")
+		for i = 64, #data - 1 do
+			for _, edited in ipairs({ data:sub(1, i - 1) .. data:sub(i + 1), data:sub(1, i - 1) .. "A" .. data:sub(i) }) do
+				local d = ns.DecodeToys(edited)
+				ok(d == nil or table.concat(d.positions, ",") == want,
+					("character %d deleted or an A added there reads as %s"):format(i, d and table.concat(d.positions, ",") or ""))
+			end
+		end
+	end)
+
+	it("11. Can't be read: right-clicking it on a bar says why, as a click does", function()
+		local world = World()
+		local ns = world.ns
+		local toyList = ns.GetToyList()
+		world.bars[1] = world:CreateMacroInUI("Broken",
+			ns.NewBody(4, ns.EncodeToys(toyList.highest, #toyList.ids, toyList.checks, { 0, 40 })))
+		world:Advance(1)
+		world:TakeErrors()
+		world:PressBar(1, "RightButton")
+		list(world:TakeErrors(), { UNREADABLE }, "right-click says why")
+	end)
+
+	it("13. A patch adds new toys after the others and takes one out: the macro keeps its toys", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, HAT, "Illusion")
+		PatchAdds(world, { 400 }) -- after the macro's highest toy, 300
+		world:RemoveToyFromGame(ORB)
+		local later = NextLogin(world)
+		eq(PanelRow(later, "Illusion").count, 2)
+		list(later.ns.GetMacroToys(Macro(later, "Illusion"), true), { HAT, PIRATE })
+	end)
+
+	it("13. A patch both adds an old item as a toy and takes one out: the macro can't be read", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, HAT, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		PatchAdds(world, { 110 }) -- inside the macro's list
+		world:RemoveToyFromGame(ORB)
+		ExpectUnreadable(NextLogin(world), "Illusion", UNREADABLE, 1)
+	end)
+
+	it("12. Copy a macro: the copy's right-click opens its own drawer", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		world.bars[2] = world:CreateMacroInUI("Costumes", world.macros[1].body)
+		assert(world.ns.SetToy(Macro(world, "Costumes"), ORB, false))
+		world:PressBar(2, "RightButton")
+		ok(DrawerOpen(world, "Costumes"), "its own drawer opened")
+		list(DrawerToys(world, "Costumes"), { PIRATE })
+		ok(not DrawerOpen(world, "Illusion"), "not the original's")
+	end)
+
 end)

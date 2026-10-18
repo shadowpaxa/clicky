@@ -1,4 +1,4 @@
--- busted config: run `busted` from the repo root (see CLAUDE.md for installing it for LuaJIT).
+-- busted config: run `busted` from the repo root (tests/run.sh's header says how to install it for LuaJIT).
 return {
 	default = {
 		ROOT = { "tests" },

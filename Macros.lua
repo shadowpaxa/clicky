@@ -1,12 +1,13 @@
 -- Clicky's macros: Favorites, plus every macro with a "#clicky" line. WoW keeps macros on its
--- servers and syncs them to every computer the player uses, while SavedVariables stay on one
--- computer, so a macro is the only copy of its toys: they're read from it (ns.Sync) and written
--- back to it on every change. Each macro has a hidden secure button its /click line clicks,
--- and a random pick loads a toy onto that button.
---   ns.favorites, ns.expanded
+-- servers (warcraft.wiki.gg Macro), so a macro is the only copy of its toys that every computer
+-- sees: they're read from it (ns.Sync) and written back to it on every change. Each macro has a hidden secure button its /click line clicks, and a
+-- drawer its right-click opens (Drawer.lua). A click uses a random toy from the macro; the drawer
+-- uses the toy clicked in it.
+--   ns.expanded; ns.favorites (for tests)
 --   ns.GetMacros(), ns.GetMacro(id), ns.HasOwnMacros()
---   ns.HasToy(m, itemID), ns.MemberPool(m), ns.GetMacroToys(m), ns.CountToys(m)
---   ns.GetCandidates(m, allowRepeat), ns.FailedHere(itemID)
+--   ns.HasToy(m, itemID), ns.MemberPool(m), ns.GetMacroToys(m, all)
+--   ns.NoToysMessage(m)                    why a click or right-click finds no toy to use
+--   ns.GetCandidates(m, allowRepeat)
 --   ns.SetToy(m, itemID, inMacro)          -> true | nil, reason
 --   ns.MakeMacro(name, itemID)             -> macro | nil, reason
 --   ns.RenameMacro(m, name), ns.DeleteMacro(m)   -> true | nil, reason
@@ -14,8 +15,6 @@
 --   ns.Unreadable(m)                       why m's toys can't be used or changed (for the player), or nil
 --   ns.Sync(reason)                        re-reads every macro and does any waiting work
 --   ns.GetWaiting()                        what -> count of work waiting (for /clicky debug)
---   ns.DropRepeat(candidates, lastUsed), ns.CheckName(name, existing, except)
---                                          game-independent; on ns so offline tests can reach them
 --
 -- A runtime macro m has: id, name, icon, index, buttonName, button, linedUp, lastUsed, data,
 -- decodedFor (the toy list it was last read against), and state:
@@ -28,31 +27,60 @@
 --   "newer"      saved by a newer Clicky
 --   "unreadable" damaged, or changed in a way the check numbers can't work out
 -- reason says why. Unreadable macros load nothing onto their buttons and can't have toys changed.
--- Favorites (id 0, builtin) has no data: its toys are the Toy Box stars.
+-- Favorites (id 0, builtin): its toys are the Toy Box stars, and its macro is found by its /click
+-- line (ns.FindFavoritesMacro); it may not exist yet, and it holds no data.
 --
 -- Rules every write follows: nothing is written in combat (macros and secure attributes are
 -- locked; the work waits for PLAYER_REGEN_ENABLED).
 
 local _, ns = ...
 
-local FAILURE_WINDOW = 1 -- seconds after a click in which a UI error counts as "this toy failed"
 local COMBAT_ERROR = "Can't change macros in combat."
 local LOST_MESSAGE = "Clicky can't work out which toys this macro holds: %d toys were added to the game "
 	.. "since it was saved, more than the %d it can catch up on. Delete it and make it again."
 local NEWER_MESSAGE = "This macro was saved by a newer version of Clicky. Update Clicky to use it."
 local UNREADABLE_MESSAGE = "Clicky can't read this macro's toys. Delete it and make it again."
+local EMPTY_MESSAGE = "%s has no toys. Right-click toys in the Toy Box to add them."
+local EMPTY_FAVORITES_MESSAGE = "%s has no toys. Star toys in the Toy Box to add them."
 
-local badHere = {} -- itemID -> true for toys that failed in the current zone
-local lastClick = { time = 0 } -- the macro and toy of the most recent click, for failure tracking
+-- Runs inside the button's click, before the toy is used, in WoW's restricted environment. In
+-- combat Clicky's own code can't set the button's toy, so this picks one with random from the
+-- list handed over on PLAYER_REGEN_DISABLED (readycount, ready1..n), avoiding the last toy. Out of
+-- combat it does nothing: PreClick has already lined up a toy, skipping cooldowns. (The list
+-- isn't called toy1..n: a left click reads "toy1" before "toy".)
+local COMBAT_PICK = [[
+	local n = self:GetAttribute("readycount")
+	if not n or SecureCmdOptionParse("[combat]1") ~= "1" then
+		return
+	end
+	local last, skip = self:GetAttribute("lasttoy"), 0
+	if n > 1 then
+		for i = 1, n do
+			if self:GetAttribute("ready" .. i) == last then
+				skip = i
+			end
+		end
+	end
+	local toy
+	if n > 0 then
+		local i = random(skip > 0 and n - 1 or n)
+		if skip > 0 and i >= skip then
+			i = i + 1
+		end
+		toy = self:GetAttribute("ready" .. i)
+	end
+	self:SetAttribute("toy", toy)
+	self:SetAttribute("lasttoy", toy)
+]]
 
 local favorites = {
 	id = 0,
-	name = "Favorites",
 	icon = ns.FAVORITES_ICON,
 	buttonName = ns.FAVORITES_BUTTON,
 	builtin = true,
 	state = "ready",
 }
+favorites.name = ns.FAVORITES_MACRO
 local macros = { [0] = favorites }
 -- id -> button. Buttons can't be destroyed, so an id's button outlives its macro and is reused.
 local buttons = {}
@@ -73,8 +101,8 @@ local function HasToy(m, itemID)
 end
 ns.HasToy = HasToy
 
--- The toys a macro could ever contain: everything known for Favorites (read live from the star,
--- so starring needs no event), the macro's own toys otherwise.
+-- The toys a macro could ever contain: every toy in the game for Favorites (whether it's in is
+-- read live from the star, so starring needs no event), the macro's own toys otherwise.
 local function MemberPool(m)
 	if m.builtin then
 		return ns.GetToyList().set
@@ -83,7 +111,7 @@ local function MemberPool(m)
 end
 ns.MemberPool = MemberPool
 
-function ns.CountToys(m)
+local function CountToys(m)
 	local n = 0
 	for itemID in pairs(MemberPool(m)) do
 		if HasToy(m, itemID) then
@@ -91,10 +119,6 @@ function ns.CountToys(m)
 		end
 	end
 	return n
-end
-
-function ns.FailedHere(itemID)
-	return badHere[itemID] == true
 end
 
 function ns.Unreadable(m)
@@ -107,27 +131,46 @@ function ns.Unreadable(m)
 	end
 end
 
--- The macro's toys the player owns, sorted by name, for the panel.
-function ns.GetMacroToys(m)
-	local toys, names = {}, {}
-	for itemID in pairs(MemberPool(m)) do
-		if HasToy(m, itemID) and PlayerHasToy(itemID) then
+-- Why a click, or a right-click for the drawer, finds no toy to use.
+function ns.NoToysMessage(m)
+	local empty = CountToys(m) == 0 and (m.builtin and EMPTY_FAVORITES_MESSAGE or EMPTY_MESSAGE)
+	return ns.Unreadable(m) or (empty or "No usable toys in %s."):format(m.name)
+end
+
+-- toys (itemID -> true), only the ones the player owns unless all, sorted by name then item ID:
+-- the panel's order and the drawer's.
+local function InOrder(toys, all)
+	local list, names = {}, {}
+	for itemID in pairs(toys) do
+		if all or PlayerHasToy(itemID) then
 			local _, name = C_ToyBox.GetToyInfo(itemID)
 			if not name then
 				-- Not cached yet; GET_ITEM_INFO_RECEIVED refreshes the panel once it arrives.
 				C_Item.RequestLoadItemDataByID(itemID)
 			end
 			names[itemID] = name or ""
-			toys[#toys + 1] = itemID
+			list[#list + 1] = itemID
 		end
 	end
-	table.sort(toys, function(a, b)
+	table.sort(list, function(a, b)
 		if names[a] ~= names[b] then
 			return names[a] < names[b]
 		end
 		return a < b
 	end)
-	return toys
+	return list
+end
+
+-- The macro's toys sorted by name: the ones the player owns (the drawer), or all of them (the
+-- panel, where an unowned toy can still be taken out).
+function ns.GetMacroToys(m, all)
+	local toys = {}
+	for itemID in pairs(MemberPool(m)) do
+		if HasToy(m, itemID) then
+			toys[itemID] = true
+		end
+	end
+	return InOrder(toys, all)
 end
 
 -- Don't repeat the macro's last toy unless it's the only choice.
@@ -142,13 +185,12 @@ local function DropRepeat(candidates, lastUsed)
 	end
 	return candidates
 end
-ns.DropRepeat = DropRepeat
 
 local function GetCandidates(m, allowRepeat)
 	local candidates = {}
 	for itemID in pairs(MemberPool(m)) do
 		if HasToy(m, itemID) and PlayerHasToy(itemID) and C_ToyBox.IsToyUsable(itemID)
-			and not badHere[itemID] and not ns.IsToyOnCooldown(itemID) then
+			and not ns.IsToyOnCooldown(itemID) then
 			candidates[#candidates + 1] = itemID
 		end
 	end
@@ -180,6 +222,26 @@ local function LineUpToy(m, reason)
 	end
 end
 
+-- PLAYER_REGEN_DISABLED, the last moment attributes can be set: the drawer gets the toys owned
+-- now, and the button the toys ready now for COMBAT_PICK.
+local function ReadyForCombat(m)
+	if not m.button or not m.setUp then
+		return
+	end
+	local button = m.button
+	for i = 1, button:GetAttribute("readycount") or 0 do
+		button:SetAttribute("ready" .. i, nil)
+	end
+	ns.FillDrawer(m)
+	local ready = ns.Unreadable(m) and {} or GetCandidates(m, true)
+	for i, itemID in ipairs(ready) do
+		button:SetAttribute("ready" .. i, itemID)
+	end
+	button:SetAttribute("readycount", #ready)
+	button:SetAttribute("lasttoy", m.lastUsed)
+	ns.Trace("[%s] %d toys ready for combat", m.name, #ready)
+end
+
 local function SetUpButton(m)
 	if InCombatLockdown() or not m.button then
 		return
@@ -189,12 +251,15 @@ local function SetUpButton(m)
 	-- setting would get a button that silently does nothing.
 	m.button:SetAttribute("useOnKeyDown", false)
 	LineUpToy(m)
+	ns.SetUpDrawer(m)
+	ns.QueueDrawer(m)
 	m.setUp = true
 end
 
 local function EmptyButton(button)
 	button:SetAttribute("toy", nil)
 	button:SetAttribute("type", nil)
+	button:SetAttribute("readycount", nil)
 end
 
 -- The button looks its macro up by id on every click, since the runtime macro behind an id can
@@ -202,8 +267,6 @@ end
 local function CreateButton(id, buttonName)
 	local button = CreateFrame("Button", buttonName, UIParent, "SecureActionButtonTemplate")
 	button:RegisterForClicks("AnyUp", "AnyDown")
-	-- Record the toy before the secure handler runs, so a failure reported mid-click
-	-- is pinned on the right toy.
 	button:SetScript("PreClick", function(_, mouseButton, down)
 		local m = macros[id]
 		if not m then
@@ -211,21 +274,21 @@ local function CreateButton(id, buttonName)
 		end
 		ns.Trace("[%s] PreClick %s down=%s", m.name, mouseButton, down)
 		LineUpToy(m, "PreClick")
-		if m.linedUp then
-			m.lastUsed = m.linedUp
-			lastClick.macro, lastClick.itemID, lastClick.time = m, m.linedUp, GetTime()
-		end
 	end)
-	button:SetScript("PostClick", function()
+	SecureHandlerWrapScript(button, "OnClick", button, COMBAT_PICK)
+	-- The toy used is the button's toy after the click: in combat, COMBAT_PICK chose it.
+	button:SetScript("PostClick", function(self)
 		local m = macros[id]
 		if not m then
 			return
 		end
-		ns.Trace("[%s] PostClick, used %s", m.name, m.lastUsed)
-		if not m.linedUp then
-			ns.ShowError(ns.Unreadable(m) or ("No usable toys in %s."):format(m.name))
+		local used = self:GetAttribute("toy")
+		ns.Trace("[%s] PostClick, used %s", m.name, used)
+		if not used then
+			ns.ShowError(ns.NoToysMessage(m))
 			return
 		end
+		m.lastUsed = used
 		LineUpToy(m, "PostClick")
 	end)
 	ns.Trace("[button] created %s", buttonName)
@@ -272,12 +335,12 @@ end
 
 -- The toys added to (or, with fewer now, taken out of) the toy list a macro was saved against.
 local function Changed(ids, checks, d)
-	local key = (d.highest or ("owned " .. #ids .. " " .. checks[1])) .. ":" .. d.count .. ":" .. table.concat(d.checks, ",")
+	local key = d.highest .. ":" .. d.count .. ":" .. table.concat(d.checks, ",")
 	local found = recoveries[key]
 	if not found then
 		local toys, err, what
 		if d.count > #ids then
-			toys, err = ns.FindRemoved(ids, checks, d.count, d.checks)
+			toys, err = ns.FindRemoved(ids, checks, d.count, d.checks, d.highest)
 			what = "taken out"
 		else
 			toys, err = ns.FindLearned(ids, checks, d.count, d.checks)
@@ -293,26 +356,14 @@ local function Changed(ids, checks, d)
 end
 
 local function Decode(m, data, list)
-	m.data, m.decodedFor, m.setUp, m.missed, m.retry = data, list, false, nil, nil
+	m.data, m.decodedFor, m.setUp, m.missed = data, list, false, nil
 	local d, err = ns.DecodeToys(data)
 	if not d then
 		return CantRead(m, err == "newer" and "newer" or "unreadable", err)
 	end
 	-- Toys added to the game later have higher item IDs, so the list up to the macro's highest
 	-- is the list it was saved against, unless toys were added or taken out inside that range.
-	-- Format 2 numbered the player's own toys instead: read it against them, then re-save it.
-	local ids, checks
-	if d.legacy then
-		ids = {}
-		for _, itemID in ipairs(list.ids) do
-			if PlayerHasToy(itemID) then
-				ids[#ids + 1] = itemID
-			end
-		end
-		checks = ns.CheckNumbers(ids)
-	else
-		ids, checks = ns.ToysUpTo(d.highest)
-	end
+	local ids, checks = ns.ToysUpTo(d.highest)
 	local missed = #ids - d.count
 	if missed > ns.CATCH_UP_LIMIT then
 		m.missed = missed
@@ -322,9 +373,6 @@ local function Decode(m, data, list)
 	if missed ~= 0 or not ns.SameChecks(checks, d.checks) then
 		local changed, why = Changed(ids, checks, d)
 		if not changed then
-			-- Format 2 depends on which toys are owned, which can still be arriving after login:
-			-- read it again when they change (TOYS_UPDATED).
-			m.retry = d.legacy
 			return CantRead(m, "unreadable", why)
 		end
 		local isChanged = {}
@@ -355,7 +403,6 @@ local function Decode(m, data, list)
 		end
 	end
 	m.toys, m.state, m.reason = toys, "ready", nil
-	-- Format 2 has no highest item ID, so it's always re-saved.
 	m.stale = saved ~= ids or d.highest ~= list.highest
 	if m.lastUsed and not toys[m.lastUsed] then
 		m.lastUsed = nil
@@ -371,13 +418,74 @@ local function TellOnce(key, msg)
 	end
 end
 
--- The smallest id no Clicky macro uses.
-local function FreeID()
+-- The smallest id no Clicky macro uses, bound or just read (records: ns.ReadMacros()).
+local function FreeID(records)
+	local taken = {}
+	for _, rec in ipairs(records or ns.ReadMacros()) do
+		taken[rec.id] = true
+	end
 	local id = 1
-	while macros[id] do
+	while macros[id] or taken[id] do
 		id = id + 1
 	end
 	return id
+end
+
+-- Of the records clicking id's button, the one bound to it: same name, else same index, else
+-- the first. General macros are sorted by name (warcraft.wiki.gg API_EditMacro), so a copy can be
+-- listed before the macro it was copied from.
+local function Original(records, id)
+	local m, first, atIndex = macros[id], nil, nil
+	for _, rec in ipairs(records) do
+		if rec.id == id then
+			if m and rec.name == m.name then
+				return rec
+			end
+			first = first or rec
+			if m and rec.index == m.index then
+				atIndex = rec
+			end
+		end
+	end
+	return atIndex or first
+end
+
+-- The macro behind m right now; indexes move when macros are added or removed.
+local function FindRecord(m)
+	local rec = Original(ns.ReadMacros(), m.id)
+	if rec then
+		return rec
+	end
+	return nil, "That macro is gone."
+end
+
+-- Writes m's macro (rec, as read) with toys: the one place a macro's data is written.
+local function Save(m, rec, toys)
+	local list = ns.GetToyList()
+	local data, err = Encode(toys, list)
+	if not data then
+		return nil, err
+	end
+	local index
+	index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetDataLine(rec.body, data))
+	if not index then
+		return nil, err
+	end
+	m.toys, m.decodedFor, m.stale, m.data = toys, list, false, data
+	return true
+end
+
+-- Favorites' macro, made if it doesn't exist yet (as dragging Favorites does).
+local function FavoritesRecord()
+	local rec = ns.FindFavoritesMacro()
+	if rec then
+		return rec
+	end
+	local _, err = ns.MakeFavoritesMacro(favorites.name)
+	if err then
+		return nil, err
+	end
+	return ns.FindFavoritesMacro()
 end
 
 ------------------------------------------------------------------------------------------
@@ -388,23 +496,24 @@ local function Wait(what)
 	waiting[what] = (waiting[what] or 0) + 1
 end
 
--- Two macros clicking the same button (a copy, or one pasted from elsewhere): the first keeps
+-- Two macros clicking the same button (a copy, or one pasted from elsewhere): the original keeps
 -- the button, each other one gets a free id written into its /click line.
 local function SeparateCopies(records, canWrite)
 	local live = {}
 	for _, rec in ipairs(records) do
-		if not live[rec.id] then
-			live[rec.id] = rec
-		elseif canWrite then
-			local newID = FreeID()
-			local index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetButtonID(rec.body, rec.id, newID))
-			if index then
-				ns.Trace("[%s] copy of %s%d, now %s%d", rec.name, ns.SET_BUTTON_PREFIX, rec.id, ns.SET_BUTTON_PREFIX, newID)
-				return live, true
+		live[rec.id] = live[rec.id] or Original(records, rec.id)
+	end
+	for _, rec in ipairs(records) do
+		if live[rec.id] ~= rec then
+			if canWrite then
+				local newID = FreeID(records)
+				local index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetButtonID(rec.body, rec.id, newID))
+				if index then
+					ns.Trace("[%s] copy of %s%d, now %s%d", rec.name, ns.SET_BUTTON_PREFIX, rec.id, ns.SET_BUTTON_PREFIX, newID)
+					return live, true
+				end
+				TellOnce("copy" .. rec.name, ("%s is a copy of another Clicky macro and couldn't be separated from it. %s"):format(rec.name, err))
 			end
-			TellOnce("copy" .. rec.name, ("%s clicks the same button as another macro and couldn't get its own. %s"):format(rec.name, err))
-			Wait("copies to separate")
-		else
 			Wait("copies to separate")
 		end
 	end
@@ -421,22 +530,28 @@ local function Bind(live, list)
 			macros[id] = m
 		end
 		m.name, m.icon, m.index = rec.name, rec.icon, rec.index
-		if m.data ~= rec.data or m.decodedFor ~= list or m.retry then
+		if m.data ~= rec.data or m.decodedFor ~= list then
 			Decode(m, rec.data, list)
 		end
 		seen[id] = true
 	end
+	-- Favorites is there with or without its macro.
+	local fav = ns.FindFavoritesMacro()
+	if fav then
+		favorites.name, favorites.icon, favorites.index = fav.name, fav.icon, fav.index
+	else
+		favorites.icon, favorites.index = ns.FAVORITES_ICON, nil
+	end
 	for id, m in pairs(macros) do
 		if not seen[id] then
+			-- Macros can't be edited or deleted in combat, so neither can this happen then.
 			ns.Trace("[%s] macro gone, emptying %s", m.name, m.buttonName)
 			if m.button then
 				EmptyButton(m.button)
 			end
+			ns.EmptyDrawer(id)
 			macros[id] = nil
 			ns.expanded[id] = nil
-			if lastClick.macro == m then
-				lastClick.macro = nil
-			end
 		end
 	end
 	for _, m in pairs(macros) do
@@ -448,22 +563,17 @@ end
 
 -- A macro saved against an earlier toy list is re-saved against the current one, so the toys
 -- added since don't count towards the next catch-up.
-local function Resave(live, list, canWrite)
+local function Resave(live, canWrite)
 	for id, rec in pairs(live) do
 		local m = macros[id]
 		if m.state == "ready" and m.stale then
 			if canWrite then
-				local data, err = Encode(m.toys, list)
-				local index
-				if data then
-					index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetDataLine(rec.body, data))
-				end
-				if index then
-					ns.Trace("[%s] re-saved for %d toys", m.name, #list.ids)
-					m.data, m.decodedFor, m.stale = data, list, false
+				local ok, err = Save(m, rec, m.toys)
+				if ok then
+					ns.Trace("[%s] re-saved for %d toys", m.name, #ns.GetToyList().ids)
 					return true
 				end
-				TellOnce("save" .. id, ("Couldn't update %s for your new toys. %s"):format(m.name, err))
+				TellOnce("save" .. id, ("Couldn't update %s for this patch's toy changes. %s"):format(m.name, err))
 			end
 			Wait("macros to re-save")
 		end
@@ -481,7 +591,7 @@ local function SyncPass()
 		return true
 	end
 	Bind(live, list)
-	return Resave(live, list, canWrite)
+	return Resave(live, canWrite)
 end
 
 local syncing, again = false, false
@@ -558,23 +668,9 @@ local function CheckName(name, existing, except)
 	end
 	return name
 end
-ns.CheckName = CheckName
 
--- The macro behind m right now; indexes move when macros are added or removed.
-local function FindRecord(m)
-	for _, rec in ipairs((ns.ReadMacros())) do
-		if rec.id == m.id then
-			return rec
-		end
-	end
-	return nil, "That macro is gone."
-end
-
-function ns.SetToy(m, itemID, inMacro)
-	if m.builtin then
-		return nil
-	end
-	inMacro = inMacro and true or false
+-- The checks every change to a macro's toys starts with.
+local function Changeable(m)
 	if InCombatLockdown() then
 		return nil, COMBAT_ERROR
 	end
@@ -582,34 +678,48 @@ function ns.SetToy(m, itemID, inMacro)
 	if unreadable then
 		return nil, unreadable
 	end
+	return true
+end
+
+-- The record of m's macro, to write to: Favorites' is made if it doesn't exist yet.
+local function Record(m)
+	if m.builtin then
+		return FavoritesRecord()
+	end
+	return FindRecord(m)
+end
+
+function ns.SetToy(m, itemID, inMacro)
+	if m.builtin then
+		return nil, "Favorites' toys are the toys you star in the Toy Box."
+	end
+	inMacro = inMacro and true or false
+	local ok, err = Changeable(m)
+	if not ok then
+		return nil, err
+	end
 	if HasToy(m, itemID) == inMacro then
 		return true
 	end
-	if inMacro and ns.CountToys(m) >= ns.MACRO_TOY_CAP then
+	if inMacro and CountToys(m) >= ns.MACRO_TOY_CAP then
 		ns.Trace("[%s] add %d refused: full", m.name, itemID)
 		return nil, ("%s is full: a macro holds up to %d toys."):format(m.name, ns.MACRO_TOY_CAP)
 	end
-	local list = ns.GetToyList()
 	local toys = {}
 	for id in pairs(m.toys) do
 		toys[id] = true
 	end
 	toys[itemID] = inMacro or nil
-	local data, err = Encode(toys, list)
 	local rec
-	if data then
-		rec, err = FindRecord(m)
-	end
-	local index
+	rec, err = FindRecord(m)
 	if rec then
-		index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetDataLine(rec.body, data))
+		ok, err = Save(m, rec, toys)
 	end
-	if not index then
+	if not ok then
 		ns.Trace("[%s] %s toy %d refused: %s", m.name, inMacro and "add" or "remove", itemID, err)
 		return nil, err
 	end
 	ns.Trace("[%s] %s toy %d", m.name, inMacro and "add" or "remove", itemID)
-	m.toys, m.data, m.decodedFor, m.stale = toys, data, list, false
 	if not inMacro and m.lastUsed == itemID then
 		m.lastUsed = nil
 	end
@@ -658,7 +768,7 @@ function ns.RenameMacro(m, name)
 		return nil, err
 	end
 	local rec, index
-	rec, err = FindRecord(m)
+	rec, err = Record(m)
 	if rec then
 		index, err = ns.EditMacroAt(rec.index, name, rec.icon, rec.body)
 	end
@@ -676,9 +786,17 @@ function ns.DeleteMacro(m)
 	if InCombatLockdown() then
 		return nil, COMBAT_ERROR
 	end
-	local rec, err = FindRecord(m)
-	if not rec then
-		return nil, err
+	local rec, err
+	if m.builtin then
+		rec = ns.FindFavoritesMacro()
+		if not rec then
+			return true -- nothing to delete; Favorites stays in the panel
+		end
+	else
+		rec, err = FindRecord(m)
+		if not rec then
+			return nil, err
+		end
 	end
 	ns.Trace("[%s] deleting macro %d", m.name, rec.index)
 	ns.DeleteMacroAt(rec.index)
@@ -688,14 +806,10 @@ end
 
 function ns.PickupMacro(m)
 	if InCombatLockdown() then
-		ns.ShowError(COMBAT_ERROR)
+		ns.ShowError("Can't drag macros in combat.")
 		return
 	end
-	if m.builtin then
-		ns.PickupFavoritesMacro()
-		return
-	end
-	local rec, err = FindRecord(m)
+	local rec, err = Record(m)
 	if not rec then
 		ns.ShowError(err)
 		return
@@ -705,8 +819,8 @@ function ns.PickupMacro(m)
 end
 
 ------------------------------------------------------------------------------------------
--- Events. Macros may not be readable at ADDON_LOADED; until they are, ns.ReadMacros finds
--- none, so there's nothing to write, and UPDATE_MACROS syncs once they arrive.
+-- Events. If macros aren't readable yet at ADDON_LOADED, ns.ReadMacros finds none, so there's
+-- nothing to write, and UPDATE_MACROS syncs once they arrive.
 
 local function SetUpAgain()
 	for _, m in pairs(macros) do
@@ -719,29 +833,20 @@ ns.RegisterEvent("ADDON_LOADED", function()
 	ns.Sync("load")
 end)
 
-ns.RegisterEvent("TOYS_UPDATED", function()
-	for _, m in pairs(macros) do
-		if m.retry then
-			ns.Sync("toys")
-			return
-		end
-	end
-end)
-
 ns.RegisterEvent("UPDATE_MACROS", function()
 	ns.Sync("macros changed")
 end)
 
 ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
-	wipe(badHere)
 	SetUpAgain()
 	ns.Sync("entering world")
 end)
 
-ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
-	wipe(badHere)
+-- PLAYER_REGEN_DISABLED is synchronous (UnitDocumentation.lua), and Blizzard's own secure state
+-- drivers still set attributes on it (SecureStateDriver.lua).
+ns.RegisterEvent("PLAYER_REGEN_DISABLED", function()
 	for _, m in pairs(macros) do
-		LineUpToy(m)
+		ReadyForCombat(m)
 	end
 end)
 
@@ -749,14 +854,4 @@ end)
 ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
 	SetUpAgain()
 	ns.Sync("combat ended")
-end)
-
-ns.RegisterEvent("UI_ERROR_MESSAGE", function()
-	-- The payload isn't read (it can be secret in Midnight instances); timing is enough.
-	if lastClick.macro and GetTime() - lastClick.time < FAILURE_WINDOW then
-		ns.Trace("[%s] error right after a click, %s failed here", lastClick.macro.name, lastClick.itemID)
-		badHere[lastClick.itemID] = true
-		lastClick.time = 0
-		LineUpToy(lastClick.macro)
-	end
 end)

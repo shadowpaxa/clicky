@@ -1,7 +1,7 @@
 -- Slash command: /clicky opens the Toy Box; status, debug and trace are for checking on macros.
 -- Nothing on ns.
 
-local _, ns = ...
+local ADDON, ns = ...
 
 local Print = ns.Print
 
@@ -16,7 +16,7 @@ local function PrintStatus()
 		local unreadable = ns.Unreadable(m)
 		local line = unreadable and ("%s: %s"):format(m.name, unreadable)
 		if not line then
-			line = ("%s: %d toys, %d ready to use here."):format(
+			line = ("%s: %d toys owned, %d ready to use here."):format(
 				m.name, #ns.GetMacroToys(m), #ns.GetCandidates(m, true))
 			if m.linedUp then
 				local _, name = C_ToyBox.GetToyInfo(m.linedUp)
@@ -31,16 +31,15 @@ local function PrintDebug()
 	Print(("toys in game: %d, listed by your Toy Box filters: %d, HasFavorites: %s, Collections loaded: %s"):format(
 		C_ToyBox.GetNumToys(), C_ToyBox.GetNumFilteredToys(), tostring(C_ToyBox.HasFavorites()),
 		tostring(C_AddOns.IsAddOnLoaded("Blizzard_Collections"))))
-	Print(("saved data version: %s"):format(tostring(ClickyDB.version)))
+	Print(("Clicky %s"):format(tostring(C_AddOns.GetAddOnMetadata(ADDON, "Version"))))
 	ns.Sync("debug")
-	-- The probe should find as many toys as the game counts; fewer would mean some toys weren't
-	-- recognised (C_ToyBox.GetToyLink returned nil for them).
+	-- The game's count can be higher than the probe's: in play it counted 1,175 while GetToyLink
+	-- answered for 1,146, the same list in every session (seen in play).
 	local list = ns.GetToyList()
 	local probedUpTo, found, ms = ns.GetProbeInfo()
 	Print(("toy list: %d toys (game counts %d), highest item %s, probed item IDs 1-%d in %d ms, owned: %d"):format(
 		found, C_ToyBox.GetNumToys(), tostring(list.highest), probedUpTo, ms, ns.CountOwnedToys()))
-	Print(("a macro holds up to %d toys and catches up on up to %d added (guaranteed while the game has up to %d toys)"):format(
-		ns.MACRO_TOY_CAP, ns.CATCH_UP_LIMIT, ns.TOY_BOUND))
+	Print(("a macro holds up to %d toys and catches up on up to %d toys added or taken out"):format(ns.MACRO_TOY_CAP, ns.CATCH_UP_LIMIT))
 	local waits = {}
 	for what, n in pairs(ns.GetWaiting()) do
 		waits[#waits + 1] = ("%s: %d"):format(what, n)
@@ -48,18 +47,19 @@ local function PrintDebug()
 	table.sort(waits)
 	Print("waiting: " .. (#waits > 0 and table.concat(waits, ", ") or "nothing"))
 	for _, m in ipairs(ns.GetMacros()) do
-		local members, unusable, cooldown, bad = 0, 0, 0, 0
+		local members, unusable, cooldown = 0, 0, 0
 		for itemID in pairs(ns.MemberPool(m)) do
 			if ns.HasToy(m, itemID) then
 				members = members + 1
 				if not C_ToyBox.IsToyUsable(itemID) then unusable = unusable + 1 end
 				if ns.IsToyOnCooldown(itemID) then cooldown = cooldown + 1 end
-				if ns.FailedHere(itemID) then bad = bad + 1 end
 			end
 		end
 		local macro
 		if m.builtin then
-			macro = tostring(ns.FindFavoritesMacro())
+			local fav = ns.FindFavoritesMacro()
+			macro = ("%s, state %s%s"):format(fav and tostring(fav.index) or "none", tostring(m.state),
+				m.reason and (" (" .. m.reason .. ")") or "")
 		else
 			local written = m.data and ns.DecodeToys(m.data)
 			macro = ("%s, state %s%s, data %d chars saved for %s toys up to item %s%s"):format(tostring(m.index),
@@ -67,9 +67,13 @@ local function PrintDebug()
 				written and tostring(written.count) or "?", written and tostring(written.highest) or "?",
 				m.stale and " (needs re-saving)" or "")
 		end
-		Print(("%s (%s): %d toys (unusable: %d, on cooldown: %d, failed here: %d), lined up: %s, toy attr: %s, macro: %s"):format(
-			m.name, m.buttonName, members, unusable, cooldown, bad, tostring(m.linedUp),
-			tostring(m.button and m.button:GetAttribute("toy")), macro))
+		local button = m.button
+		local drawer = ns.GetDrawer(m.id)
+		local mode = ("ready for combat %s, drawer %s"):format(tostring(button and button:GetAttribute("readycount")),
+			drawer and (drawer.count .. " toys" .. (drawer.frame:IsShown() and ", open" or "")) or "none")
+		Print(("%s (%s): %d toys (unusable: %d, on cooldown: %d), %s, lined up: %s, toy attr: %s, macro: %s"):format(
+			m.name, m.buttonName, members, unusable, cooldown, mode, tostring(m.linedUp),
+			tostring(button and button:GetAttribute("toy")), macro))
 	end
 end
 
@@ -87,6 +91,8 @@ SlashCmdList.CLICKY = function(msg)
 		OpenToyBox()
 	else
 		Print("/clicky - open the Toy Box to manage your macros")
-		Print("/clicky status - show how many toys in each macro are ready")
+		Print("/clicky status - show how many of each macro's toys you own and can use here")
+		Print("/clicky debug - print Clicky's full state")
+		Print("/clicky trace - print each pick and change as it happens; type it again to stop")
 	end
 end

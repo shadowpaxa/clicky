@@ -1,5 +1,5 @@
 -- Right-click menus: macro entries on the Toy Box's own toy menu, the same menu for toys in the
--- Clicky panel, the macro menu (Rename, Delete), and the dialogs they open.
+-- Clicky panel, the macro menu (Rename, Delete, Copy /click line), and the dialogs they open.
 --   ns.OpenToyMenu(owner, itemID), ns.OpenMacroMenu(owner, m)
 --   ns.ToyMenuEntries(itemID)   { macro, label } per macro the toy can be added to or removed
 --                               from, as the toy menus list them; for tests
@@ -83,9 +83,6 @@ function ns.OpenToyMenu(owner, itemID)
 end
 
 function ns.OpenMacroMenu(owner, m)
-	if m.builtin then
-		return
-	end
 	MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
 		rootDescription:CreateTitle(m.name)
 		rootDescription:CreateButton("Rename", function()
@@ -101,6 +98,9 @@ function ns.OpenMacroMenu(owner, m)
 				return
 			end
 			StaticPopup_Show("CLICKY_DELETE_MACRO", m.name, nil, { macro = m })
+		end)
+		rootDescription:CreateButton("Copy /click line", function()
+			StaticPopup_Show("CLICKY_COPY_LINE", nil, nil, { line = "/click " .. m.buttonName })
 		end)
 	end)
 end
@@ -151,6 +151,25 @@ StaticPopupDialogs.CLICKY_NEW_MACRO = NameDialog("Name the new macro:", "Create"
 StaticPopupDialogs.CLICKY_RENAME_MACRO = NameDialog("Rename %s to:", "Rename",
 	function(data) return data.macro.name end,
 	function(data, name) return ns.RenameMacro(data.macro, name) end)
+
+-- CopyToClipboard is restricted (OsDocumentation.lua: HasRestrictions), so the line is shown
+-- selected for the player to copy.
+StaticPopupDialogs.CLICKY_COPY_LINE = {
+	text = "Copy this line, then paste it into a macro of your own:",
+	button1 = "Close",
+	hasEditBox = true,
+	-- Popup frames keep the last dialog's letter limit (GameDialog.lua), and the name dialogs set 16.
+	maxLetters = 64,
+	OnShow = function(dialog, data)
+		local editBox = dialog:GetEditBox()
+		editBox:SetText(data.line)
+		editBox:HighlightText()
+	end,
+	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
 
 StaticPopupDialogs.CLICKY_DELETE_MACRO = {
 	text = "Delete the macro %s? It will be removed from your bars.",
