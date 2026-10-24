@@ -18,17 +18,17 @@
 --
 -- A runtime macro m has: id, name, icon, index, buttonName, button, linedUp, lastUsed, data,
 -- decodedFor (the toy list it was last read against), and state:
---   "ready"      toys (itemID -> true) read from data. stale is true when data was saved against
---                an earlier toy list (toys added to or taken out of the game since, worked out
---                from the check numbers in Codec.lua); a stale macro is re-saved against the
---                current list, without any toys that left the game
---   "lost"       missed (more than ns.CATCH_UP_LIMIT) toys were added inside its list since it
---                was saved, too many to work out
---   "newer"      saved by a newer Clicky
---   "unreadable" damaged, or changed in a way the check numbers can't work out
+--   "ready"      toys (itemID -> true) read from data. stale is true for a format 4 macro (written
+--                by 0.4.0), which is saved again in format 5 with a code (Resave)
+--   "newer"      saved by a newer Clicky, or holding a toy this Clicky's list doesn't have yet
+--   "unreadable" damaged, or a format 4 macro that can't be converted: the game's toys aren't the
+--                ones it was saved against, or a toy in it isn't in Clicky's list
 -- reason says why. Unreadable macros load nothing onto their buttons and can't have toys changed.
--- Favorites (id 0, builtin): its toys are the Toy Box stars, and its macro is found by its /click
--- line (ns.FindFavoritesMacro); it may not exist yet, and it holds no data.
+-- Favorites (id ns.FAVORITES_ID, builtin): its toys are the Toy Box stars, and its macro is found
+-- by its /click line (ns.FindFavoritesMacro); it may not exist yet, and it holds no data.
+-- A macro's id is its code (four random letters, NewCode); a format 4 macro's is its number as a
+-- string. The sync converts a format 4 macro to a code and format 5 in one write, and rewrites
+-- Favorites' format 4 line once.
 --
 -- Rules every write follows: nothing is written in combat (macros and secure attributes are
 -- locked; the work waits for PLAYER_REGEN_ENABLED).
@@ -36,10 +36,9 @@
 local _, ns = ...
 
 local COMBAT_ERROR = "Can't change macros in combat."
-local LOST_MESSAGE = "Clicky can't work out which toys this macro holds: %d toys were added to the game "
-	.. "since it was saved, more than the %d it can catch up on. Delete it and make it again."
 local NEWER_MESSAGE = "This macro was saved by a newer version of Clicky. Update Clicky to use it."
 local UNREADABLE_MESSAGE = "Clicky can't read this macro's toys. Delete it and make it again."
+local UNKNOWN_TOY_MESSAGE = "Clicky doesn't know this toy yet. Update Clicky."
 local EMPTY_MESSAGE = "%s has no toys. Right-click toys in the Toy Box to add them."
 local EMPTY_FAVORITES_MESSAGE = "%s has no toys. Star toys in the Toy Box to add them."
 
@@ -74,21 +73,19 @@ local COMBAT_PICK = [[
 ]]
 
 local favorites = {
-	id = 0,
+	id = ns.FAVORITES_ID,
 	icon = ns.FAVORITES_ICON,
 	buttonName = ns.FAVORITES_BUTTON,
 	builtin = true,
 	state = "ready",
 }
 favorites.name = ns.FAVORITES_MACRO
-local macros = { [0] = favorites }
--- id -> button. Buttons can't be destroyed, so an id's button outlives its macro and is reused.
+local macros = { [ns.FAVORITES_ID] = favorites }
+-- id -> button. Buttons can't be destroyed, so an id's button outlives its macro (and is reused
+-- if a macro is ever given that id again).
 local buttons = {}
 local waiting = {}
 local told = {} -- messages already printed this session
--- What changed since each saved toy list, worked out once per session: key (highest, count and
--- check numbers) -> { toys } or { err }. The game's list doesn't change during a session.
-local recoveries = {}
 ns.favorites = favorites
 -- Macro id -> true for macros whose toys the panel shows. Everything starts collapsed each session.
 ns.expanded = {}
@@ -122,9 +119,7 @@ local function CountToys(m)
 end
 
 function ns.Unreadable(m)
-	if m.state == "lost" then
-		return LOST_MESSAGE:format(m.missed, ns.CATCH_UP_LIMIT)
-	elseif m.state == "newer" then
+	if m.state == "newer" then
 		return NEWER_MESSAGE
 	elseif m.state == "unreadable" then
 		return UNREADABLE_MESSAGE
@@ -263,7 +258,7 @@ local function EmptyButton(button)
 end
 
 -- The button looks its macro up by id on every click, since the runtime macro behind an id can
--- be replaced (a macro deleted, another made with the same id).
+-- be replaced (a macro deleted, another given the same code).
 local function CreateButton(id, buttonName)
 	local button = CreateFrame("Button", buttonName, UIParent, "SecureActionButtonTemplate")
 	button:RegisterForClicks("AnyUp", "AnyDown")
@@ -320,12 +315,12 @@ local function Encode(toys, list)
 	for itemID in pairs(toys) do
 		local p = list.index[itemID]
 		if not p then
-			return nil, "That isn't in the game's toy list."
+			return nil, UNKNOWN_TOY_MESSAGE
 		end
 		positions[#positions + 1] = p
 	end
 	table.sort(positions)
-	return ns.EncodeToys(list.highest, #list.ids, list.checks, positions)
+	return ns.EncodeToys(positions)
 end
 
 local function CantRead(m, state, reason)
@@ -333,82 +328,67 @@ local function CantRead(m, state, reason)
 	ns.Trace("[%s] can't read its toys (%s): %s", m.name, state, reason)
 end
 
--- The toys added to (or, with fewer now, taken out of) the toy list a macro was saved against.
-local function Changed(ids, checks, d)
-	local key = d.highest .. ":" .. d.count .. ":" .. table.concat(d.checks, ",")
-	local found = recoveries[key]
-	if not found then
-		local toys, err, what
-		if d.count > #ids then
-			toys, err = ns.FindRemoved(ids, checks, d.count, d.checks, d.highest)
-			what = "taken out"
-		else
-			toys, err = ns.FindLearned(ids, checks, d.count, d.checks)
-			what = "added"
-		end
-		found = { toys = toys, err = err }
-		recoveries[key] = found
-		if toys and ns.IsTracing() then
-			ns.Trace("[toys] %d toys %s since a list of %d: %s", #toys, what, d.count, table.concat(toys, ", "))
-		end
+-- The toys of a format 4 macro (written by 0.4.0, against the toys the game reported then; remove
+-- before the first full release), or nil and why not. It's read only if the game's toys up to its
+-- highest item ID give exactly its count and check numbers: then they're the toys it was saved
+-- against. A macro 0.4.0 has loaded since the last patch that changed those toys passes, since
+-- 0.4.0 saved a macro again whenever its list differed from the game's.
+local function ReadFormat4(d, list)
+	local ids, checks = ns.ToysUpTo(d.highest)
+	if #ids ~= d.count or not ns.SameChecks(checks, d.checks) then
+		return nil, ("the game's toys up to item %d aren't the %d it was saved against"):format(d.highest, d.count)
 	end
-	return found.toys, found.err
+	-- DecodeToys checked every position is below d.count, which is #ids.
+	local toys = {}
+	for _, p in ipairs(d.positions) do
+		local itemID = ids[p + 1]
+		if not list.set[itemID] then
+			return nil, ("toy %d isn't in Clicky's list"):format(itemID)
+		end
+		toys[itemID] = true
+	end
+	return toys
+end
+
+-- The toys at a format 5 macro's places in the list, or nil if a place is past the list's end:
+-- the macro holds a toy a newer list has.
+local function ReadFormat5(d, list)
+	local toys = {}
+	for _, p in ipairs(d.positions) do
+		local itemID = list.ids[p + 1]
+		if not itemID then
+			return nil, ("place %d is past the end of this Clicky's list of %d toys"):format(p, #list.ids)
+		end
+		toys[itemID] = true
+	end
+	return toys
 end
 
 local function Decode(m, data, list)
-	m.data, m.decodedFor, m.setUp, m.missed = data, list, false, nil
+	m.data, m.decodedFor, m.setUp = data, list, false
 	local d, err = ns.DecodeToys(data)
 	if not d then
 		return CantRead(m, err == "newer" and "newer" or "unreadable", err)
 	end
-	-- Toys added to the game later have higher item IDs, so the list up to the macro's highest
-	-- is the list it was saved against, unless toys were added or taken out inside that range.
-	local ids, checks = ns.ToysUpTo(d.highest)
-	local missed = #ids - d.count
-	if missed > ns.CATCH_UP_LIMIT then
-		m.missed = missed
-		return CantRead(m, "lost", ("%d toys added since it was saved"):format(missed))
-	end
-	local saved, gone = ids, {}
-	if missed ~= 0 or not ns.SameChecks(checks, d.checks) then
-		local changed, why = Changed(ids, checks, d)
-		if not changed then
-			return CantRead(m, "unreadable", why)
+	local toys
+	if d.format == 4 then
+		toys, err = ReadFormat4(d, list)
+		if not toys then
+			return CantRead(m, "unreadable", err)
 		end
-		local isChanged = {}
-		for _, itemID in ipairs(changed) do
-			isChanged[itemID] = true
-		end
-		saved = {}
-		for _, itemID in ipairs(ids) do
-			if missed < 0 or not isChanged[itemID] then
-				saved[#saved + 1] = itemID
-			end
-		end
-		if missed < 0 then
-			for _, itemID in ipairs(changed) do
-				saved[#saved + 1] = itemID
-			end
-			table.sort(saved)
-			gone = isChanged
-		end
-	end
-	-- DecodeToys checked every position is below d.count, which is #saved. Toys taken out of the
-	-- game leave the macro too; the re-save writes it without them.
-	local toys = {}
-	for _, p in ipairs(d.positions) do
-		local itemID = saved[p + 1]
-		if not gone[itemID] then
-			toys[itemID] = true
+	else
+		toys, err = ReadFormat5(d, list)
+		if not toys then
+			return CantRead(m, "newer", err)
 		end
 	end
 	m.toys, m.state, m.reason = toys, "ready", nil
-	m.stale = saved ~= ids or d.highest ~= list.highest
+	m.stale = d.format == 4
 	if m.lastUsed and not toys[m.lastUsed] then
 		m.lastUsed = nil
 	end
-	ns.Trace("[%s] read %d toys%s", m.name, #d.positions,
-		missed ~= 0 and (", caught up on %d toys %s since"):format(math.abs(missed), missed > 0 and "added" or "taken out") or "")
+	ns.Trace("[%s] read %d toys, format %d%s", m.name, #d.positions, d.format,
+		m.stale and ", to be saved in format 5" or "")
 end
 
 local function TellOnce(key, msg)
@@ -418,17 +398,25 @@ local function TellOnce(key, msg)
 	end
 end
 
--- The smallest id no Clicky macro uses, bound or just read (records: ns.ReadMacros()).
-local function FreeID(records)
+-- A new code: four random letters that aren't Favorites', and aren't the id of a macro bound or
+-- just read (records: ns.ReadMacros()). Clicky keeps no saved data, so it can't know a deleted
+-- macro's code: a new macro could draw it again (1 in 160,000 for a given one), which would
+-- send a /click line the player copied from the deleted macro to the new one.
+local function NewCode(records)
 	local taken = {}
 	for _, rec in ipairs(records or ns.ReadMacros()) do
 		taken[rec.id] = true
 	end
-	local id = 1
-	while macros[id] or taken[id] do
-		id = id + 1
+	while true do
+		local code = ""
+		for _ = 1, ns.CODE_LENGTH do
+			local at = math.random(#ns.CODE_LETTERS)
+			code = code .. ns.CODE_LETTERS:sub(at, at)
+		end
+		if code ~= ns.FAVORITES_ID and not taken[code] and not macros[code] then
+			return code
+		end
 	end
-	return id
 end
 
 -- Of the records clicking id's button, the one bound to it: same name, else same index, else
@@ -459,15 +447,16 @@ local function FindRecord(m)
 	return nil, "That macro is gone."
 end
 
--- Writes m's macro (rec, as read) with toys: the one place a macro's data is written.
-local function Save(m, rec, toys)
+-- Writes m's macro (rec, as read) with toys: the one place a macro's data is written. body is
+-- rec's body unless the caller has changed it too (Resave gives a format 4 macro a code).
+local function Save(m, rec, toys, body)
 	local list = ns.GetToyList()
 	local data, err = Encode(toys, list)
 	if not data then
 		return nil, err
 	end
 	local index
-	index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetDataLine(rec.body, data))
+	index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetDataLine(body or rec.body, data))
 	if not index then
 		return nil, err
 	end
@@ -497,7 +486,7 @@ local function Wait(what)
 end
 
 -- Two macros clicking the same button (a copy, or one pasted from elsewhere): the original keeps
--- the button, each other one gets a free id written into its /click line.
+-- the button, each other one gets a new code written into its /click line.
 local function SeparateCopies(records, canWrite)
 	local live = {}
 	for _, rec in ipairs(records) do
@@ -506,10 +495,10 @@ local function SeparateCopies(records, canWrite)
 	for _, rec in ipairs(records) do
 		if live[rec.id] ~= rec then
 			if canWrite then
-				local newID = FreeID(records)
-				local index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetButtonID(rec.body, rec.id, newID))
+				local newCode = NewCode(records)
+				local index, err = ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetCode(rec.body, rec.id, newCode))
 				if index then
-					ns.Trace("[%s] copy of %s%d, now %s%d", rec.name, ns.SET_BUTTON_PREFIX, rec.id, ns.SET_BUTTON_PREFIX, newID)
+					ns.Trace("[%s] copy of %s, now %s", rec.name, ns.ButtonName(rec.id), ns.ButtonName(newCode))
 					return live, true
 				end
 				TellOnce("copy" .. rec.name, ("%s is a copy of another Clicky macro and couldn't be separated from it. %s"):format(rec.name, err))
@@ -522,11 +511,11 @@ end
 
 -- Runtime macros for what was read; ones whose macro is gone are dropped.
 local function Bind(live, list)
-	local seen = { [0] = true }
+	local seen = { [ns.FAVORITES_ID] = true }
 	for id, rec in pairs(live) do
 		local m = macros[id]
 		if not m then
-			m = { id = id, buttonName = ns.SET_BUTTON_PREFIX .. id }
+			m = { id = id, buttonName = ns.ButtonName(id) }
 			macros[id] = m
 		end
 		m.name, m.icon, m.index = rec.name, rec.icon, rec.index
@@ -561,23 +550,51 @@ local function Bind(live, list)
 	end
 end
 
--- A macro saved against an earlier toy list is re-saved against the current one, so the toys
--- added since don't count towards the next catch-up.
-local function Resave(live, canWrite)
+-- A format 4 macro (written by 0.4.0) is saved again in format 5, and a macro whose line has
+-- 0.4.0's number gets a code, in the same write. Waits for combat to end, like every write. Until
+-- then it behaves as it did, with its old buttons; after, the next pass finds it under its code and
+-- the old buttons are emptied. A format 4 copy that SeparateCopies already gave a code keeps it.
+local function Resave(live, canWrite, records)
 	for id, rec in pairs(live) do
 		local m = macros[id]
 		if m.state == "ready" and m.stale then
 			if canWrite then
-				local ok, err = Save(m, rec, m.toys)
+				local body, newCode
+				if ns.IsFormat4ID(id) then
+					newCode = NewCode(records)
+					body = ns.SetCode(rec.body, id, newCode)
+				end
+				local ok, err = Save(m, rec, m.toys, body)
 				if ok then
-					ns.Trace("[%s] re-saved for %d toys", m.name, #ns.GetToyList().ids)
+					ns.Trace("[%s] converted from format 4: saved %d toys in format 5%s", m.name, CountToys(m),
+						newCode and (", button " .. ns.ButtonName(newCode)) or "")
 					return true
 				end
-				TellOnce("save" .. id, ("Couldn't update %s for this patch's toy changes. %s"):format(m.name, err))
+				ns.Trace("[%s] conversion to format 5 failed: %s", m.name, err)
+				TellOnce("save" .. id, ("Couldn't convert %s for this version of Clicky. %s"):format(m.name, err))
 			end
 			Wait("macros to re-save")
 		end
 	end
+	return false
+end
+
+-- Favorites' macro with 0.4.0's /click line gets the current one. Waits for combat to end.
+local function ResaveFavorites(canWrite)
+	local fav = ns.FindFavoritesMacro()
+	if not (fav and fav.old) then
+		return false
+	end
+	if canWrite then
+		local index, err = ns.EditMacroAt(fav.index, fav.name, fav.icon, ns.NewFavoritesBody(fav.body))
+		if index then
+			ns.Trace("[%s] Favorites' macro now clicks %s", fav.name, ns.FAVORITES_BUTTON)
+			return true
+		end
+		ns.Trace("[%s] Favorites' line update failed: %s", fav.name, err)
+		TellOnce("favorites line", ("Couldn't update %s for this version of Clicky. %s"):format(fav.name, err))
+	end
+	Wait("Favorites' macro to update")
 	return false
 end
 
@@ -591,7 +608,7 @@ local function SyncPass()
 		return true
 	end
 	Bind(live, list)
-	return Resave(live, canWrite)
+	return ResaveFavorites(canWrite) or Resave(live, canWrite, records)
 end
 
 local syncing, again = false, false
@@ -628,7 +645,7 @@ end
 function ns.GetMacros()
 	local list = {}
 	for id, m in pairs(macros) do
-		if id ~= 0 then
+		if id ~= ns.FAVORITES_ID then
 			list[#list + 1] = m
 		end
 	end
@@ -648,7 +665,7 @@ end
 
 function ns.HasOwnMacros()
 	for id in pairs(macros) do
-		if id ~= 0 then
+		if id ~= ns.FAVORITES_ID then
 			return true
 		end
 	end
@@ -742,16 +759,17 @@ function ns.MakeMacro(name, itemID)
 	local data
 	data, err = Encode({ [itemID] = true }, list)
 	if not data then
+		ns.Trace("[macro] make refused: %s", err)
 		return nil, err
 	end
-	local id = FreeID()
-	local _, _, icon = C_ToyBox.GetToyInfo(itemID)
+	local id = NewCode()
+	local icon = ns.ToyIcon(itemID)
 	local index
 	index, err = ns.CreateGeneralMacro(name, icon or ns.FAVORITES_ICON, ns.NewBody(id, data))
 	if not index then
 		return nil, err
 	end
-	ns.Trace("[%s] made, id %d, button %s%d, first toy %d", name, id, ns.SET_BUTTON_PREFIX, id, itemID)
+	ns.Trace("[%s] made, id %s, button %s, first toy %d", name, id, ns.ButtonName(id), itemID)
 	ns.expanded[id] = true
 	ns.Sync("make")
 	return macros[id]

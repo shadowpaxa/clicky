@@ -2,3 +2,5 @@
 tests/.cache/
 .lua/
 .luarocks/
+__pycache__/
+.DS_Store

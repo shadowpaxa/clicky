@@ -33,13 +33,14 @@ local function PrintDebug()
 		tostring(C_AddOns.IsAddOnLoaded("Blizzard_Collections"))))
 	Print(("Clicky %s"):format(tostring(C_AddOns.GetAddOnMetadata(ADDON, "Version"))))
 	ns.Sync("debug")
-	-- The game's count can be higher than the probe's: in play it counted 1,175 while GetToyLink
-	-- answered for 1,146, the same list in every session (seen in play).
 	local list = ns.GetToyList()
+	Print(("toy list: %d toys from build %s (game counts %d), owned: %d"):format(
+		#list.ids, tostring(ns.TOY_LIST_BUILD), C_ToyBox.GetNumToys(), ns.CountOwnedToys()))
 	local probedUpTo, found, ms = ns.GetProbeInfo()
-	Print(("toy list: %d toys (game counts %d), highest item %s, probed item IDs 1-%d in %d ms, owned: %d"):format(
-		found, C_ToyBox.GetNumToys(), tostring(list.highest), probedUpTo, ms, ns.CountOwnedToys()))
-	Print(("a macro holds up to %d toys and catches up on up to %d toys added or taken out"):format(ns.MACRO_TOY_CAP, ns.CATCH_UP_LIMIT))
+	if probedUpTo then
+		Print(("format 4 scan: item IDs 1-%d in %d ms, %d toys"):format(probedUpTo, ms, found))
+	end
+	Print(("a macro holds up to %d toys"):format(ns.MACRO_TOY_CAP))
 	local waits = {}
 	for what, n in pairs(ns.GetWaiting()) do
 		waits[#waits + 1] = ("%s: %d"):format(what, n)
@@ -58,14 +59,18 @@ local function PrintDebug()
 		local macro
 		if m.builtin then
 			local fav = ns.FindFavoritesMacro()
-			macro = ("%s, state %s%s"):format(fav and tostring(fav.index) or "none", tostring(m.state),
-				m.reason and (" (" .. m.reason .. ")") or "")
+			macro = ("%s, state %s%s%s"):format(fav and tostring(fav.index) or "none", tostring(m.state),
+				m.reason and (" (" .. m.reason .. ")") or "", fav and fav.old and " (line needs updating)" or "")
 		else
 			local written = m.data and ns.DecodeToys(m.data)
-			macro = ("%s, state %s%s, data %d chars saved for %s toys up to item %s%s"):format(tostring(m.index),
+			local saved = "?"
+			if written then
+				saved = written.format == 4 and ("4, saved against %d game toys up to item %d"):format(written.count, written.highest)
+					or ("5, %d toys"):format(#written.positions)
+			end
+			macro = ("%s, state %s%s, data %d chars, format %s%s"):format(tostring(m.index),
 				tostring(m.state), m.reason and (" (" .. m.reason .. ")") or "", m.data and #m.data or 0,
-				written and tostring(written.count) or "?", written and tostring(written.highest) or "?",
-				m.stale and " (needs re-saving)" or "")
+				saved, m.stale and " (needs re-saving)" or "")
 		end
 		local button = m.button
 		local drawer = ns.GetDrawer(m.id)

@@ -7,6 +7,7 @@
 
 Core.lua
 Codec.lua
+ToyList.lua
 Toys.lua
 MacroStore.lua
 Macros.lua

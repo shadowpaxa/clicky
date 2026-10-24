@@ -6,6 +6,12 @@
 -- a second computer: wow.New({ account = world.account }). It loads the files listed in
 -- Clicky.toc as the game does (each file gets ("Clicky", ns)) and fires the login events.
 --
+-- Clicky's toy list (ToyList.lua) is shipped with Clicky, not read from the game, so a world has
+-- its own: options.toyList, a list of item IDs, stands in for ToyList.lua's ns.TOY_IDS. Without
+-- it the list is the account's toys (account.toyOrder) as they are when the world is made. A
+-- test that adds a toy to the game or takes one out passes the list explicitly, so the toys'
+-- places don't move. A computer with an older or newer Clicky gets a shorter or longer toyList.
+--
 -- Only game state is stubbed: toys, macros, action bars running /click lines (with macro
 -- conditionals and the mouse button), secure buttons and their modified attributes, secure
 -- snippets in a restricted-like environment, modifier keys, auto-hiding frames, timers, combat
@@ -274,9 +280,10 @@ end
 local World = {}
 World.__index = World
 
--- options.toys: list of { id, name, icon, owned = true, usable = true, favorite, cooldown }
+-- options.toys: list of { id, name, icon, owned = true, usable = true, favorite, cooldown, loading }
 -- options.macros: list of { name, icon, body }
 -- options.account: another world's account, instead of toys and macros
+-- options.toyList: item IDs, Clicky's toy list on this computer (see the top of this file)
 -- options.toysLoading: the player's toys haven't arrived yet (see World:LoadToys)
 -- options.combat: logging in (or reloading) in combat
 function wow.New(options)
@@ -310,6 +317,7 @@ function wow.New(options)
 	world.account = account
 	world.toys, world.toyOrder, world.macros, world.bars = account.toys, account.toyOrder, account.macros, account.bars
 	world.characterMacros = account.characterMacros
+	world.toyList = options.toyList or { unpack(account.toyOrder) }
 	world:BuildEnv()
 	world:LoadAddon()
 	world:Fire("ADDON_LOADED", ADDON)
@@ -347,6 +355,7 @@ function World:AddToy(toy)
 		usable = toy.usable ~= false,
 		favorite = toy.favorite or false,
 		cooldown = toy.cooldown or 0,
+		loading = toy.loading or false,
 	}
 	self.account.toys[t.id] = t
 	table.insert(self.account.toyOrder, t.id)
@@ -612,9 +621,11 @@ function World:BuildEnv()
 		GetToyLink = function(id)
 			return world.toys[id] and ("|cffffffff|Hitem:" .. id .. "::::::::::::|h[" .. world.toys[id].name .. "]|h|r") or nil
 		end,
+		-- A toy whose data hasn't loaded (toy.loading) has no name or icon yet (seen in play).
 		GetToyInfo = function(id)
 			local t = world.toys[id]
-			if t then return id, t.name, t.icon end
+			if t and not t.loading then return id, t.name, t.icon end
+			if t then return id end
 		end,
 		GetNumToys = function() return #world.toyOrder end,
 		GetNumFilteredToys = function() return #world.toyOrder end,
@@ -639,7 +650,15 @@ function World:BuildEnv()
 			return 0, 0, 1
 		end,
 	}
-	env.C_Item = { RequestLoadItemDataByID = function() end }
+	-- GetItemInfoInstant never asks the server, so it answers for any item (warcraft.wiki.gg API
+	-- C_Item.GetItemInfoInstant): itemID, itemType, itemSubType, itemEquipLoc, icon, ...
+	env.C_Item = {
+		RequestLoadItemDataByID = function() end,
+		GetItemInfoInstant = function(id)
+			local t = world.toys[id]
+			if t then return id, "Miscellaneous", "Junk", "", t.icon, 15, 0 end
+		end,
+	}
 
 	-- Macros: general (account) macros at 1..120, character macros from 121. Names are capped at
 	-- 16 characters; bodies longer than 255 are cut (warcraft.wiki.gg API_EditMacro). Every
@@ -704,6 +723,8 @@ function World:LoadAddon()
 		local field, value = line:match("^## ([^:]+): (.*)$")
 		if field then
 			self.toc[field] = value
+		elseif line == "ToyList.lua" then
+			ns.TOY_IDS, ns.TOY_LIST_BUILD = self.toyList, "test"
 		elseif line ~= "" and not line:find("^#") then
 			local chunk = assert(loadfile(ROOT .. "/" .. line))
 			setfenv(chunk, self.env)

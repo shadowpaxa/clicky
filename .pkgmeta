@@ -1,6 +1,7 @@
 # BigWigs packager: leave the development files out of the zip (dotfiles always are).
 ignore:
   - tests
+  - tools
   - docs
   - CLAUDE.md
   - README.md

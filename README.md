@@ -76,7 +76,7 @@ Right-click a macro in the Clicky panel, choose **Copy /click line** and copy th
 Paste it into a macro of your own to use a random toy from the Clicky macro there too:
 
 ```
-/click ClickySet3
+/click ClickyBCDF
 /say Surprise!
 ```
 
@@ -113,17 +113,22 @@ name.
 Some toys pass Clicky's checks and still can't be used where you are; WoW shows its error. Your
 next click picks again.
 
+**A macro does nothing on another computer, and isn't in its Clicky panel.**
+That computer is still on Clicky 0.4.0, which doesn't recognize macros made or converted by a
+newer Clicky. Update Clicky there.
+
 **A macro's icon is greyed out with "?" for its toy count.**
 Clicky can't read that macro's toys. Hover over it for the reason:
 
-- "Clicky can't work out which toys this macro holds": too many toys were added to the game
-  since it was saved. Delete it and make it again.
 - "This macro was saved by a newer version of Clicky": update Clicky.
-- "Clicky can't read this macro's toys": its `#clicky` line was changed, or patches changed the
-  game's toys more than Clicky can work out since it was saved (more than 16 taken out, or an old
-  item turned into a toy while another was taken out). Delete it and make it again.
+- "Clicky can't read this macro's toys": its `#clicky` line was changed, or it was saved by
+  Clicky 0.4.0 and couldn't be converted. Delete it and make it again.
 
 You can still rename it, delete it or move it on your bars.
+
+**I can't add a toy from the latest patch.**
+You'll see "Clicky doesn't know this toy yet. Update Clicky." Clicky carries its own list of the
+game's toys, and a patch's new toys join it when Clicky is updated for that patch.
 
 ## How it works
 
@@ -140,20 +145,20 @@ and make it again.
 
 ![A Clicky macro in /macro: its /click line and its #clicky line](docs/images/macro.png)
 
-**Why does each macro click something called ClickySet?**
+**Why does each macro click something called Clicky plus four letters?**
 WoW only lets a toy be used when you click something, not when an addon asks. So each macro
-clicks a hidden button called `ClickySet` plus a number, which holds the random toy your click
-uses. A right-click goes to a second hidden button, `ClickyP` plus the same number, which opens
-the drawer.
+clicks a hidden button called `Clicky` plus four random letters, which holds the random toy your
+click uses. A right-click goes to a second hidden button, `ClickyP` plus the same four letters,
+which opens the drawer.
 
 **What happens to a toy I no longer own?**
 It stays in the macro, greyed out in the panel and left out of the drawer, and is used again if
 you get it back.
 
 **What happens when a patch adds or removes toys?**
-Your macros keep their toys (except any taken out of the game), and Clicky updates them for the
-new list when you log in. If a patch changes too much for an old macro to be worked out, it shows
-greyed out (see Troubleshooting).
+Your macros keep their toys: Clicky carries its own list of the game's toys, so a patch can't
+change which toys a macro holds. You can add a patch's new toys once Clicky is updated for that
+patch. A toy taken out of the game stays in your macros; you can remove it in the panel.
 
 **What happens if I remove Clicky?**
 Its macros stay in `/macro` and do nothing when clicked. Delete them there, or install Clicky

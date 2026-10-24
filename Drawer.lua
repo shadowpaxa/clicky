@@ -1,4 +1,4 @@
--- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyP0 for
+-- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyPFVRT for
 -- Favorites), which opens a grid of the macro's owned toys at the mouse, in the panel's order.
 -- Clicking a toy uses it. The drawer closes when a toy is chosen, on Escape, on a second
 -- right-click, and when the mouse leaves it.
@@ -131,7 +131,7 @@ function ns.SetUpDrawer(m)
 	local drawer = { frame = frame, opener = opener, buttons = {}, count = 0 }
 	frame.drawer = drawer
 	drawers[id] = drawer
-	ns.Trace("[drawer] created %s%d", ns.DRAWER_BUTTON_PREFIX, id)
+	ns.Trace("[drawer] created %s%s", ns.DRAWER_BUTTON_PREFIX, id)
 end
 
 function ns.FillDrawer(m)
@@ -152,8 +152,7 @@ function ns.FillDrawer(m)
 		button:SetAttribute("item", itemID)
 		button:SetAttribute("type", "toy")
 		button:SetAttribute("toy", itemID)
-		local _, _, icon = C_ToyBox.GetToyInfo(itemID)
-		button.icon:SetTexture(icon)
+		button.icon:SetTexture(ns.ToyIcon(itemID))
 		button:ClearAllPoints()
 		button:SetPoint("TOPLEFT", PADDING + (i - 1) % columns * step, -(PADDING + math.floor((i - 1) / columns) * step))
 		button:Show()
@@ -184,7 +183,7 @@ function ns.EmptyDrawer(id)
 	drawer.frame:Hide()
 	drawer.frame:SetAttribute("count", 0)
 	drawer.count = 0
-	ns.Trace("[drawer] emptied %s%d", ns.DRAWER_BUTTON_PREFIX, id)
+	ns.Trace("[drawer] emptied %s%s", ns.DRAWER_BUTTON_PREFIX, id)
 end
 
 function ns.GetDrawer(id)

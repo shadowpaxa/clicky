@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""ToyList.lua only grows at the end: a toy's number in players' macros is its place in it.
+
+With no arguments, compares ToyList.lua with the one at every tag this commit contains
+(`git tag --merged HEAD`): each of those lists must be a prefix of this one. Every tag, not just
+the newest, because the newest can be on this very commit (a release's own CI run, or
+tools/release.sh before its commit). Tags without a ToyList.lua are skipped. `--old FILE --new FILE` compares two
+files instead (tests/test_toylist.lua uses it). Compares the item IDs, not the text.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from update_toys import read_ids  # noqa: E402
+
+
+def problem(old, new):
+    """Why `new` isn't `old` grown at the end, or None."""
+    seen = set()
+    for place, item in enumerate(new):
+        if item in seen:
+            return "item %d is listed twice (second time at place %d)" % (item, place)
+        seen.add(item)
+    if len(new) < len(old):
+        return "the list shrank from %d to %d toys" % (len(old), len(new))
+    for place, item in enumerate(old):
+        if new[place] != item:
+            return "place %d held item %d and now holds %d" % (place, item, new[place])
+    return None
+
+
+def git(*args):
+    result = subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--old")
+    parser.add_argument("--new")
+    args = parser.parse_args()
+    if bool(args.old) != bool(args.new):
+        parser.error("--old and --new go together")
+    olds = []
+    if args.old:
+        with open(args.old, encoding="utf-8") as f:
+            olds.append(("the old list", read_ids(f.read())))
+    else:
+        for tag in (git("tag", "--merged", "HEAD") or "").split():
+            text = git("show", "%s:ToyList.lua" % tag)
+            if text is not None:
+                olds.append((tag, read_ids(text)))
+    with open(args.new or os.path.join(ROOT, "ToyList.lua"), encoding="utf-8") as f:
+        new = read_ids(f.read())
+    if not olds:
+        why = problem([], new)
+        if why:
+            print("ToyList.lua: %s" % why)
+            return 1
+        print("ToyList.lua: %d toys, no tag has a list to compare" % len(new))
+        return 0
+    for where, old in olds:
+        why = problem(old, new)
+        if why:
+            print("ToyList.lua must only grow at the end (compared with %s): %s" % (where, why))
+            return 1
+    print("ToyList.lua: %d toys, grown from %s" % (len(new), ", ".join(
+        "%s's %d" % (where, len(old)) for where, old in olds)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

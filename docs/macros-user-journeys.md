@@ -12,17 +12,22 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
   drawer on a right-click. The point is less code.
 - 2026-10-17: Favorites works like any other macro, with as few exceptions as possible.
 - 2026-10-17: Alpha releases may break players' macros, with no migration code; full releases
-  must not.
+  must not. One exception, made 2026-10-24: 0.5.0 converts macros saved by 0.4.0 (format 4), the
+  one conversion that release carries, to be removed before the first full release.
 - 2026-10-17: No license, and no bug-report route for now.
 - 2026-10-18: No saved variables: a macro is the only copy of its toys.
 - 2026-10-18: Nothing in the repo states what the code or a cited source doesn't confirm.
 - 2026-10-18: The launch bar is "not embarrassing", not best practice.
+- 2026-10-24: Clicky ships its own toy list instead of building one from the game at login. The
+  list only grows at the end, and a toy's number is its place in it, so a patch can't shift the
+  toys in players' macros. A toy added by a patch can be put in macros once Clicky is updated for
+  that patch; a toy taken out of the game keeps its place.
 
 A Clicky macro is an ordinary general macro (in /macro) whose toys are written into it, so it
 follows the player to any computer they play on, like the rest of their macros. Every macro
 follows the same fixed rule: it holds up to 150 toys (Favorites, whose toys are the stars, has no
-limit), and it catches up on up to 16 toys a patch adds among the toys it was saved with (old
-items turned into toys) or takes out of the game.
+limit). Clicky carries its own list of every toy in the game, which only grows at the end, so a
+patch never changes which toys a macro holds.
 
 ## 1. Discover macros
 *Goal: find out how to make a macro.*
@@ -93,7 +98,9 @@ hidden by default; each macro shows its toy count. Hovering over a macro's icon 
 bars. Favorites' macro ("Favorites") is made the first time it's dragged or renamed; if all
 general macro slots are full, a message says so.
 To use a macro's toys from a macro of the player's own, its right-click menu in the panel has
-**Copy /click line**, which shows `/click ClickySet<id>` selected to copy.
+**Copy /click line**, which shows `/click Clicky<code>` selected to copy. The code is four random
+capital letters (consonants only), different from every other macro's; Favorites' is `FVRT`, so
+its line is `/click ClickyFVRT`.
 
 ## 8. Rename or delete a macro
 *Goal: tidy up macros.*
@@ -118,10 +125,23 @@ loaded the player's toys.
 2. Log in after a patch that added toys to the game.
 
 *Result:* every macro keeps its toys, here and on every other computer. Learning a toy changes
-nothing: a macro's toys are written against every toy in the game, not the player's collection.
-After a patch, Clicky re-saves its macros for the new toys. Clicky expects a patch's new toys to
-have higher item IDs than the existing ones, and those change nothing; an old item turned into a
-toy lands among them, and Clicky catches up on up to 16 of those per macro. More than 16 and the macro says so (journey 11).
+nothing: a macro's toys come from Clicky's list of every toy in the game, not from the player's
+collection. A patch changes no macro. A toy it adds can be put in macros once Clicky is
+updated for that patch; until then adding it is refused with "Clicky doesn't know this toy yet.
+Update Clicky." A macro that holds such a toy shows as made by a newer version on a computer whose
+Clicky is older (journey 11).
+
+Macros saved by Clicky 0.4.0 are converted when the player logs in with 0.5.0, keeping their toys
+(waiting until combat ends, if the player logs in during combat). A computer still on 0.4.0
+doesn't recognize a converted macro, or Favorites once its line is rewritten: they're missing from
+its panel, and clicking them there does nothing (`/click` with no button of that name does nothing,
+SlashCommands.lua). So Clicky needs updating on every computer.
+
+The conversion also gives a 0.4.0 macro its four-letter code in place of the number its /click line
+had (`ClickySet1`), in the same save, and rewrites Favorites' old line (`ClickyButton`, `ClickyP0`)
+to `ClickyFVRT`, once. Action bars hold the macro itself, so they keep working; a `/click` line
+copied into the player's own macro from 0.4.0 needs copying again. A macro that can't be converted
+keeps its old line.
 
 ## 11. A macro whose toys can't be read
 *Goal: understand a macro Clicky can't use.*
@@ -129,15 +149,11 @@ toy lands among them, and Clicky catches up on up to 16 of those per macro. More
 
 *Result:* the macro's icon is greyed out with a small warning mark, and its toy count shows "?".
 Hovering over it, and clicking it (in the panel or on a bar), says why:
-- Patches added more than 16 toys among the toys it was saved with: "Clicky can't work out which
-  toys this macro holds: 17 toys were added to the game since it was saved, more than the 16 it
-  can catch up on. Delete it and make it again."
-- It was saved by a newer Clicky: "This macro was saved by a newer version of Clicky. Update
-  Clicky to use it."
-- Its `#clicky` line was changed (in /macro, say), or patches changed the game's toys more than
-  Clicky can work out since it was saved (more than 16 taken out, or an old item turned into a
-  toy while another was taken out):
-  "Clicky can't read this macro's toys. Delete it and make it again."
+- It was saved by a newer Clicky, including one with toys this Clicky's list doesn't have yet:
+  "This macro was saved by a newer version of Clicky. Update Clicky to use it."
+- Its `#clicky` line was changed (in /macro, say), or it was saved by Clicky 0.4.0 and couldn't be
+  converted (the game's toys had changed since it was saved, or a toy in it isn't in Clicky's
+  list): "Clicky can't read this macro's toys. Delete it and make it again."
 
 It never uses toys that weren't put in it. Its toys can't be changed, but it can be renamed,
 deleted or put on a bar.
@@ -151,16 +167,16 @@ deleted or put on a bar.
 own toy list from then on: changing one never changes the other. With Clicky running when the
 copy is made, the macro it was copied from keeps its buttons, whatever the copy is called. Pasted
 on another WoW account, it works there too (every account has the same game toys), with the toys that account
-owns.
+owns, as long as that account's Clicky is the same version or newer.
 
 ## 13. A toy leaves
 *Goal: keep playing after a toy leaves the collection or the game.*
 1. Log in after the patch.
 
 *Result:* a toy the player no longer owns stays in its macros, greyed out in the panel and left out
-of the drawer, and is never picked; it's picked again if it comes back. A toy taken out of the game's
-data is dropped from its macros: Clicky works out up to 16 such toys per macro and re-saves it
-without them. A macro saved before a patch that took out more than 16 can't be read (journey 11).
+of the drawer, and is never picked; it's picked again if it comes back. A toy taken out of the
+game's data stays in its macros too (0.4.0 dropped it; Clicky no longer does), and the player can
+remove it in the panel.
 
 ## 14. Use the drawer
 *Goal: use a particular toy from a macro.*
