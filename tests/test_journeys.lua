@@ -1,7 +1,8 @@
 -- The journeys in docs/macros-user-journeys.md, as far as Clicky's own logic goes: the real
 -- addon files run against stubbed game state (tests/wow.lua), and each test drives the
--- functions Clicky's UI is built on (the Macros API, ns.PanelRows, ns.ToyMenuEntries). How the
--- Toy Box menus, dialogs, panel and tooltips look and respond is checked by playing.
+-- functions Clicky's UI is built on (the Macros API, ns.PanelRows, ns.OpenEntryMenu) and the
+-- frames it makes (the panel's rows, the drawers' and the grid's buttons). UI behavior is shown
+-- here, or relies only on behavior Blizzard's source shows (tests/wow.lua cites it).
 
 local wow = require("wow")
 
@@ -54,24 +55,20 @@ end
 
 local COMBAT = "Can't change macros in combat."
 local FULL = "Your general macros are full. Delete one in /macro and try again."
-local UNREADABLE = "Clicky can't read this macro's toys. Delete it and make it again."
+local UNREADABLE = "Clicky can't read this macro's items. Delete it and make it again."
 local NEWER = "This macro was saved by a newer version of Clicky. Update Clicky to use it."
-local UNKNOWN_TOY = "Clicky doesn't know this toy yet. Update Clicky."
+local UNKNOWN_TOY = "Clicky doesn't know this item yet. Update Clicky."
 
--- Macros as Clicky 0.4.0 wrote them (format 4), made by the real 0.4.0 code: a worktree of this
--- repository at tag v0.4.0-alpha1, its tests/wow.lua with the toys below, MakeMacro("Illusion",
--- 101), then SetToy(..., true) for each further toy. The bodies are pasted as they came out.
--- Toys: 101 Pirate's Costume, 102 Orb of Deception, 103 Gnomish Gravity Well, 201 Pirate Hat,
--- 202 Fairy Wings, 300 Treasure Chest (the six toys of Toys() above).
--- Illusion holds 101 and 201. Their /click lines are 0.4.0's: ClickySet<number>.
+-- A macro as Clicky 0.4.0 wrote it (its /click line names ClickySet<number>), made by the real
+-- 0.4.0 code: a worktree of this repository at tag v0.4.0-alpha1, MakeMacro("Illusion", 101), then
+-- SetEntry for 201. Clicky reads these as damaged (data in format 4).
 local V040_PIRATE_HAT = "/click [btn:2]ClickyP1;ClickySet1\n"
 	.. "#clicky gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c"
--- The same, made while the game had five toys, without 103.
-local V040_FIVE_TOYS = "/click [btn:2]ClickyP1;ClickySet1\n"
-	.. "#clicky gAAlgAoAOKF2oVZVz3rJKOD3MPb9yQK25bCajjDWP2cLcUlvZiMZesUds7QdEbKHQ"
--- Illusion holds no toys (101 added, then removed).
-local V040_EMPTY = "/click [btn:2]ClickyP1;ClickySet1\n"
-	.. "#clicky gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSnZs"
+
+-- The toys the grid lists.
+local function GridToys(ns, filters, text)
+	return ns.GridSections(filters, text)[1].keys
+end
 
 local ALL_TOYS = { PIRATE, ORB, GNOME, HAT, WINGS, CHEST }
 local function With(ids, extra)
@@ -88,14 +85,20 @@ local function Macro(world, name)
 	error("no Clicky macro " .. name, 2)
 end
 
+local BODY_LIMIT = 255 -- WoW's (MacroFrameText letters="255")
+
+local function Favorites(world)
+	return world.ns.GetMacro(world.ns.FAVORITES_ID)
+end
+
 -- Journey 3's step (Add to new macro...), used by later journeys to get a macro.
 local function MakeMacro(world, itemID, name)
 	return assert(world.ns.MakeMacro(name, itemID))
 end
 
--- Journey 4's step (Add to <macro> in a toy's menu).
+-- Journey 4's step (ticking <macro> in a toy's menu).
 local function AddTo(world, itemID, name)
-	assert(world.ns.SetToy(Macro(world, name), itemID, true))
+	assert(world.ns.SetEntry(Macro(world, name), itemID, true))
 end
 
 -- Journey 7's step: pick up the macro, drop it on a bar slot.
@@ -126,8 +129,9 @@ local function PanelTexts(world)
 	for _, row in ipairs(world.ns.PanelRows()) do
 		if row.kind == "macro" then
 			texts[#texts + 1] = row.macro.name
-		elseif row.kind == "toy" then
-			local _, name = world.env.C_ToyBox.GetToyInfo(row.itemID)
+		elseif row.kind == "entry" then
+			local name = type(row.key) == "number" and select(2, world.env.C_ToyBox.GetToyInfo(row.key))
+				or world.ns.EntryName(row.key)
 			texts[#texts + 1] = "  " .. name
 		else
 			texts[#texts + 1] = row.text
@@ -157,11 +161,15 @@ local function PanelToys(world, name)
 	return texts
 end
 
--- The macro entries in a toy's menu (the Toy Box's and the panel's).
+-- The macro checkboxes in a toy's menu (in the grid and the panel): "[x] Illusion" if the toy is
+-- in Illusion, "[ ] Illusion" if not.
 local function MenuLabels(world, itemID)
+	world.ns.OpenEntryMenu(world.env.UIParent, itemID)
 	local labels = {}
-	for _, entry in ipairs(world.ns.ToyMenuEntries(itemID)) do
-		labels[#labels + 1] = entry.label
+	for _, entry in ipairs(world.menu.entries) do
+		if entry.kind == "CreateCheckbox" then
+			labels[#labels + 1] = (entry.args[1]() and "[x] " or "[ ] ") .. entry.text
+		end
 	end
 	return labels
 end
@@ -180,8 +188,9 @@ local function ExpectUnreadable(world, name, message, slot)
 	eq(row.count, "?", name .. "'s count")
 	eq(row.unreadable, message, "the panel says why")
 	list(PanelToys(world, name), {}, "no toys listed under it")
-	hasNot(MenuLabels(world, PIRATE), "Add to " .. name, "not in toy menus")
-	list({ world.ns.SetToy(row.macro, ORB, true) }, { nil, message }, "its toys can't be changed")
+	hasNot(MenuLabels(world, PIRATE), "[ ] " .. name, "not in toy menus")
+	hasNot(MenuLabels(world, PIRATE), "[x] " .. name, "not in toy menus")
+	list({ world.ns.SetEntry(row.macro, ORB, true) }, { nil, message }, "its toys can't be changed")
 	if slot then
 		world:TakeErrors()
 		world:PressBar(slot)
@@ -190,12 +199,18 @@ local function ExpectUnreadable(world, name, message, slot)
 	end
 end
 
+-- How many toys a drawer holds: the frame's "count" attribute, which the drawer's secure code reads.
+local function DrawerCount(world, id)
+	local drawer = world.ns.GetDrawer(id)
+	return drawer and drawer.frame:GetAttribute("count") or 0
+end
+
 -- The toys in a macro's drawer, in order, as its buttons hold them.
 local function DrawerToys(world, name)
 	local drawer = assert(world.ns.GetDrawer(Macro(world, name).id), "no drawer")
 	local toys = {}
-	for i = 1, drawer.count do
-		toys[i] = drawer.buttons[i]:GetAttribute("item")
+	for i = 1, DrawerCount(world, Macro(world, name).id) do
+		toys[i] = drawer.buttons[i].entry
 	end
 	return toys
 end
@@ -207,9 +222,9 @@ end
 -- Journey 14's step: click a toy in the open drawer.
 local function ClickInDrawer(world, name, itemID)
 	local drawer = world.ns.GetDrawer(Macro(world, name).id)
-	for i = 1, drawer.count do
+	for i = 1, DrawerCount(world, Macro(world, name).id) do
 		local button = drawer.buttons[i]
-		if button:GetAttribute("item") == itemID then
+		if button.entry == itemID then
 			button:Click("LeftButton", false)
 			return
 		end
@@ -222,7 +237,7 @@ local function Line(code)
 	return ("/click [btn:2]ClickyP%s;Clicky%s"):format(code, code)
 end
 local FAVORITES_LINE = Line("FVRT")
-local OLD_FAVORITES_LINE = "/click [btn:2]ClickyP0;ClickyButton" -- 0.4.0's
+local OLD_FAVORITES_LINE = "/click [btn:2]ClickyP0;ClickyButton" -- 0.4.0's; not a Clicky macro, not Favorites'
 local CODE_PATTERN = "Clicky(" .. ("[BCDFGHJKLMNPQRSTVWXZ]"):rep(4) .. ")%f[%W]"
 
 -- The code a body's /click line clicks, or nil.
@@ -235,20 +250,20 @@ local function Code(world, name)
 	return Macro(world, name).id
 end
 
--- The macros in a 0.4.0 world after Clicky converted them: each body is the current format.
-local function ExpectConverted(world, index, positions, what)
-	local ns = world.ns
-	local body = world.macros[index].body
-	local code = CodeOf(body)
-	ok(code, (what or "converted") .. ": the /click line has a code: " .. body)
-	eq(body, ns.NewBody(code, ns.EncodeToys(positions)), what or "converted")
-	return code
+-- An earlier Clicky's Codec.lua, from its release tag (CI fetches tags for tests/check_toylist.py).
+local function OldCodec(tag)
+	local pipe = assert(io.popen("git show " .. tag .. ":Codec.lua 2>/dev/null"))
+	local source = pipe:read("*a")
+	pipe:close()
+	local old = {}
+	assert(loadstring(source, tag .. ":Codec.lua"), "no Codec.lua at " .. tag)("Clicky", old)
+	return old
 end
 
 describe("journeys", function()
 	it("1. Discover macros: the panel lists Favorites, collapsed, and the hint", function()
 		local world = World()
-		list(PanelTexts(world), { "Favorites", "Right-click a toy to make one." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, spell or item to make one." })
 		eq(PanelRow(world, "Favorites").count, 2, "Favorites' count")
 	end)
 
@@ -279,6 +294,7 @@ describe("journeys", function()
 			world:PressBar(1)
 			ok(world:LastUsed() ~= last, "repeated " .. tostring(last))
 			last = world:LastUsed()
+			eq(world.env["Clicky" .. Code(world, "Illusion")]:GetAttribute("toy"), last, "the button holds the toy it used")
 		end
 	end)
 
@@ -296,7 +312,7 @@ describe("journeys", function()
 		end
 		world.toys[PIRATE].cooldown = 300
 		world:PressBar(1)
-		eq(world:LastError(), "No usable toys in Illusion.")
+		list(world:TakeErrors(), { "No usable items in Illusion." })
 	end)
 
 	it("2. Dress up: a toy on the global cooldown is still picked", function()
@@ -357,7 +373,7 @@ describe("journeys", function()
 		world:TakeErrors()
 		world:PressBar(1)
 		eq(#world.used, 0, "nothing was ready when the fight started")
-		list(world:TakeErrors(), { "No usable toys in Illusion." })
+		list(world:TakeErrors(), { "No usable items in Illusion." })
 		world:LeaveCombat()
 		list(UsedToys(world, 1), { PIRATE }, "out of combat, the toy on cooldown is skipped")
 	end)
@@ -427,7 +443,7 @@ describe("journeys", function()
 	it("3. Make a macro: a line typed with Favorites' code and toys doesn't take Favorites' place", function()
 		local world = World()
 		local ns = world.ns
-		world:CreateMacroInUI("Typed", "/click [btn:2]ClickyPFVRT;ClickyFVRT\n#clicky " .. ns.EncodeToys({ 0 }))
+		world:CreateMacroInUI("Typed", "/click [btn:2]ClickyPFVRT;ClickyFVRT\n#clicky " .. ns.EncodePlaces({ 0 }))
 		local macros = ns.GetMacros()
 		eq(#macros, 1, "Favorites only")
 		ok(macros[1].builtin, "Favorites is still Favorites")
@@ -439,7 +455,7 @@ describe("journeys", function()
 	it("3. Make a macro: a toy whose data hasn't loaded yet still gives it its icon", function()
 		local world = World()
 		world.toys[PIRATE].loading = true
-		eq(select(2, world.env.C_ToyBox.GetToyInfo(PIRATE)), nil, "the game has no name for it yet")
+		eq(world.ns.ToyName(PIRATE), "", "the game has no name for it yet")
 		MakeMacro(world, PIRATE, "Illusion")
 		eq(world.macros[1].icon, 1001, "the Pirate's Costume's icon, not Favorites'")
 	end)
@@ -471,35 +487,35 @@ describe("journeys", function()
 		eq(#world.macros, 120)
 	end)
 
-	it("4. Add toys: the toy menu's entry flips, and the macro itself holds the toys", function()
+	it("4. Add toys: the toy menu's checkbox ticks, and the macro itself holds the toys", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
 		MakeMacro(world, HAT, "Illusion mod")
-		list(MenuLabels(world, ORB), { "Add to Illusion", "Add to Illusion mod" })
+		list(MenuLabels(world, ORB), { "[ ] Illusion", "[ ] Illusion mod" })
 		AddTo(world, ORB, "Illusion")
 		AddTo(world, ORB, "Illusion mod")
-		list(MenuLabels(world, ORB), { "Remove from Illusion", "Remove from Illusion mod" })
+		list(MenuLabels(world, ORB), { "[x] Illusion", "[x] Illusion mod" })
 		list(PanelTexts(world), { "Favorites", "Illusion", "  Orb of Deception", "  Pirate's Costume",
 			"Illusion mod", "  Orb of Deception", "  Pirate Hat" })
 		-- The macro itself holds the toys: a computer with no saved data reads them back.
 		list(PanelToys(NextLogin(world), "Illusion"), { "Orb of Deception", "Pirate's Costume" })
 	end)
 
-	it("4. Add toys: a macro holds up to 150 toys; the 151st is refused with the reason", function()
+	it("4. Add toys: a macro holds up to 100 toys; the 101st is refused with the reason", function()
 		local toys = {}
-		for i = 1, 151 do toys[i] = { id = 1000 + i * 7, name = ("Toy %03d"):format(i) } end
+		for i = 1, 101 do toys[i] = { id = 1000 + i * 7, name = ("Toy %03d"):format(i) } end
 		local world = World({ toys = toys })
 		MakeMacro(world, toys[1].id, "Big")
-		for i = 2, 150 do AddTo(world, toys[i].id, "Big") end
-		eq(PanelRow(world, "Big").count, 150)
-		ok(#world:FindMacroByName("Big").body <= 255, "150 toys fit")
-		list({ world.ns.SetToy(Macro(world, "Big"), toys[151].id, true) }, { nil, "Big is full: a macro holds up to 150 toys." })
-		has(MenuLabels(world, toys[151].id), "Add to Big", "the entry is unchanged")
-		eq(PanelRow(world, "Big").count, 150, "still 150")
-		assert(world.ns.SetToy(Macro(world, "Big"), toys[150].id, false))
-		AddTo(world, toys[151].id, "Big")
-		has(PanelToys(world, "Big"), "Toy 151")
-		list(PanelToys(NextLogin(world), "Big"), PanelToys(world, "Big"), "all 150 read back on another computer")
+		for i = 2, 100 do AddTo(world, toys[i].id, "Big") end
+		eq(PanelRow(world, "Big").count, 100)
+		ok(#world:FindMacroByName("Big").body <= 255, "100 toys fit")
+		list({ world.ns.SetEntry(Macro(world, "Big"), toys[101].id, true) }, { nil, "Big is full: a macro holds up to 100 items." })
+		has(MenuLabels(world, toys[101].id), "[ ] Big", "the checkbox is unchanged")
+		eq(PanelRow(world, "Big").count, 100, "still 100")
+		assert(world.ns.SetEntry(Macro(world, "Big"), toys[100].id, false))
+		AddTo(world, toys[101].id, "Big")
+		has(PanelToys(world, "Big"), "Toy 101")
+		list(PanelToys(NextLogin(world), "Big"), PanelToys(world, "Big"), "all 100 read back on another computer")
 	end)
 
 	it("4. Add toys: a macro the player filled with their own lines refuses with the reason", function()
@@ -509,9 +525,9 @@ describe("journeys", function()
 		MakeMacro(world, toys[1].id, "Illusion")
 		world:EditMacroInUI(1, nil, world.macros[1].body .. "\n/say " .. ("x"):rep(255))
 		eq(#world.macros[1].body, 255, "as full as /macro lets it be")
-		list({ world.ns.SetToy(Macro(world, "Illusion"), toys[300].id, true) },
+		list({ world.ns.SetEntry(Macro(world, "Illusion"), toys[300].id, true) },
 			{ nil, "That macro is too long to update. Remove your own lines from it in /macro." })
-		has(MenuLabels(world, toys[300].id), "Add to Illusion", "unchanged")
+		has(MenuLabels(world, toys[300].id), "[ ] Illusion", "unchanged")
 		ok(#world.macros[1].body <= 255)
 	end)
 
@@ -523,52 +539,57 @@ describe("journeys", function()
 			"#showtooltip\n/click ClickyBCDF\n#clicky abc\n/say hi", "an existing one is replaced in place")
 	end)
 
-	it("4. Add toys: 150 toys fit in a macro while Clicky's toy list has up to 12,501 toys", function()
+	it("4. Add toys: any 100 toys fit in a macro while Clicky's list has up to 140,387 places", function()
 		local ns = World().ns
-		eq(ns.MACRO_TOY_CAP, 150)
+		eq(ns.MACRO_ENTRY_CAP, 100)
+		local GUARANTEE = 140387
 		local shipped = {}
 		assert(loadfile("ToyList.lua"))("Clicky", shipped)
-		local listed = #shipped.TOY_IDS
-		ok(listed > 1000, "ToyList.lua lists the game's toys")
+		-- Every entry holds a place, spells and items ("s", "i") too, and a later version puts
+		-- them in macros, so the whole list counts.
+		local places = #shipped.TOY_IDS
+		ok(places > 1000, "ToyList.lua lists the game's toys")
+		ok(places <= GUARANTEE, ("ToyList.lua has %d places, past the guarantee"):format(places))
 		-- Codec.lua's arithmetic.
-		eq(#ns.ClickLine("BCDF"), 36, "the /click line, a fixed length")
-		local chars = ns.MACRO_BODY_LIMIT - 36 - 1 - #"#clicky "
+		eq(#ns.NewBody("BCDF", ""):match("^[^\n]*"), 36, "the /click line, a fixed length")
+		local chars = BODY_LIMIT - 36 - 1 - #"#clicky "
 		eq(chars, 210, "data characters")
-		local bits = (chars - 1 - 2) * 6
-		eq(bits, 1242, "bits for the positions, after the header and the checksum")
-		eq(150 * 7 + math.floor((12501 - 150) / 64), 1242, "the worst case with Rice parameter 6, over 12,501 toys")
-		ok(150 * 7 + math.floor((12502 - 150) / 64) > 1242, "and 12,502 toys is one too many")
-		local function Longest(toys, k)
-			-- The longest encoding for k toys out of the list's toys: one gap as big as it can be
-			-- (Codec.lua's bound), and the same toys spread evenly for good measure.
+		local bits = (chars - 2 - 2) * 6
+		eq(bits, 1236, "bits for the positions, after the two header and two checksum characters")
+		eq(100 * 11 + math.floor((GUARANTEE - 100) / 1024), 1236, "the worst case with Rice parameter 10")
+		for r = 0, 15 do
+			ok(100 * (r + 1) + math.floor((GUARANTEE + 1 - 100) / 2 ^ r) > 1236, "one more place is too many for r = " .. r)
+		end
+		local function Body(positions)
+			return ns.NewBody("BCDF", assert(ns.EncodePlaces(positions)))
+		end
+		local function Longest(n, k)
+			-- The longest encodings for k toys out of n places: one gap as big as it can be
+			-- (Codec.lua's bound), and the same toys spread evenly.
 			local tail, spread = {}, {}
 			for i = 1, k do
-				tail[i] = toys - k + i - 1
-				spread[i] = math.floor((i - 1) * toys / k)
+				tail[i] = n - k + i - 1
+				spread[i] = math.floor((i - 1) * n / k)
 			end
-			local a = ns.NewBody("BCDF", assert(ns.EncodeToys(tail)))
-			local b = ns.NewBody("BCDF", assert(ns.EncodeToys(spread)))
-			return math.max(#a, #b)
+			return math.max(#Body(tail), #Body(spread))
 		end
-		for toys = 1, listed do
-			local k = math.min(ns.MACRO_TOY_CAP, toys)
-			local length = Longest(toys, k)
-			if length > ns.MACRO_BODY_LIMIT then
-				error(("%d toys out of %d take %d characters"):format(k, toys, length))
-			end
+		for k = 1, ns.MACRO_ENTRY_CAP do
+			ok(Longest(places, k) <= BODY_LIMIT, k .. " toys of the shipped list")
+			ok(Longest(GUARANTEE, k) <= BODY_LIMIT, k .. " toys of 140,387 places")
 		end
-		for k = 1, ns.MACRO_TOY_CAP do
-			ok(Longest(listed, k) <= ns.MACRO_BODY_LIMIT, k .. " of the shipped list's toys")
-			ok(Longest(12501, k) <= ns.MACRO_BODY_LIMIT, k .. " of 12,501 toys")
+		for n = 100, GUARANTEE, 997 do
+			ok(Longest(n, 100) <= BODY_LIMIT, "100 toys of " .. n .. " places")
 		end
+		-- One place past the guarantee, the worst 100 toys no longer fit.
+		ok(Longest(GUARANTEE + 1, 100) > BODY_LIMIT, "100 toys of 140,388 places")
 	end)
 
 	it("4. Add toys: the toys read back exactly, whatever the collection", function()
 		local ns = World().ns
 		math.randomseed(7)
 		for _ = 1, 300 do
-			local owned = math.random(1, 4095)
-			local k = math.random(0, math.min(ns.MACRO_TOY_CAP, owned))
+			local owned = math.random(1, math.random() < 0.5 and 4095 or 140387)
+			local k = math.random(0, math.min(ns.MACRO_ENTRY_CAP, owned))
 			local chosen, positions = {}, {}
 			while #positions < k do
 				local p = math.random(0, owned - 1)
@@ -578,28 +599,28 @@ describe("journeys", function()
 				end
 			end
 			table.sort(positions)
-			local got = assert(ns.DecodeToys(assert(ns.EncodeToys(positions))))
-			eq(got.format, 5)
+			local got = assert(ns.DecodePlaces(assert(ns.EncodePlaces(positions))))
 			list(got.positions, positions)
 		end
-		eq(#ns.EncodeToys({}), 3, "no toys: the header and the checksum")
-		list(assert(ns.DecodeToys(ns.EncodeToys({}))).positions, {}, "and it reads back as none")
-		local good = ns.EncodeToys({ 0, 1, 5, 40, 300, 301, 1100 })
-		eq(#good, 14, "the header character, 11 characters of positions, then the checksum")
-		list({ ns.DecodeToys(good:sub(1, 2)) }, { nil, "damaged" }, "too short")
-		list({ ns.DecodeToys(good:sub(1, -2)) }, { nil, "damaged" }, "cut off")
-		for i = 2, #good do
+		eq(#ns.EncodePlaces({}), 4, "no toys: the two header characters and the checksum")
+		list(assert(ns.DecodePlaces(ns.EncodePlaces({}))).positions, {}, "and it reads back as none")
+		local good = ns.EncodePlaces({ 0, 1, 5, 40, 300, 301, 1100 })
+		eq(#good, 15, "the two header characters, 11 characters of positions, then the checksum")
+		list({ ns.DecodePlaces(good:sub(1, 2)) }, { nil, "damaged" }, "too short")
+		list({ ns.DecodePlaces(good:sub(1, 3)) }, { nil, "damaged" }, "the header and one character")
+		list({ ns.DecodePlaces(good:sub(1, -2)) }, { nil, "damaged" }, "cut off")
+		for i = 1, #good do
 			-- Any one character typed differently, as a hand edit in /macro might: never other toys.
 			local c = good:sub(i, i) == "A" and "B" or "A"
-			list({ ns.DecodeToys(good:sub(1, i - 1) .. c .. good:sub(i + 1)) }, { nil, "damaged" }, "character " .. i .. " changed")
+			list({ ns.DecodePlaces(good:sub(1, i - 1) .. c .. good:sub(i + 1)) }, { nil, "damaged" }, "character " .. i .. " changed")
 		end
-		list({ ns.DecodeToys(good:sub(1, 7) .. "|" .. good:sub(9)) }, { nil, "damaged" }, "not the alphabet")
-		list({ ns.DecodeToys("w" .. good:sub(2)) }, { nil, "newer" }, "a newer format")
-		list({ ns.DecodeToys("I" .. good:sub(2)) }, { nil, "damaged" }, "format 1, a development build's")
-		list({ ns.DecodeToys("Q" .. good:sub(2)) }, { nil, "damaged" }, "format 2, a development build's")
-		list({ ns.DecodeToys("g" .. good:sub(2)) }, { nil, "damaged" }, "format 4 without its numbers")
-		list(ns.CheckNumbers({ 1, 2, 3 }), ns.CheckNumbers({ 3, 1, 2 }), "check numbers don't depend on order")
-		ok(not ns.SameChecks(ns.CheckNumbers({ 1, 2, 3 }), ns.CheckNumbers({ 1, 2, 4 })), "they depend on the toys")
+		list({ ns.DecodePlaces(good:sub(1, 7) .. "|" .. good:sub(9)) }, { nil, "damaged" }, "not the alphabet")
+		list({ ns.DecodePlaces("x" .. good:sub(2)) }, { nil, "newer" }, "format 7")
+		list({ ns.DecodePlaces("/" .. good:sub(2)) }, { nil, "newer" }, "format 21 and later")
+		list({ ns.DecodePlaces("rAvTtd") }, { nil, "damaged" }, "format 5, 0.5.0's: alpha releases may break macros")
+		list({ ns.DecodePlaces("I" .. good:sub(2)) }, { nil, "damaged" }, "format 1, a development build's")
+		list({ ns.DecodePlaces("Q" .. good:sub(2)) }, { nil, "damaged" }, "format 2, a development build's")
+		list({ ns.DecodePlaces("g" .. good:sub(2)) }, { nil, "damaged" }, "format 4, 0.4.0's")
 	end)
 
 	it("5. See a macro: its toys listed alphabetically when open, with its toy count", function()
@@ -637,18 +658,18 @@ describe("journeys", function()
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
 		world.env.C_ToyBox.SetIsFavorite(PIRATE, true)
 		list(PanelTexts(world), { "Favorites", "  Fairy Wings", "  Pirate's Costume", "  Treasure Chest",
-			"Right-click a toy to make one." })
+			"Right-click a toy, spell or item to make one." })
 	end)
 
 	it("5. See a macro: an open macro with no toys says how to add them", function()
 		local world = World()
 		local m = MakeMacro(world, PIRATE, "Illusion")
-		assert(world.ns.SetToy(m, PIRATE, false))
+		assert(world.ns.SetEntry(m, PIRATE, false))
 		world.env.C_ToyBox.SetIsFavorite(WINGS, false)
 		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
 		list(PanelTexts(world), { "Favorites", "Star toys to add them.", "Illusion",
-			"Right-click toys to add them." })
+			"Right-click a toy, spell or item to add it." })
 	end)
 
 	it("6. Remove a toy: other macros keep it", function()
@@ -656,7 +677,7 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		AddTo(world, ORB, "Illusion")
 		MakeMacro(world, ORB, "Tricks")
-		assert(world.ns.SetToy(Macro(world, "Illusion"), ORB, false))
+		assert(world.ns.SetEntry(Macro(world, "Illusion"), ORB, false))
 		list(PanelTexts(world), { "Favorites", "Illusion", "  Pirate's Costume", "Tricks", "  Orb of Deception" })
 		list(PanelToys(NextLogin(world), "Illusion"), { "Pirate's Costume" }, "the macro itself changed")
 	end)
@@ -685,7 +706,7 @@ describe("journeys", function()
 		local macros = {}
 		for i = 1, 120 do macros[i] = { name = "m" .. i, body = "/say " .. i } end
 		local full = World({ macros = macros })
-		full.ns.PickupMacro(full.ns.favorites)
+		full.ns.PickupMacro(Favorites(full))
 		eq(full.cursor, nil, "nothing to drop")
 		list(full:TakeErrors(), { FULL })
 	end)
@@ -696,18 +717,18 @@ describe("journeys", function()
 		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
 		PutOnBar(world, "Favorites", 1)
 		local m = MakeMacro(world, PIRATE, "Illusion")
-		assert(world.ns.SetToy(m, PIRATE, false))
+		assert(world.ns.SetEntry(m, PIRATE, false))
 		PutOnBar(world, "Illusion", 2)
 		world:TakeErrors()
 		world:PressBar(1)
 		world:PressBar(2)
 		list(world:TakeErrors(), { "Favorites has no toys. Star toys in the Toy Box to add them.",
-			"Illusion has no toys. Right-click toys in the Toy Box to add them." })
+			"Illusion has no items. Right-click a toy, spell or item in the Toy Box to add it." })
 	end)
 
 	it("7. Put a macro on a bar: Favorites uses its existing macro, whatever it's called", function()
 		local world = World({ macros = { { name = "Stars", icon = "x", body = "#showtooltip\n" .. FAVORITES_LINE } } })
-		eq(PanelRow(world, "Stars").macro, world.ns.favorites, "Favorites, by its macro's name")
+		eq(PanelRow(world, "Stars").macro, Favorites(world), "Favorites, by its macro's name")
 		PutOnBar(world, "Stars", 1)
 		eq(#world.macros, 1, "no second macro")
 		world:PressBar(1)
@@ -729,10 +750,10 @@ describe("journeys", function()
 		eq(world:LastUsed(), PIRATE)
 	end)
 
-	it("7. Put a macro on a bar: a player's macro clicking ClickyButton another way isn't Favorites'", function()
-		local mine = "/click ClickyButton\n/say Party time!"
+	it("7. Put a macro on a bar: a player's macro clicking Favorites' button another way isn't Favorites'", function()
+		local mine = "/click ClickyFVRT\n/say Party time!"
 		local world = World({ macros = { { name = "Party", icon = "x", body = mine } } })
-		world.ns.PickupMacro(world.ns.favorites)
+		world.ns.PickupMacro(Favorites(world))
 		eq(#world.macros, 2, "Favorites gets its own macro")
 		eq(world.cursor, world:FindMacroByName("Favorites"))
 		eq(world.cursor.body, FAVORITES_LINE)
@@ -757,9 +778,9 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		world:Advance(1)
 		local code = Code(world, "Illusion")
-		eq(world.ns.GetDrawer(code).count, 1)
+		eq(DrawerCount(world, code), 1)
 		assert(world.ns.DeleteMacro(Macro(world, "Illusion")))
-		list(PanelTexts(world), { "Favorites", "Right-click a toy to make one." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, spell or item to make one." })
 		eq(#world.macros, 0, "the macro is gone")
 		eq(world.env["Clicky" .. code]:GetAttribute("type"), nil, "its button is emptied")
 		world.env["ClickyP" .. code]:Click("LeftButton", false) -- a copy left in character macros
@@ -788,7 +809,7 @@ describe("journeys", function()
 		ok(world.macros[1].body:find("^#showtooltip\n/click"), "the player's own lines are kept")
 		eq(#UsedToys(world, 1), 2, "and it still works")
 		world.env.DeleteMacro(1)
-		list(PanelTexts(world), { "Favorites", "Right-click a toy to make one." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, spell or item to make one." })
 	end)
 
 	it("8. Upkeep: every macro change is refused in combat", function()
@@ -797,7 +818,7 @@ describe("journeys", function()
 		local before = world.macros[1].body
 		world:EnterCombat()
 		list({ world.ns.MakeMacro("Other", ORB) }, { nil, COMBAT }, "make")
-		list({ world.ns.SetToy(m, ORB, true) }, { nil, COMBAT }, "add a toy")
+		list({ world.ns.SetEntry(m, ORB, true) }, { nil, COMBAT }, "add a toy")
 		list({ world.ns.RenameMacro(m, "Other") }, { nil, COMBAT }, "rename")
 		list({ world.ns.DeleteMacro(m) }, { nil, COMBAT }, "delete")
 		world:TakeErrors()
@@ -865,13 +886,13 @@ describe("journeys", function()
 		list(UsedToys(NextLogin(world, { toyList = ALL_TOYS }), 1), { PIRATE }, "the macro reads as before")
 		eq(world.macros[1].body, before, "and isn't rewritten")
 		list({ world.ns.MakeMacro("New", 400) }, { nil, UNKNOWN_TOY }, "a new macro can't start with it")
-		list({ world.ns.SetToy(Macro(world, "Illusion"), 400, true) }, { nil, UNKNOWN_TOY }, "nor can it be added")
+		list({ world.ns.SetEntry(Macro(world, "Illusion"), 400, true) }, { nil, UNKNOWN_TOY }, "nor can it be added")
 		eq(#world.macros, 1, "no macro made")
 		eq(world.macros[1].body, before, "nothing changed")
 		-- Clicky updated for the patch: the same macro takes it.
 		local updated = NextLogin(world, { toyList = With(ALL_TOYS, 400) })
 		AddTo(updated, 400, "Illusion")
-		list(updated.ns.GetMacroToys(Macro(updated, "Illusion"), true), { 400, PIRATE })
+		list(updated.ns.GetMacroEntries(Macro(updated, "Illusion"), true), { 400, PIRATE })
 		local laptop = NextLogin(updated, { toyList = With(ALL_TOYS, 400) })
 		eq(PanelRow(laptop, "Illusion").count, 2, "and it's there on another computer")
 	end)
@@ -905,11 +926,11 @@ describe("journeys", function()
 			local later = NextLogin(world, { toyList = ALL_TOYS })
 			eq(later.macros[1].body, before, #gone .. " gone: nothing rewritten")
 			eq(PanelRow(later, "Illusion").count, 3, "all three toys are still in it")
-			has(later.ns.GetMacroToys(Macro(later, "Illusion"), true), HAT, "the toy that left")
+			has(later.ns.GetMacroEntries(Macro(later, "Illusion"), true), HAT, "the toy that left")
 			list(PanelToys(later, "Loot"), { "Treasure Chest" }, "other macros work")
-			assert(later.ns.SetToy(Macro(later, "Illusion"), HAT, false))
+			assert(later.ns.SetEntry(Macro(later, "Illusion"), HAT, false))
 			eq(PanelRow(later, "Illusion").count, 2, "removed from the panel")
-			hasNot(later.ns.GetMacroToys(Macro(later, "Illusion"), true), HAT)
+			hasNot(later.ns.GetMacroEntries(Macro(later, "Illusion"), true), HAT)
 		end
 	end)
 
@@ -921,130 +942,7 @@ describe("journeys", function()
 		world:RemoveToyFromGame(ORB)
 		local later = NextLogin(world, { toyList = ALL_TOYS })
 		eq(PanelRow(later, "Illusion").count, 2)
-		list(later.ns.GetMacroToys(Macro(later, "Illusion"), true), { HAT, PIRATE })
-	end)
-
-	it("10. Update Clicky: a macro saved by 0.4.0 keeps its toys and is saved in the new format", function()
-		local world = World({ macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT } } })
-		world.bars[1] = world.macros[1]
-		local code = ExpectConverted(world, 1, { 0, 3 }, "saved again in format 5, the Pirate's Costume and the Pirate Hat")
-		local converted = world.macros[1].body
-		eq(converted:match("^[^\n]*"), Line(code), "with a code in place of 0.4.0's number")
-		eq(Code(world, "Illusion"), code, "which is the macro's id")
-		eq(world.env.ClickySet1:GetAttribute("type"), nil, "the old button is emptied")
-		list(PanelToys(world, "Illusion"), { "Pirate Hat", "Pirate's Costume" })
-		list(UsedToys(world, 1), { PIRATE, HAT }, "the bar button uses both")
-		world:Slash("/clicky debug")
-		local all = table.concat(world.prints, "\n")
-		ok(all:find("format 4 scan: item IDs 1%-50300 in"), "the scan ran, to read it: " .. all)
-		ok(all:find("state ready, data %d+ chars, format 5, 2 toys"), all)
-		ok(not all:find("needs re%-saving"), all)
-		eq(NextLogin(world).macros[1].body, converted, "and a later login leaves it as it is")
-		-- A macro with no toys converts too.
-		local empty = World({ macros = { { name = "Illusion", icon = 1001, body = V040_EMPTY } } })
-		ExpectConverted(empty, 1, {})
-		eq(PanelRow(empty, "Illusion").count, 0)
-	end)
-
-	it("10. Update Clicky: a macro saved by 0.4.0 still converts after a patch adds toys above its highest item ID", function()
-		local toys = Toys()
-		toys[#toys + 1] = { id = 400, name = "New 400", owned = false }
-		local world = World({ toys = toys, macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT } } })
-		ExpectConverted(world, 1, { 0, 3 }, "the same toys, in format 5")
-		AddTo(world, 400, "Illusion")
-		list(PanelToys(world, "Illusion"), { "New 400", "Pirate Hat", "Pirate's Costume" })
-	end)
-
-	it("10. Update Clicky: Favorites' macro from 0.4.0 gets the new /click line, once, and keeps working", function()
-		local old = "#showtooltip\n" .. OLD_FAVORITES_LINE .. "\n/say hi"
-		local world = World({ macros = { { name = "Stars", icon = "x", body = old } } })
-		world.bars[1] = world.macros[1]
-		local new = "#showtooltip\n" .. FAVORITES_LINE .. "\n/say hi"
-		eq(world.macros[1].body, new, "the line is replaced, the player's own lines kept")
-		eq(PanelRow(world, "Stars").macro, world.ns.favorites, "still Favorites")
-		world:PressBar(1)
-		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "its toy button works")
-		world:Advance(1)
-		world:PressBar(1, "RightButton")
-		list(DrawerToys(world, "Stars"), { WINGS, CHEST }, "and its drawer")
-		ok(world.ns.GetDrawer(world.ns.FAVORITES_ID).frame:IsShown(), "which opens")
-		eq(NextLogin(world).macros[1].body, new, "and a later login leaves it as it is")
-	end)
-
-	it("10. Update Clicky: logging in during combat, Favorites' macro from 0.4.0 is rewritten when combat ends", function()
-		local world = World({ combat = true, macros = { { name = "Favorites", icon = "x", body = OLD_FAVORITES_LINE } } })
-		world.bars[1] = world.macros[1]
-		eq(world.macros[1].body, OLD_FAVORITES_LINE, "nothing written in combat")
-		world:Slash("/clicky debug")
-		has(world.prints, "|cff33ff99Clicky|r: waiting: Favorites' macro to update: 1, buttons to make: 1")
-		world:LeaveCombat()
-		eq(world.macros[1].body, FAVORITES_LINE, "rewritten")
-		world:PressBar(1)
-		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "and it works")
-		world.prints = {}
-		world:Slash("/clicky debug")
-		has(world.prints, "|cff33ff99Clicky|r: waiting: nothing")
-	end)
-
-	it("11. Can't be read: a macro from 0.4.0 saved against different game toys isn't converted", function()
-		-- Made while the game had no Gnomish Gravity Well (103): now it does.
-		local world = World({ macros = { { name = "Illusion", icon = 1001, body = V040_FIVE_TOYS } } })
-		world.bars[1] = world.macros[1]
-		ExpectUnreadable(world, "Illusion", UNREADABLE, 1)
-		eq(world.macros[1].body, V040_FIVE_TOYS, "left as it is, with its old /click line")
-		-- An old item turned into a toy inside its list, since it was saved.
-		local toys = Toys()
-		toys[#toys + 1] = { id = 110, name = "Old item", owned = false }
-		local patched = World({ toys = toys, macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT } } })
-		patched.bars[1] = patched.macros[1]
-		ExpectUnreadable(patched, "Illusion", UNREADABLE, 1)
-		eq(patched.macros[1].body, V040_PIRATE_HAT, "left as it is")
-		assert(patched.ns.DeleteMacro(Macro(patched, "Illusion")))
-		MakeMacro(patched, PIRATE, "Illusion")
-		PutOnBar(patched, "Illusion", 1)
-		list(UsedToys(patched, 1), { PIRATE }, "made again, it works")
-	end)
-
-	it("11. Can't be read: a macro from 0.4.0 holding a toy missing from Clicky's list isn't converted", function()
-		-- The game has the Pirate Hat (201), so the macro's list matches; Clicky's list doesn't.
-		local world = World({ toyList = { PIRATE, ORB, GNOME, WINGS, CHEST },
-			macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT } } })
-		world.bars[1] = world.macros[1]
-		ExpectUnreadable(world, "Illusion", UNREADABLE, 1)
-		eq(world.macros[1].body, V040_PIRATE_HAT, "left as it is")
-	end)
-
-	it("10. Update Clicky: logging in during combat, a macro from 0.4.0 works, and is converted when combat ends", function()
-		local world = World({ combat = true, macros = {
-			{ name = "Illusion", icon = 1001, body = V040_PIRATE_HAT },
-			{ name = "Illusion 2", icon = 1001, body = V040_PIRATE_HAT } } })
-		local ns = world.ns
-		world.bars[1], world.bars[2] = world.macros[1], world.macros[2]
-		local m = Macro(world, "Illusion")
-		eq(PanelRow(world, "Illusion").unreadable, nil, "readable")
-		local ready = ns.GetCandidates(m, true)
-		table.sort(ready)
-		list(ready, { PIRATE, HAT }, "its toys are usable")
-		eq(world.macros[1].body, V040_PIRATE_HAT, "nothing written in combat")
-		eq(world.macros[2].body, V040_PIRATE_HAT)
-		world:Slash("/clicky debug")
-		has(world.prints, "|cff33ff99Clicky|r: waiting: buttons to make: 2, copies to separate: 1, macros to re-save: 1")
-		ns.SetTracing(true)
-		world.prints = {}
-		world:LeaveCombat()
-		local first = ExpectConverted(world, 1, { 0, 3 }, "converted")
-		local second = ExpectConverted(world, 2, { 0, 3 }, "and its copy")
-		ok(first ~= second, "with a button of its own")
-		-- The copy got its code when it was separated; converting it keeps that code.
-		local recoded = 0
-		for _, line in ipairs(world.prints) do
-			if line:find("converted from format 4", 1, true) and line:find(", button ", 1, true) then
-				recoded = recoded + 1
-			end
-		end
-		eq(recoded, 1, "only the macro that still had 0.4.0's number was given a code in converting")
-		list(UsedToys(world, 1), { PIRATE, HAT })
-		list(UsedToys(world, 2), { PIRATE, HAT })
+		list(later.ns.GetMacroEntries(Macro(later, "Illusion"), true), { HAT, PIRATE })
 	end)
 
 	it("11. Can't be read: a macro with a toy beyond this Clicky's list says it was saved by a newer Clicky", function()
@@ -1065,14 +963,45 @@ describe("journeys", function()
 		list(UsedToys(back, 1), { PIRATE, 400 }, "and it reads again with the newer list")
 	end)
 
+	it("10. Update Clicky: spells and items in Clicky's list change no toy's place, macro, Favorites or count", function()
+		local ENTRIES = { PIRATE, ORB, GNOME, HAT, WINGS, CHEST, "s500", "i600" }
+		local world = World({ toyList = ALL_TOYS })
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, HAT, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		local before = world.macros[1].body
+		local filters = { collected = true, uncollected = true }
+		local grid = { world.ns.GridSections(filters, "") }
+		local later = NextLogin(world, { toyList = ENTRIES })
+		eq(later.macros[1].body, before, "the macro isn't rewritten")
+		list(UsedToys(later, 1), { PIRATE, HAT }, "and reads the same toys")
+		list(later.ns.GetMacroEntries(Favorites(later), true), world.ns.GetMacroEntries(Favorites(world), true), "Favorites' toys")
+		list({ later.ns.GridSections(filters, "") }, grid, "the grid's toys")
+		list(later.ns.GetToyList().ids, ALL_TOYS, "the toys, without the spell and the item")
+		eq(later.ns.CountOwnedToys(), 6)
+		later.prints = {}
+		later:Slash("/clicky status")
+		eq(later.prints[1]:gsub("^|cff33ff99Clicky|r: ", ""), "6 toys owned.")
+		later.prints = {}
+		later:Slash("/clicky debug")
+		local debug = table.concat(later.prints, "\n")
+		ok(debug:find("toy list: 6 toys from build test", 1, true), debug)
+		-- A toy listed after a spell is stored by its place in the whole list.
+		local mixed = World({ toyList = { PIRATE, "s500", ORB, "i600", GNOME } })
+		eq(mixed.ns.GetToyList().index[GNOME], 4)
+		MakeMacro(mixed, PIRATE, "Mixed")
+		AddTo(mixed, GNOME, "Mixed")
+		list(assert(mixed.ns.DecodePlaces(mixed:FindMacroByName("Mixed").body:match("#clicky (%S+)"))).positions, { 0, 4 })
+	end)
+
 	it("11. Can't be read: a damaged macro never loads toys, says so, and can be renamed or deleted", function()
 		local world = World()
 		local ns = world.ns
 		-- The right toys, but a character typed over.
-		local data = ns.EncodeToys({ 0, 1 })
+		local data = ns.EncodePlaces({ 0, 1 })
 		world.bars[1] = world:CreateMacroInUI("Broken", ns.NewBody("BRKN", data:sub(1, -2) .. (data:sub(-1) == "A" and "B" or "A")))
 		ExpectUnreadable(world, "Broken", UNREADABLE, 1)
-		world.bars[2] = world:CreateMacroInUI("Cut", ns.NewBody("CTXX", ns.EncodeToys({ 0, 1, 5, 40, 300 }):sub(1, 6)))
+		world.bars[2] = world:CreateMacroInUI("Cut", ns.NewBody("CTXX", ns.EncodePlaces({ 0, 1, 5, 40, 300 }):sub(1, 6)))
 		world:PressBar(2)
 		eq(#world.used, 0, "a cut-off line loads nothing either")
 		assert(ns.RenameMacro(Macro(world, "Broken"), "Fixed later"))
@@ -1081,11 +1010,50 @@ describe("journeys", function()
 		eq(#world.macros, 1, "it can be deleted")
 	end)
 
+	it("10. Update Clicky: a macro saved by 0.5.0 can't be read and is left as it is", function()
+		local world = World()
+		local ns = world.ns
+		-- 0.5.0's format 5 line for places 0, 3 and 40, as 0.5.0 wrote it.
+		local body = ns.NewBody("BCDF", "rAvTtd")
+		world.bars[1] = world:CreateMacroInUI("Old", body)
+		ExpectUnreadable(world, "Old", UNREADABLE, 1)
+		world:Fire("UPDATE_MACROS")
+		world:Advance(1)
+		eq(world.macros[1].body, body, "not rewritten")
+		assert(ns.DeleteMacro(Macro(world, "Old")))
+		MakeMacro(world, PIRATE, "Old")
+		PutOnBar(world, "Old", 1)
+		list(UsedToys(world, 1), { PIRATE }, "made again")
+	end)
+
+	it("10. Update Clicky: macros from 0.4.0 read as damaged, like 0.5.0's, and are never rewritten", function()
+		local world = World({ macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT },
+			{ name = "Illusion 2", icon = 1001, body = V040_PIRATE_HAT },
+			{ name = "Stars", icon = "x", body = OLD_FAVORITES_LINE } } })
+		world.bars[1] = world.macros[1]
+		list(PanelTexts(world), { "Favorites", "Illusion" }, "a row for Illusion")
+		ExpectUnreadable(world, "Illusion", UNREADABLE, 1)
+		eq(world.macros[1].body, V040_PIRATE_HAT, "not rewritten")
+		eq(world.macros[2].body, V040_PIRATE_HAT, "nor is its copy, which has no row")
+		eq(world.macros[3].body, OLD_FAVORITES_LINE, "nor is the old Favorites macro, which isn't a Clicky macro")
+		assert(world.env.ClickySet1, "the button the macro clicks")
+		eq(world.env.ClickyButton, nil)
+		assert(world.ns.RenameMacro(Macro(world, "Illusion"), "Hat"))
+		eq(world:FindMacroByName("Hat").body, V040_PIRATE_HAT, "renamed, line and body as they were")
+		world.ns.PickupMacro(Favorites(world))
+		eq(#world.macros, 4, "Favorites gets a macro of its own")
+		eq(world.cursor.body, FAVORITES_LINE)
+		eq(world:FindMacroByName("Stars").body, OLD_FAVORITES_LINE, "the old one is untouched")
+		assert(world.ns.DeleteMacro(Macro(world, "Hat")))
+		MakeMacro(world, PIRATE, "Illusion")
+		list(UsedToys(world, 2), {}, "bar 2 is empty")
+	end)
+
 	it("11. Can't be read: a macro saved by a newer Clicky says to update", function()
 		local world = World()
 		local ns = world.ns
-		local data = ns.EncodeToys({ 0 })
-		world:CreateMacroInUI("Future", ns.NewBody("FTRX", "w" .. data:sub(2)))
+		local data = ns.EncodePlaces({ 0 })
+		world:CreateMacroInUI("Future", ns.NewBody("FTRX", "x" .. data:sub(2)))
 		ExpectUnreadable(world, "Future", NEWER)
 	end)
 
@@ -1094,7 +1062,7 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		local broken = world.macros[1].body:gsub("\n#clicky .*", "\n#clicky broken")
 		world:EditMacroInUI(1, nil, broken)
-		list({ world.ns.SetToy(Macro(world, "Illusion"), ORB, true) }, { nil, UNREADABLE })
+		list({ world.ns.SetEntry(Macro(world, "Illusion"), ORB, true) }, { nil, UNREADABLE })
 		eq(world.macros[1].body, broken, "left as it is")
 	end)
 
@@ -1108,13 +1076,13 @@ describe("journeys", function()
 		list(UsedToys(other, 1), { PIRATE }, "the toys this account owns")
 		list(PanelToys(other, "Pasted"), { "Orb of Deception", "Pirate's Costume" }, "every toy in it, owned or not")
 		for _, row in ipairs(other.ns.PanelRows()) do
-			if row.itemID then eq(row.owned, row.itemID == PIRATE, "only the owned toy looks owned") end
+			if row.key then eq(row.owned, row.key == PIRATE, "only the owned toy looks owned") end
 		end
 		eq(PanelRow(other, "Pasted").count, 2)
 		other:Advance(1) -- drawers are filled a few at a time
 		list(DrawerToys(other, "Pasted"), { PIRATE }, "the drawer has only toys it can use")
-		has(MenuLabels(other, ORB), "Remove from Pasted", "an unowned toy can still be taken out")
-		assert(other.ns.SetToy(Macro(other, "Pasted"), ORB, false))
+		has(MenuLabels(other, ORB), "[x] Pasted", "an unowned toy can still be taken out")
+		assert(other.ns.SetEntry(Macro(other, "Pasted"), ORB, false))
 		list(PanelToys(other, "Pasted"), { "Pirate's Costume" })
 	end)
 
@@ -1132,7 +1100,7 @@ describe("journeys", function()
 		eq(copy.body:match("^[^\n]*"), Line(copyCode))
 		eq(original.body:match("^[^\n]*"), Line(originalCode), "the original keeps its /click line")
 		list(UsedToys(world, 2), { PIRATE, ORB }, "the copy has the same toys")
-		assert(world.ns.SetToy(Macro(world, "Costumes"), ORB, false))
+		assert(world.ns.SetEntry(Macro(world, "Costumes"), ORB, false))
 		list(UsedToys(world, 2), { PIRATE })
 		list(UsedToys(world, 1), { PIRATE, ORB }, "the original is unchanged")
 	end)
@@ -1157,27 +1125,6 @@ describe("journeys", function()
 		list(PanelTexts(world), { "Favorites", "Illusion", "  Orb of Deception", "  Pirate's Costume" })
 		list(UsedToys(world, 1), { PIRATE, ORB }, "Illusion's toys")
 		eq(copy.body, body, "left as it is")
-	end)
-
-	it("12. Copy a macro: a copy that can't get its own button says why, once, and waits", function()
-		-- 0.4.0 macros that can't be converted (see journey 11) and whose /click line is shorter
-		-- than a code's, padded with the player's own lines to the 255 characters /macro allows:
-		-- the copy has no room for a code.
-		local body = V040_FIVE_TOYS .. "\n/say " .. ("x"):rep(255)
-		body = body:sub(1, 255)
-		local world = World({ macros = { { name = "M1", icon = 1001, body = body },
-			{ name = "M1 copy", icon = 1001, body = body } } })
-		world:Slash("/clicky debug")
-		local message = "|cff33ff99Clicky|r: M1 copy is a copy of another Clicky macro and couldn't be separated from it. "
-			.. "That macro is too long to update. Remove your own lines from it in /macro."
-		local times = 0
-		for _, line in ipairs(world.prints) do
-			if line == message then times = times + 1 end
-		end
-		eq(times, 1, "printed once, though every sync tries again")
-		has(world.prints, "|cff33ff99Clicky|r: waiting: copies to separate: 1")
-		eq(world:FindMacroByName("M1 copy").body, body, "left as it is")
-		eq(world:FindMacroByName("M1").body, body, "and so is the original")
 	end)
 
 	it("12. Copy a macro: logging in during combat, a copy waits for combat to end", function()
@@ -1206,43 +1153,60 @@ describe("journeys", function()
 	end)
 
 	-- The format Clicky writes into players' macros, exactly as written. Macros live in players'
-	-- games, so it must keep reading as it did; a new format version needs a sample here before
-	-- this test passes.
+	-- games, so it keeps reading as it did; only an alpha release may drop a format (CLAUDE.md). A
+	-- new format version needs a sample here before this test passes.
 	local WRITTEN_FORMATS = {
-		-- Format 5: places 0, 3 and 40.
-		[5] = { data = "rAvTtd", positions = { 0, 3, 40 } },
+		-- Format 6: places 0, 3 and 40.
+		[6] = { data = "wDAvT1t", positions = { 0, 3, 40 } },
 	}
-	-- Format 4 (0.4.0) is only read, to convert it.
-	local FORMAT_4 = { data = "gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c",
-		highest = 300, count = 6, positions = { 0, 3 } }
-
-	it("Saved macros: every format Clicky writes still reads exactly as it did, and 0.4.0's still reads", function()
+	it("Saved macros: every format Clicky writes still reads exactly as it did", function()
 		local ns = World().ns
 		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-		local function Version(data) return math.floor((alphabet:find(data:sub(1, 1), 1, true) - 1) / 8) end
+		-- Codec.lua: a first character of 48 + n is format 6 + n.
+		local function Version(data) return alphabet:find(data:sub(1, 1), 1, true) - 1 - 42 end
 		for version, sample in pairs(WRITTEN_FORMATS) do
-			local d = assert(ns.DecodeToys(sample.data), "format " .. version .. " no longer reads")
-			eq(d.format, version)
+			local d = assert(ns.DecodePlaces(sample.data), "format " .. version .. " no longer reads")
 			list(d.positions, sample.positions, "format " .. version)
-			eq(ns.EncodeToys(sample.positions), sample.data, "format " .. version .. " is still written the same")
+			eq(ns.EncodePlaces(sample.positions), sample.data, "format " .. version .. " is still written the same")
 		end
-		ok(WRITTEN_FORMATS[Version(ns.EncodeToys({ 0 }))], "the format written has a sample here")
-		list({ ns.DecodeToys("w" .. WRITTEN_FORMATS[5].data:sub(2)) }, { nil, "newer" }, "a newer format")
-		local d = assert(ns.DecodeToys(FORMAT_4.data), "format 4 no longer reads")
-		eq(d.format, 4)
-		eq(d.count, FORMAT_4.count)
-		eq(d.highest, FORMAT_4.highest)
-		list(d.positions, FORMAT_4.positions)
+		ok(WRITTEN_FORMATS[Version(ns.EncodePlaces({ 0 }))], "the format written has a sample here")
+		-- Format 4 (written by 0.4.0) is no longer read.
+		list({ ns.DecodePlaces("gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c") }, { nil, "damaged" },
+			"format 4 reads as damaged")
 		-- Format 3 (written by 0.3.0-alpha1) had no checksum, so it could be edited into other toys.
-		list({ ns.DecodeToys("YAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf") }, { nil, "damaged" },
+		list({ ns.DecodePlaces("YAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf") }, { nil, "damaged" },
 			"format 3 reads as damaged")
+	end)
+
+	it("Saved macros: Clicky 0.5.0 reads this version's macros, and every later format's, as saved by a newer Clicky", function()
+		local ns = World().ns
+		local old = OldCodec("v0.5.0-alpha1")
+		eq(old.MACRO_TOY_CAP, 150, "0.5.0's Codec.lua")
+		-- And the other way: every line 0.5.0 writes reads as damaged here, short or long.
+		for k = 0, 150, 5 do
+			local positions = {}
+			for i = 1, k do positions[i] = (i - 1) * 80 end
+			list({ ns.DecodePlaces(old.EncodeToys(positions)) }, { nil, "damaged" }, k .. " toys saved by 0.5.0")
+		end
+		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+		local data = ns.EncodePlaces({ 0, 3, 40 })
+		-- 0.5.0's Macros.lua shows "newer" as "saved by a newer version of Clicky" (CantRead there).
+		list({ old.DecodeToys(data) }, { nil, "newer" }, "a macro this version writes")
+		for v = 48, 63 do
+			local later = alphabet:sub(v + 1, v + 1) .. data:sub(2)
+			list({ old.DecodeToys(later) }, { nil, "newer" }, "format " .. v - 42 .. " in 0.5.0")
+			if v > 48 then
+				list({ ns.DecodePlaces(later) }, { nil, "newer" }, "format " .. v - 42 .. " in this version")
+			end
+		end
 	end)
 
 	it("14. Use the drawer: a toy whose data hasn't loaded yet still has its icon", function()
 		local world = World()
 		world.toys[HAT].loading = true
-		eq(select(3, world.env.C_ToyBox.GetToyInfo(HAT)), nil, "the game has no icon for it yet")
-		eq(world.ns.ToyIcon(HAT), 2001, "the icon the drawer and the panel show")
+		local m = MakeMacro(world, HAT, "Hats")
+		world.ns.FillDrawer(m)
+		eq(world.ns.GetDrawer(m.id).buttons[1].icon.texture, 2001, "the icon the drawer shows")
 	end)
 
 	it("14. Use the drawer: right-click opens it; clicking a toy uses it, and saves nothing", function()
@@ -1256,6 +1220,11 @@ describe("journeys", function()
 		world:PressBar(1, "RightButton")
 		ok(DrawerOpen(world, "Illusion"), "the drawer opened")
 		list(DrawerToys(world, "Illusion"), { ORB, PIRATE }, "the owned toys, in the panel's order")
+		local drawer = world.ns.GetDrawer(Macro(world, "Illusion").id)
+		for i = 1, DrawerCount(world, Macro(world, "Illusion").id) do
+			-- "item" is what WoW's item action uses (SecureTemplates.lua, SECURE_ACTIONS.item).
+			eq(drawer.buttons[i]:GetAttribute("item"), nil, "a toy button holds its toy only as a toy")
+		end
 		ClickInDrawer(world, "Illusion", ORB)
 		eq(world:LastUsed(), ORB, "used at once")
 		ok(not DrawerOpen(world, "Illusion"), "and the drawer closed")
@@ -1288,10 +1257,10 @@ describe("journeys", function()
 		local later = NextLogin(desktop)
 		local code = Code(later, "Illusion")
 		ok(later.env["ClickyP" .. code] and later.env.ClickyPFVRT, "the openers exist")
-		eq(later.ns.GetDrawer(code).count, 0, "not filled yet")
+		eq(DrawerCount(later, code), 0, "not filled yet")
 		later:Advance(1)
-		eq(later.ns.GetDrawer(code).count, 2, "filled soon after login")
-		eq(later.ns.GetDrawer(later.ns.FAVORITES_ID).count, 2)
+		eq(DrawerCount(later, code), 2, "filled soon after login")
+		eq(DrawerCount(later, later.ns.FAVORITES_ID), 2)
 		local fight = NextLogin(desktop)
 		fight:EnterCombat()
 		fight:PressBar(1, "RightButton")
@@ -1325,38 +1294,103 @@ describe("journeys", function()
 	it("8. Rename or delete: Favorites' macro like any other; it's found by its line", function()
 		local world = World()
 		PutOnBar(world, "Favorites", 1)
-		assert(world.ns.RenameMacro(world.ns.favorites, "Stars"))
+		assert(world.ns.RenameMacro(Favorites(world), "Stars"))
 		eq(world.macros[1].name, "Stars", "renamed")
 		eq(world.ns.PanelRows()[1].macro.name, "Stars", "still first in the panel")
 		world:PressBar(1)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "still works on the bar")
 		list({ world.ns.MakeMacro("stars", PIRATE) }, { nil, "There's already a macro called Stars." })
-		assert(world.ns.DeleteMacro(world.ns.favorites))
+		assert(world.ns.DeleteMacro(Favorites(world)))
 		eq(#world.macros, 0, "deleted")
-		eq(world.ns.PanelRows()[1].macro, world.ns.favorites, "Favorites stays in the panel")
-		PutOnBar(world, "Stars", 2)
+		eq(world.ns.PanelRows()[1].macro, Favorites(world), "Favorites stays in the panel")
+		eq(world.ns.PanelRows()[1].macro.name, "Favorites", "under its first name, as after a login")
+		PutOnBar(world, "Favorites", 2)
 		eq(#world.macros, 1, "made again when dragged")
+		eq(world.macros[1].name, "Favorites")
 		eq(world.macros[1].body, FAVORITES_LINE)
 	end)
 
-	it("Debugging: /clicky status and debug report on macros", function()
+	-- Every line /clicky debug prints, as the player reads it.
+	it("Debugging: /clicky debug prints the game's and Clicky's state, then each macro", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
-		world:CreateMacroInUI("Broken", "/click ClickySet4\n#clicky broken")
-		world:Advance(1) -- drawers are filled a few at a time after login
+		AddTo(world, ORB, "Illusion")
+		AddTo(world, GNOME, "Illusion")
+		world.toys[ORB].usable = false
+		world.toys[GNOME].cooldown = 300
+		world:CreateMacroInUI("Broken", "/click ClickyBCDF\n#clicky broken")
+		world:Advance(1)
+		world.prints = {}
+		world:Slash("/clicky debug")
+		local illusion = Macro(world, "Illusion")
+		-- A line is checked for each of its facts, so one line wrong doesn't hide in another's text.
+		local function Printed(start)
+			for _, line in ipairs(world.prints) do
+				local text = line:gsub("^|cff33ff99Clicky|r: ", "")
+				if text:sub(1, #start) == start then return text end
+			end
+			error("no line starts with " .. start, 2)
+		end
+		local function Says(line, facts)
+			for _, fact in ipairs(facts) do
+				ok(line:find(fact, 1, true), ("%q lacks %q"):format(line, fact))
+			end
+		end
+		eq(Printed("Clicky @"), "Clicky @project-version@")
+		Says(Printed("toy list"), { "6 toys from build test", "game counts 6" })
+		Says(Printed("a macro holds"), { "up to 100 items" })
+		Says(Printed("grid"), { "not made", "new toys this session: 0" })
+		eq(Printed("waiting"), "waiting: nothing")
+		eq(Printed("views"), "views: panel hidden; grid hidden")
+		Says(Printed("Favorites ("), { "(ClickyFVRT): 2 items", "unusable: 0, on cooldown: 0", "drawer 2 items",
+			"macro: none, state ready" })
+		Says(Printed("Broken ("), { "(ClickyBCDF): 0 items", "drawer 0 items", "macro: 1",
+			"state unreadable (damaged)", "data 6 chars", "no items" })
+		Says(Printed("Illusion ("), { "(Clicky" .. illusion.id .. "): 3 items", "unusable: 1, on cooldown: 1",
+			"ready for combat nil", "drawer 3 items", "macro: 2, state ready",
+			("data %d chars"):format(#illusion.data), "3 items" })
+		world.prints = {}
 		world:Slash("/clicky status")
-		has(world.prints, "|cff33ff99Clicky|r: 6 toys owned.")
-		has(world.prints, "|cff33ff99Clicky|r: Broken: " .. UNREADABLE)
+		local status = {}
+		for i, line in ipairs(world.prints) do
+			status[i] = line:gsub("^|cff33ff99Clicky|r: ", "")
+		end
+		list(status, {
+			"6 toys owned.",
+			"Favorites: 2 toys owned, 2 ready to use here.",
+			"Broken: " .. UNREADABLE,
+			"Illusion: 3 items owned, 1 ready to use here.",
+		})
+	end)
+
+	it("Debugging: /clicky debug shows what the combat lists hold, an open drawer and a refresh waiting", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		world:Advance(1)
+		world:PressBar(1, "RightButton")
+		local ns = world.ns
+		local shown = true
+		ns.RegisterView("test", function() return shown end, function() end, 5)
+		ns.Changed()
+		world:EnterCombat()
+		world.prints = {}
 		world:Slash("/clicky debug")
 		local all = table.concat(world.prints, "\n")
-		ok(all:find("toy list: 6 toys from build test %(game counts 6%), owned: 6"), all)
-		ok(not all:find("format 4 scan"), "no scan without a format 4 macro: " .. all)
-		ok(all:find("a macro holds up to 150 toys\n"), all)
-		local button = "Clicky" .. Code(world, "Illusion")
-		ok(all:find("Illusion %(" .. button .. "%).-state ready, data %d+ chars, format 5, 1 toys"), all)
-		ok(all:find("state unreadable %(damaged%)"), all)
-		ok(all:find("Illusion %(" .. button .. "%).-ready for combat nil, drawer 1 toys"), all)
-		ok(all:find("Favorites %(ClickyFVRT%).-ready for combat nil, drawer 2 toys, .-macro: none, state ready"), all)
+		ok(all:find("views: panel hidden; grid hidden; test shown, refresh pending\n", 1, true), all)
+		ok(all:find("Illusion %(Clicky%u+%): 2 items %(.-%), ready for combat 2, drawer 2 items, open, macro: "), all)
+		ok(all:find("Favorites %(ClickyFVRT%): 2 items %(.-%), ready for combat 2, drawer 2 items, macro: "), all)
+	end)
+
+	it("Debugging: a trace line prints nil, a number in a string and a boolean for any format", function()
+		local world = World()
+		world.ns.SetTracing(true)
+		world.ns.Trace("[test] %s %d %s", nil, "5", true)
+		eq(world.prints[#world.prints], "|cff33ff99Clicky|r: [test] nil 5 true")
+		world.ns.SetTracing(false)
+		world.ns.Trace("[test] %s", nil)
+		eq(#world.prints, 1, "nothing is printed with tracing off")
 	end)
 
 	-- The Toy Box filters are the player's own saved settings: changing them outlives the addon.
@@ -1415,62 +1449,32 @@ describe("journeys", function()
 		return true
 	end
 
-	it("12. Copy a macro: a copy made where Clicky wasn't running gets its own button at the next login", function()
-		local world = World()
-		MakeMacro(world, PIRATE, "Illusion")
-		AddTo(world, ORB, "Illusion")
-		-- Copied in /macro on a computer without Clicky (or with it disabled): WoW saves it to
-		-- the account as it is.
-		table.insert(world.account.macros, { name = "Illusion 2", body = world.macros[1].body })
-		local original = CodeOf(world.macros[1].body)
-		local later = Finishes(function() return NextLogin(world) end, "logging in")
-		local codes = Codes(later)
-		ok(#codes == 2 and AllDifferent(codes), "each macro clicks its own button")
-		eq(codes[1], original, "the original keeps its own")
-	end)
-
-	it("12. Copy a macro: two copies arriving at login each get their own button", function()
-		local world = World()
-		MakeMacro(world, PIRATE, "Illusion")
-		table.insert(world.account.macros, { name = "Illusion 2", body = world.macros[1].body })
-		table.insert(world.account.macros, { name = "Illusion 3", body = world.macros[1].body })
-		local later = Finishes(function() return NextLogin(world) end, "logging in")
-		local codes = Codes(later)
-		ok(#codes == 3 and AllDifferent(codes), "each macro clicks its own button")
-	end)
-
-	it("12. Copy a macro: a 0.4.0 macro and its copy, separated before they convert, get different codes", function()
-		local world = World({ macros = {
-			{ name = "Illusion", icon = 1001, body = V040_PIRATE_HAT },
-			{ name = "Illusion 2", icon = 1001, body = V040_PIRATE_HAT } } })
-		world.bars[1], world.bars[2] = world.macros[1], world.macros[2]
-		local first = ExpectConverted(world, 1, { 0, 3 })
-		local second = ExpectConverted(world, 2, { 0, 3 })
-		ok(first ~= second, "each macro clicks its own button")
-		list(UsedToys(world, 1), { PIRATE, HAT })
-		list(UsedToys(world, 2), { PIRATE, HAT })
-	end)
-
-	it("12. Copy a macro: 0.4.0's ids with a leading zero are ids of their own, and convert too", function()
-		local zero = V040_PIRATE_HAT:gsub("ClickyP1;ClickySet1", "ClickyP01;ClickySet01")
-		local world = World({ macros = {
-			{ name = "Illusion", icon = 1001, body = V040_PIRATE_HAT },
-			{ name = "Zed", icon = 1001, body = zero } } })
-		Finishes(function() world:Fire("UPDATE_MACROS") end, "syncing")
-		local first = ExpectConverted(world, 1, { 0, 3 })
-		local second = ExpectConverted(world, 2, { 0, 3 })
-		ok(first ~= second, "each macro clicks its own button")
-	end)
-
-	it("12. Copy a macro: copies arriving at login don't take a code another macro clicks", function()
-		local world = World()
-		MakeMacro(world, PIRATE, "Illusion")
-		MakeMacro(world, ORB, "Orb")
-		table.insert(world.account.macros, { name = "Orb 2", body = world.macros[2].body })
-		local later = Finishes(function() return NextLogin(world) end, "logging in")
-		local codes = Codes(later)
-		ok(#codes == 3 and AllDifferent(codes), "each macro clicks its own button")
-	end)
+	-- Copied in /macro on a computer without Clicky (or with it disabled): WoW saves the copy to the
+	-- account as it is. makes: the toys of the macros made first (Illusion, Orb); copies: the number
+	-- of the macro each copy is of.
+	for _, case in ipairs({
+		{ "a copy made where Clicky wasn't running gets its own button at the next login", { PIRATE }, { 1 } },
+		{ "two copies arriving at login each get their own button", { PIRATE }, { 1, 1 } },
+		{ "copies arriving at login don't take a code another macro clicks", { PIRATE, ORB }, { 2 } },
+	}) do
+		it("12. Copy a macro: " .. case[1], function()
+			local world = World()
+			local names = { "Illusion", "Orb" }
+			local codes = {}
+			for i, toy in ipairs(case[2]) do
+				MakeMacro(world, toy, names[i])
+				codes[names[i]] = CodeOf(world:FindMacroByName(names[i]).body)
+			end
+			for n, of in ipairs(case[3]) do
+				table.insert(world.account.macros, { name = names[of] .. " " .. (n + 1), body = world.macros[of].body })
+			end
+			local later = Finishes(function() return NextLogin(world) end, "logging in")
+			ok(#Codes(later) == #case[2] + #case[3] and AllDifferent(Codes(later)), "each macro clicks its own button")
+			for name, code in pairs(codes) do
+				eq(CodeOf(later:FindMacroByName(name).body), code, name .. " keeps its own")
+			end
+		end)
+	end
 
 	-- Hand edits the checksum is meant to catch (Codec.lua: "a hand-edited line then reads
 	-- as damaged rather than as other toys"; journey 11: "It never uses toys that weren't put in it").
@@ -1478,20 +1482,45 @@ describe("journeys", function()
 		-- 40 toys in a row out of 1,000: runs of zero bits, so "A" (0) characters in the toys.
 		local positions = {}
 		for i = 1, 40 do positions[i] = 100 + i end
-		return ns.EncodeToys(positions), positions
+		return ns.EncodePlaces(positions), positions
 	end
 
-	it("11. Can't be read: the first character typed as another format never reads as other toys", function()
+	it("11. Can't be read: either header character typed as any other never reads as other toys", function()
 		local ns = World().ns
-		local data, positions = RealisticData(ns)
+		local data = RealisticData(ns)
 		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-		local header = alphabet:find(data:sub(1, 1), 1, true) - 1
-		local r = header % 8
-		for version = 0, 7 do
-			local edited = alphabet:sub(version * 8 + r + 1, version * 8 + r + 1) .. data:sub(2)
-			local d = ns.DecodeToys(edited)
-			ok(d == nil or table.concat(d.positions, ",") == table.concat(positions, ","),
-				"format " .. version .. " reads as other toys: " .. (d and table.concat(d.positions, ",") or ""))
+		local function Char(v) return alphabet:sub(v + 1, v + 1) end
+		for v = 0, 63 do
+			local first = Char(v) .. data:sub(2)
+			if v ~= 48 then
+				list({ ns.DecodePlaces(first) }, { nil, v > 48 and "newer" or "damaged" }, "first character " .. v)
+			end
+			local second = data:sub(1, 1) .. Char(v) .. data:sub(3)
+			if second ~= data then
+				list({ ns.DecodePlaces(second) }, { nil, "damaged" }, "second character " .. v)
+			end
+		end
+		-- Codec.lua's checksum, so a line can pass it: what the header alone refuses.
+		local function Sum(body)
+			local a, b = 0, 0
+			for i = 1, #body do
+				a = (a + alphabet:find(body:sub(i, i), 1, true) - 1) % 64
+				b = (b + a) % 64
+			end
+			return body .. Char(a) .. Char(b)
+		end
+		local body = data:sub(1, -3)
+		eq(Sum(body), data, "the same checksum as Codec.lua's")
+		list({ ns.DecodePlaces(Sum("w")) }, { nil, "damaged" }, "no Rice parameter, even with a good checksum")
+		for v = 0, 63 do
+			if v < 48 then
+				list({ ns.DecodePlaces(Sum(Char(v) .. body:sub(2))) }, { nil, "damaged" },
+					"first character " .. v .. ": formats 1 to 5, even with a good checksum")
+			end
+			if v >= 16 then
+				list({ ns.DecodePlaces(Sum("w" .. Char(v) .. body:sub(3))) }, { nil, "damaged" },
+					"Rice parameter " .. v .. ", even with a good checksum")
+			end
 		end
 	end)
 
@@ -1501,7 +1530,7 @@ describe("journeys", function()
 		local want = table.concat(positions, ",")
 		for i = 2, #data - 1 do
 			for _, edited in ipairs({ data:sub(1, i - 1) .. data:sub(i + 1), data:sub(1, i - 1) .. "A" .. data:sub(i) }) do
-				local d = ns.DecodeToys(edited)
+				local d = ns.DecodePlaces(edited)
 				ok(d == nil or table.concat(d.positions, ",") == want,
 					("character %d deleted or an A added there reads as %s"):format(i, d and table.concat(d.positions, ",") or ""))
 			end
@@ -1511,7 +1540,7 @@ describe("journeys", function()
 	it("11. Can't be read: right-clicking it on a bar says why, as a click does", function()
 		local world = World()
 		local ns = world.ns
-		local data = ns.EncodeToys({ 0, 1 })
+		local data = ns.EncodePlaces({ 0, 1 })
 		world.bars[1] = world:CreateMacroInUI("Broken",
 			ns.NewBody("BRKN", data:sub(1, -2) .. (data:sub(-1) == "A" and "B" or "A")))
 		world:Advance(1)
@@ -1525,11 +1554,2349 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		AddTo(world, ORB, "Illusion")
 		world.bars[2] = world:CreateMacroInUI("Costumes", world.macros[1].body)
-		assert(world.ns.SetToy(Macro(world, "Costumes"), ORB, false))
+		assert(world.ns.SetEntry(Macro(world, "Costumes"), ORB, false))
 		world:PressBar(2, "RightButton")
 		ok(DrawerOpen(world, "Costumes"), "its own drawer opened")
 		list(DrawerToys(world, "Costumes"), { PIRATE })
 		ok(not DrawerOpen(world, "Illusion"), "not the original's")
+	end)
+
+	it("15. The toy grid: favorites first, then the toys owned, each by name; filters and search narrow it", function()
+		local toys = Toys()
+		toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
+		local world = World({ toys = toys })
+		local ns = world.ns
+		local filters = { collected = true, uncollected = false, usableOnly = false }
+		for name, value in pairs(ns.GRID_FILTERS) do
+			eq(filters[name], value, "starts with " .. name .. " " .. tostring(value))
+		end
+		list(GridToys(ns, filters, ""), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }, "the stars, then the rest owned")
+		filters.uncollected = true
+		list(GridToys(ns, filters, ""), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE, NEW_TOY }, "Not Collected: then the rest")
+		filters.collected = false
+		list(GridToys(ns, filters, ""), { NEW_TOY }, "only the toys not owned")
+		filters.collected, filters.uncollected, filters.usableOnly = true, false, true
+		world.toys[GNOME].usable = false
+		world.toys[NEW_TOY].usable = false
+		list(GridToys(ns, filters, ""), { WINGS, CHEST, ORB, HAT, PIRATE }, "Usable Only: not a collected unusable toy")
+		filters.uncollected = true
+		list(GridToys(ns, filters, ""), { WINGS, CHEST, ORB, HAT, PIRATE, NEW_TOY },
+			"Usable Only leaves the toys not collected to Not Collected")
+		filters.uncollected = false
+		list(GridToys(ns, filters, "  PIRATE "), { HAT, PIRATE }, "search, by name")
+	end)
+
+	it("15. The toy grid: a toy this game client has no data for isn't listed, rather than a blank slot", function()
+		local toys = Toys()
+		toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
+		local ids = {}
+		for i, toy in ipairs(toys) do ids[i] = toy.id end
+		local world = World({ toys = toys, toyList = ids })
+		world:RemoveToyFromGame(NEW_TOY)
+		local filters = { collected = false, uncollected = true, usableOnly = false }
+		list(GridToys(world.ns, filters, ""), {}, "Clicky's list has it; the game doesn't")
+	end)
+
+	it("15. The toy grid: a toy never released or no longer obtainable is listed only once owned, as in the Toy Box", function()
+		local toys = Toys()
+		toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
+		local ids = {}
+		for i, toy in ipairs(toys) do ids[i] = toy.id end
+		local world = World({ toys = toys, toyList = ids, toyHidden = { [NEW_TOY] = true, [PIRATE] = true } })
+		local filters = { collected = true, uncollected = true, usableOnly = false }
+		list(GridToys(world.ns, filters, ""), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE },
+			"the Pirate's Costume, owned, is listed; the Wand, not owned, isn't")
+		world:LearnToy({ id = NEW_TOY })
+		list(GridToys(world.ns, filters, ""), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE, NEW_TOY }, "learned: listed")
+	end)
+
+	it("15. The toy grid: a toy learned this session says NEW until hovered; a gift-wrapped one until a click opens it", function()
+		local GIFT, OLD_GIFT = 151, 152
+		local toys = Toys()
+		toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
+		toys[#toys + 1] = { id = GIFT, name = "Gift", owned = false }
+		toys[#toys + 1] = { id = OLD_GIFT, name = "Old gift", fanfare = true } -- still wrapped from an earlier session
+		local world = World({ toys = toys })
+		local ns = world.ns
+		ok(not ns.IsNewToy(PIRATE), "a toy owned before isn't new")
+
+		world:LearnToy({ id = NEW_TOY })
+		ok(ns.IsNewToy(NEW_TOY), "new once learned")
+		ns.SeeToy(NEW_TOY)
+		ok(not ns.IsNewToy(NEW_TOY), "not new once hovered")
+
+		world:LearnToy({ id = GIFT, fanfare = true })
+		ns.SeeToy(GIFT)
+		ok(ns.IsNewToy(GIFT), "hovering doesn't open the wrap")
+		ns.Unwrap(GIFT)
+		ok(not ns.IsNewToy(GIFT), "opened: no longer new")
+
+		ok(ns.IsNewToy(OLD_GIFT), "new, though not learned this session")
+		ns.SeeToy(OLD_GIFT)
+		ok(ns.IsNewToy(OLD_GIFT), "hovering doesn't open the wrap")
+		ns.Unwrap(OLD_GIFT)
+		ok(not ns.IsNewToy(OLD_GIFT), "opened: no longer new")
+		eq(#world:TakeErrors(), 0)
+	end)
+
+	it("15. The toy grid: a section's entries in rows, the favorites and the rest one after the other, as in the Toy Box", function()
+		local ns = World().ns
+		local function Shape(rows)
+			local shape = {}
+			for i, row in ipairs(rows) do shape[i] = table.concat(row.keys, " ") end
+			return shape
+		end
+		list(Shape(ns.GridRows({ name = "toys", keys = { 1, 2, 3, 4, 5 } }, 2)), { "1 2", "3 4", "5" })
+		list(Shape(ns.GridRows({ name = "spells", keys = { "s1", "s2" } }, 2)), { "s1 s2" })
+		list(Shape(ns.GridRows({ name = "items", keys = {} }, 2)), {}, "nothing listed")
+	end)
+
+	-- A view that counts its refreshes, registered with Core as the panel and the grid are.
+	local function CountingView(ns, name, delay, isShown)
+		local view = { refreshes = 0 }
+		ns.RegisterView(name, isShown or function() return true end,
+			function() view.refreshes = view.refreshes + 1 end, delay)
+		return view
+	end
+
+	it("15. The toy grid: a toy whose data fails to load doesn't refresh the grid and panel again", function()
+		local world = World()
+		local view = CountingView(world.ns, "test", 0)
+		-- GET_ITEM_INFO_RECEIVED carries itemID and success (ItemDocumentation.lua).
+		world:Fire("GET_ITEM_INFO_RECEIVED", HAT, false)
+		world:Advance(1)
+		eq(view.refreshes, 0, "a failed load brought no name")
+		world:Fire("GET_ITEM_INFO_RECEIVED", HAT, true)
+		world:Advance(1)
+		eq(view.refreshes, 1, "a loaded name refreshes")
+		world:Fire("GET_ITEM_INFO_RECEIVED", 999, true)
+		world:Advance(1)
+		eq(view.refreshes, 1, "an item that isn't a toy doesn't")
+	end)
+
+	it("Toy names: the panel, the drawer and the grid sort by name, then ID; a name not loaded yet is empty and asked for", function()
+		local world = World()
+		local ns = world.ns
+		local requested = {}
+		world.env.C_Item.RequestLoadItemDataByID = function(id) requested[id] = true end
+		world.toys[GNOME].loading = true
+		eq(ns.ToyName(PIRATE), "Pirate's Costume")
+		eq(ns.ToyName(GNOME), "", "no name yet")
+		list(requested, { [GNOME] = true }, "only the toy without a name is asked for")
+		local ids = { HAT, GNOME, PIRATE, ORB, WINGS }
+		ns.SortEntries(ids)
+		list(ids, { GNOME, WINGS, ORB, HAT, PIRATE }, "the empty name first, then by name")
+		world.toys[ORB].name = "Fairy Wings"
+		ids = { WINGS, ORB }
+		ns.SortEntries(ids)
+		list(ids, { ORB, WINGS }, "the same name: by item ID")
+		ids = { ORB, WINGS }
+		ns.SortEntries(ids, { [WINGS] = "A", [ORB] = "Z" })
+		list(ids, { WINGS, ORB }, "names the caller has looked up are used")
+	end)
+
+	-- Entries: what a macro holds is toys, spells and items, each named by its key in Clicky's
+	-- list (a toy's item ID, "s" and a spell ID, "i" and an item ID). Nothing lets a player add
+	-- spells or items yet, so these macros are written into the account as their bodies, as
+	-- another computer or a later Clicky would have saved them.
+	describe("Entries: toys, spells and items", function()
+		local FIRE, HOME = "s500", "s501" -- Path of the Fire, Teleport: Home
+		local RING, CLOAK = "i600", "i601" -- Hearth Ring, Cloak of Teleport (can be worn)
+		local LIST = { PIRATE, ORB, FIRE, HOME, RING, CLOAK }
+		local PLACE = { [PIRATE] = 0, [ORB] = 1, [FIRE] = 2, [HOME] = 3, [RING] = 4, [CLOAK] = 5 }
+
+		local function MixedWorld(options)
+			options = options or {}
+			options.toyList = LIST
+			options.spells = options.spells or {
+				{ id = 500, name = "Path of the Fire", icon = 5000 },
+				{ id = 501, name = "Teleport: Home", icon = 5010 },
+			}
+			options.items = options.items or {
+				{ id = 600, name = "Hearth Ring", icon = 6000 },
+				{ id = 601, name = "Cloak of Teleport", icon = 6010, equippable = true },
+			}
+			return World(options)
+		end
+
+		-- A macro as its body, holding these keys.
+		local function Write(world, name, code, keys)
+			local positions = {}
+			for i, key in ipairs(keys) do positions[i] = PLACE[key] end
+			table.sort(positions)
+			return world:CreateMacroInUI(name, world.ns.NewBody(code, world.ns.EncodePlaces(positions)))
+		end
+
+		local function Set(keys)
+			local set = {}
+			for _, key in ipairs(keys) do set[key] = true end
+			return set
+		end
+
+		-- How a click on each entry is set on a button: its type, then the attribute that type reads.
+		local ACTION = {
+			[PIRATE] = { "toy", "toy", PIRATE },
+			[FIRE] = { "spell", "spell", 500 },
+			[HOME] = { "spell", "spell", 501 },
+			[RING] = { "item", "item", "item:600" },
+			[CLOAK] = { "item", "item", "item:601" },
+		}
+
+		-- Presses the slot until every key in expected has come up (or presses run out); the
+		-- keys that did.
+		local function Pressed(world, slot, presses)
+			local seen = {}
+			for _ = 1, presses or 60 do
+				world:PressBar(slot)
+				seen[world:LastUsed()] = true
+			end
+			return seen
+		end
+
+		it("11. Entries: a macro's spells and items read as entries; one past the end of the list reads as newer", function()
+			local world = MixedWorld()
+			local ns = world.ns
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE, RING, CLOAK })
+			local m = Macro(world, "Portal")
+			eq(m.state, "ready")
+			list(ns.MacroEntries(m), Set({ PIRATE, FIRE, RING, CLOAK }))
+			eq(PanelRow(world, "Portal").count, 4)
+			list(PanelToys(world, "Portal"), { "Cloak of Teleport", "Hearth Ring", "Path of the Fire", "Pirate's Costume" },
+				"listed by name, whatever the kind")
+			world:CreateMacroInUI("Future", ns.NewBody("FTRX", ns.EncodePlaces({ 0, 6 })))
+			ExpectUnreadable(world, "Future", NEWER)
+			ok(Macro(world, "Future").reason:find("place 6 is past the end of this Clicky's list of 6 entries", 1, true),
+				Macro(world, "Future").reason)
+		end)
+
+		it("4. Entries: a spell or an item goes into a macro and comes out of it by its key", function()
+			local world = MixedWorld()
+			local ns = world.ns
+			local m = MakeMacro(world, PIRATE, "Portal")
+			assert(ns.SetEntry(m, FIRE, true))
+			assert(ns.SetEntry(m, CLOAK, true))
+			list(ns.MacroEntries(m), Set({ PIRATE, FIRE, CLOAK }))
+			local data = world:FindMacroByName("Portal").body:match("#clicky (%S+)")
+			list(assert(ns.DecodePlaces(data)).positions, { 0, 2, 5 }, "stored by place in the list")
+			local later = NextLogin(world, { toyList = LIST })
+			eq(later.ns.MacroEntries(Macro(later, "Portal"))[FIRE], true, "and read back")
+			assert(ns.SetEntry(m, FIRE, false))
+			list(ns.MacroEntries(m), Set({ PIRATE, CLOAK }))
+			list({ ns.SetEntry(m, "s999", true) }, { nil, UNKNOWN_TOY }, "an entry the list doesn't have")
+			local made = assert(ns.MakeMacro("Spells", HOME))
+			eq(world:FindMacroByName("Spells").icon, 5010, "a macro made from a spell has its icon")
+			list(ns.MacroEntries(made), Set({ HOME }))
+		end)
+
+		it("Entries: each kind has one owner for its name, icon, owned and usable test, cooldown and tooltip", function()
+			local world = MixedWorld({ spells = {
+				{ id = 500, name = "Path of the Fire", icon = 5000, cooldown = 30 },
+				{ id = 501, name = "Teleport: Home", icon = 5010, known = false, usable = false },
+			}, items = {
+				{ id = 600, name = "Hearth Ring", icon = 6000, count = 0 },
+				{ id = 601, name = "Cloak of Teleport", icon = 6010, equippable = true, equipped = true, count = 0 },
+			} })
+			local ns = world.ns
+			eq(ns.EntryName(PIRATE), "Pirate's Costume")
+			eq(ns.EntryName(FIRE), "Path of the Fire")
+			eq(ns.EntryName(RING), "Hearth Ring")
+			eq(ns.EntryIcon(PIRATE), 1001)
+			eq(ns.EntryIcon(FIRE), 5000)
+			eq(ns.EntryIcon(RING), 6000)
+			eq(ns.EntryKind(HOME), "spell")
+			eq(ns.EntryID(CLOAK), 601)
+			eq(ns.IsEntryOwned(PIRATE), true)
+			eq(ns.IsEntryOwned(FIRE), true)
+			eq(ns.IsEntryOwned(HOME), false, "a spell the player doesn't know")
+			eq(ns.IsEntryOwned(RING), false, "an item that isn't in the bags")
+			eq(ns.IsEntryOwned(CLOAK), true, "an item that is worn")
+			eq(ns.IsEntryUsable(FIRE), true)
+			eq(ns.IsEntryUsable(HOME), false)
+			eq(ns.IsEntryOnCooldown(FIRE), true)
+			eq(ns.IsEntryOnCooldown(PIRATE), false)
+			world.spells[500].cooldown = 0.2
+			eq(ns.IsEntryOnCooldown(FIRE), false, "the global cooldown isn't the spell's")
+			world.items[601].cooldown = 60
+			eq(ns.IsEntryOnCooldown(CLOAK), true, "an item's cooldown")
+			eq(ns.IsDrawerOnly(CLOAK), true, "an item that can be worn")
+			eq(ns.IsDrawerOnly(RING), false)
+			eq(ns.IsDrawerOnly(FIRE), false)
+			list({ ns.EntryAction(PIRATE) }, ACTION[PIRATE])
+			list({ ns.EntryAction(FIRE) }, ACTION[FIRE])
+			list({ ns.EntryAction(RING) }, ACTION[RING], "an item's value is item: and its ID, since a bare number is a slot")
+			local owner = world.env.UIParent
+			ns.ShowEntryTooltip(owner, FIRE)
+			eq(world.tooltip.spell, 500)
+			eq(world.tooltip.anchor, "ANCHOR_RIGHT")
+			ns.ShowEntryTooltip(owner, RING, "ANCHOR_LEFT")
+			eq(world.tooltip.item, 600)
+			eq(world.tooltip.anchor, "ANCHOR_LEFT")
+			ns.ShowEntryTooltip(owner, PIRATE)
+			eq(world.tooltip.toy, PIRATE)
+		end)
+
+		it("Entries: names sort across kinds by name, then toy, spell, item, then ID", function()
+			local world = MixedWorld({ spells = { { id = 500, name = "Same" }, { id = 501, name = "Same" } },
+				items = { { id = 600, name = "Same" }, { id = 601, name = "Alpha" } } })
+			world.toys[PIRATE].name = "Same"
+			local keys = { RING, HOME, FIRE, PIRATE, CLOAK }
+			world.ns.SortEntries(keys)
+			list(keys, { CLOAK, PIRATE, FIRE, HOME, RING })
+		end)
+
+		it("Entries: a button holds any kind, sets its action and clears the last one's", function()
+			local world = MixedWorld({ spells = { { id = 500, name = "Path of the Fire", icon = 5000, cooldown = 30 } } })
+			local ns = world.ns
+			local button = ns.CreateEntryButton(world.env.UIParent, 36, "ANCHOR_LEFT")
+			ns.SetEntryButton(button, PIRATE)
+			list({ button:GetAttribute("type"), button:GetAttribute("toy") }, { "toy", PIRATE })
+			eq(button.itemID, PIRATE)
+			ns.SetEntryButton(button, FIRE)
+			list({ button:GetAttribute("type"), button:GetAttribute("spell"), button:GetAttribute("toy") }, { "spell", 500, nil },
+				"the toy's attribute is gone")
+			eq(button.entry, FIRE)
+			eq(button.itemID, nil, "only a toy has an item ID")
+			eq(button.icon.texture, 5000)
+			ok(button.cooldown.start ~= nil, "a spell on cooldown shows it")
+			button.scripts.OnEnter(button)
+			eq(world.tooltip.spell, 500)
+			ns.SetEntryButton(button, RING)
+			list({ button:GetAttribute("type"), button:GetAttribute("item"), button:GetAttribute("spell") }, { "item", "item:600", nil })
+			eq(button.cooldown.start, nil)
+			ns.SetEntryButton(button, RING, true)
+			list({ button:GetAttribute("type"), button:GetAttribute("item") }, { nil, nil }, "unusable: shown, uses nothing")
+			eq(button.entry, RING)
+			ns.EmptyEntryButton(button)
+			eq(button.entry, nil)
+			eq(button:GetAttribute("item"), nil)
+			-- A plain left click only: the grid's buttons.
+			local left = ns.CreateEntryButton(world.env.UIParent, 36, "ANCHOR_LEFT", true)
+			ns.SetEntryButton(left, HOME)
+			list({ left:GetAttribute("type"), left:GetAttribute("type1"), left:GetAttribute("spell") }, { nil, "spell", 501 })
+			ns.SetEntryButton(left, PIRATE)
+			list({ left:GetAttribute("type1"), left:GetAttribute("spell"), left:GetAttribute("toy") }, { "toy", nil, PIRATE })
+		end)
+
+		it("2. Entries: a click uses a random toy, spell or item, setting the button's action for it", function()
+			local world = MixedWorld()
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE, RING })
+			world.bars[1] = world:FindMacroByName("Portal")
+			local button = world.env.ClickyPRTL
+			local used = {}
+			for _ = 1, 60 do
+				world:PressBar(1)
+				local key = world:LastUsed()
+				used[key] = true
+				list({ button:GetAttribute("type"), button:GetAttribute(ACTION[key][2]) }, { ACTION[key][1], ACTION[key][3] },
+					"the button's action for " .. key)
+				eq(button:GetAttribute("entry"), key, "the entry it holds is the one used")
+			end
+			list(used, Set({ PIRATE, FIRE, RING }), "all three kinds come up")
+			eq(Macro(world, "Portal").lastUsed, world:LastUsed())
+			-- A pick of another kind leaves nothing of the last in the button.
+			eq((button:GetAttribute("toy") ~= nil and 1 or 0) + (button:GetAttribute("spell") ~= nil and 1 or 0)
+				+ (button:GetAttribute("item") ~= nil and 1 or 0), 1, "only the attribute its type reads")
+			-- Not the entry used last, unless it's the only one.
+			local last = world:LastUsed()
+			for _ = 1, 20 do
+				world:PressBar(1)
+				ok(world:LastUsed() ~= last, "not repeated")
+				last = world:LastUsed()
+			end
+		end)
+
+		it("2. Entries: a click skips spells not known, items not had, ones unusable and ones on cooldown", function()
+			local world = MixedWorld()
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE, HOME, RING, CLOAK })
+			world.bars[1] = world:FindMacroByName("Portal")
+			world.spells[501].known = false
+			world.items[600].count = 0
+			world.items[601].equippable = false
+			list(Pressed(world, 1), Set({ PIRATE, FIRE, CLOAK }), "a spell not known and an item not had are left out")
+			world.spells[500].usable = false
+			world.toys[PIRATE].cooldown = 30
+			list(Pressed(world, 1), Set({ CLOAK }), "an unusable spell and a toy on cooldown too")
+			world.items[601].cooldown = 30
+			world:TakeErrors()
+			world:PressBar(1)
+			list(world:TakeErrors(), { "No usable items in Portal." }, "none left")
+			eq(world.bars[1] and world.env.ClickyPRTL:GetAttribute("type"), nil, "and the button uses nothing")
+			world.items[601].cooldown = 0
+			world:PressBar(1)
+			eq(world:LastUsed(), CLOAK, "usable again")
+			-- The player has the worn item by wearing it, not carrying it.
+			world.items[601].count, world.items[601].equipped = 0, true
+			world:PressBar(1)
+			eq(world:LastUsed(), CLOAK, "worn items count")
+		end)
+
+		it("2. Entries: a spell's cooldown the game hides counts as a cooldown, and no error", function()
+			local world = MixedWorld({ spells = { { id = 500, name = "Path of the Fire", icon = 5000 },
+				{ id = 501, name = "Teleport: Home", icon = 5010, cooldown = 30 } } })
+			Write(world, "Portal", "PRTL", { FIRE, HOME })
+			world.bars[1] = world:FindMacroByName("Portal")
+			world.secretCooldowns = true
+			eq(world.ns.IsEntryOnCooldown(HOME), true, "an active cooldown with a duration Clicky can't read")
+			eq(world.ns.IsEntryOnCooldown(FIRE), false)
+			list(Pressed(world, 1), Set({ FIRE }), "so only the spell with none comes up")
+			local button = world.ns.CreateEntryButton(world.env.UIParent, 36)
+			world.ns.SetEntryButton(button, HOME)
+			eq(button.cooldown.start, nil, "and no swipe is drawn from values addon code can't pass on")
+		end)
+
+		it("2. Entries: a macro of only an item that can be worn is never clicked; it's in the drawer", function()
+			local world = MixedWorld()
+			Write(world, "Cloak", "CLKK", { CLOAK })
+			world.bars[1] = world:FindMacroByName("Cloak")
+			world:PressBar(1)
+			list(world:TakeErrors(), { "No usable items in Cloak." })
+			eq(#world.used + #world.equipped, 0, "a click doesn't wear it")
+			world:PressBar(1, "RightButton")
+			ok(DrawerOpen(world, "Cloak"), "the drawer opens")
+			list(DrawerToys(world, "Cloak"), { CLOAK })
+			ClickInDrawer(world, "Cloak", CLOAK)
+			list(world.equipped, { 601 }, "its action wears it, as the game's item action does when it isn't worn")
+			eq(#world.used, 0)
+			world:PressBar(1, "RightButton")
+			ClickInDrawer(world, "Cloak", CLOAK)
+			list(world.used, { CLOAK }, "worn, the same click uses it")
+		end)
+
+		it("14. Entries: the drawer holds the entries the player has, each with its own action and cooldown", function()
+			local world = MixedWorld({ spells = { { id = 500, name = "Path of the Fire", icon = 5000, cooldown = 30 },
+				{ id = 501, name = "Teleport: Home", icon = 5010, known = false } } })
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE, HOME, RING })
+			world.bars[1] = world:FindMacroByName("Portal")
+			world:PressBar(1, "RightButton")
+			list(DrawerToys(world, "Portal"), { RING, FIRE, PIRATE }, "by name, without the spell not known")
+			local drawer = world.ns.GetDrawer(Macro(world, "Portal").id)
+			for i, key in ipairs(DrawerToys(world, "Portal")) do
+				local button = drawer.buttons[i]
+				eq(button:GetAttribute("type"), ACTION[key][1], key)
+				eq(button:GetAttribute(ACTION[key][2]), ACTION[key][3], key)
+			end
+			ok(drawer.buttons[2].cooldown.start ~= nil, "the spell shows its cooldown")
+			ok(drawer.buttons[1].cooldown.start == nil)
+			ClickInDrawer(world, "Portal", RING)
+			list(world.used, { RING }, "a click uses it")
+			world:PressBar(1, "RightButton")
+			ClickInDrawer(world, "Portal", FIRE)
+			eq(world:LastUsed(), FIRE)
+		end)
+
+		it("2. Entries: in combat a macro picks from the list handed over, with each entry's action", function()
+			local world = MixedWorld()
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE, RING, CLOAK })
+			world.bars[1] = world:FindMacroByName("Portal")
+			world.spells[500].usable = false
+			world:EnterCombat()
+			local button = world.env.ClickyPRTL
+			eq(button:GetAttribute("readycount"), 2, "the toy and the item: not the spell that can't be used, nor the item to wear")
+			local ready = {}
+			for i = 1, 2 do
+				local key = button:GetAttribute("ready" .. i)
+				ready[key] = true
+				list({ button:GetAttribute("readytype" .. i), button:GetAttribute("readyattr" .. i), button:GetAttribute("readyvalue" .. i) },
+					ACTION[key], "the action handed over for " .. key)
+			end
+			list(ready, Set({ PIRATE, RING }))
+			local used, last = {}, nil
+			for _ = 1, 30 do
+				world:PressBar(1)
+				local key = world:LastUsed()
+				used[key] = true
+				ok(key ~= last, "not repeated")
+				last = key
+				list({ button:GetAttribute("type"), button:GetAttribute(ACTION[key][2]) }, { ACTION[key][1], ACTION[key][3] })
+				eq(Macro(world, "Portal").lastUsed, key)
+			end
+			list(used, Set({ PIRATE, RING }), "both come up")
+			world:PressBar(1, "RightButton")
+			list(DrawerToys(world, "Portal"), { CLOAK, RING, FIRE, PIRATE }, "the drawer holds all four")
+			ClickInDrawer(world, "Portal", FIRE)
+			eq(world:LastUsed(), FIRE, "a spell from the drawer in combat")
+			world:LeaveCombat()
+			world:PressBar(1)
+			ok(world:LastUsed() == PIRATE or world:LastUsed() == RING, "out of combat again")
+		end)
+
+		it("2. Entries: in combat a macro with nothing ready uses nothing, and keeps no action from before", function()
+			local world = MixedWorld()
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE })
+			world.bars[1] = world:FindMacroByName("Portal")
+			world:PressBar(1)
+			local button = world.env.ClickyPRTL
+			ok(button:GetAttribute("type") ~= nil, "it held an action")
+			world.toys[PIRATE].usable = false
+			world.spells[500].known = false
+			world:EnterCombat()
+			eq(button:GetAttribute("readycount"), 0)
+			local before = #world.used
+			world:PressBar(1)
+			eq(#world.used, before, "nothing used")
+			eq(button:GetAttribute("type"), nil)
+			eq(button:GetAttribute("entry"), nil)
+			list(world:TakeErrors(), { "No usable items in Portal." })
+		end)
+
+		it("Entries: a spell's or item's name arriving, and a spell learned or a bag changed, refresh the views", function()
+			local world = MixedWorld({ spells = { { id = 500, name = "Path of the Fire", icon = 5000, loading = true } },
+				items = { { id = 600, name = "Hearth Ring", icon = 6000, loading = true } } })
+			local ns = world.ns
+			local view = CountingView(ns, "test", 0)
+			local asked = {}
+			world.env.C_Spell.RequestLoadSpellData = function(id) asked["s" .. id] = true end
+			world.env.C_Item.RequestLoadItemDataByID = function(id) asked["i" .. id] = true end
+			eq(ns.EntryName(FIRE), "", "no name yet")
+			eq(ns.EntryName(RING), "")
+			list(asked, Set({ FIRE, RING }), "both are asked for")
+			world:LoadSpell(500)
+			world:Advance(1)
+			eq(view.refreshes, 1, "a spell's name arriving")
+			eq(ns.EntryName(FIRE), "Path of the Fire")
+			world:LoadItem(600)
+			world:Advance(1)
+			eq(view.refreshes, 2, "an item's name arriving")
+			world:Fire("GET_ITEM_INFO_RECEIVED", 601, true)
+			world:Advance(1)
+			eq(view.refreshes, 2, "an item nobody asked for doesn't")
+			world:Fire("GET_ITEM_INFO_RECEIVED", 600, true)
+			world:Advance(1)
+			eq(view.refreshes, 2, "nor does the same one twice")
+			for i, event in ipairs({ "SPELLS_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED" }) do
+				world:Fire(event)
+				world:Advance(1)
+				eq(view.refreshes, 2 + i, event)
+			end
+		end)
+
+		it("4. Entries: a spell's or item's menu has the macros' checkboxes and no star", function()
+			local world = MixedWorld()
+			local m = MakeMacro(world, PIRATE, "Portal")
+			list(MenuLabels(world, FIRE), { "[ ] Portal" })
+			for _, entry in ipairs(world.menu.entries) do
+				ok(entry.kind ~= "CreateButton" or entry.text == "Add to new macro...", "no star: " .. tostring(entry.text))
+			end
+			world:ChooseMenuEntry("Portal")
+			list(world.ns.MacroEntries(m), Set({ PIRATE, FIRE }), "ticking it adds the spell")
+			list(MenuLabels(world, FIRE), { "[x] Portal" })
+			list(MenuLabels(world, PIRATE), { "[x] Portal" })
+			eq(world.menu.entries[1].text, world.env.BATTLE_PET_FAVORITE, "a toy's menu starts with the star")
+			list(PanelToys(world, "Portal"), { "Path of the Fire", "Pirate's Costume" })
+			world.ns.OpenEntryMenu(world.env.UIParent, FIRE)
+			world:ChooseMenuEntry("Portal")
+			list(world.ns.MacroEntries(m), Set({ PIRATE }), "and unticking it takes it out")
+		end)
+
+	end)
+
+	it("8. Delete: a copy listed before its original leaves the original its buttons and code", function()
+		local world = World()
+		local m = MakeMacro(world, PIRATE, "Illusion")
+		local code = m.id
+		local body = world:FindMacroByName("Illusion").body
+		-- General macros are sorted by name (warcraft.wiki.gg API EditMacro), so this copy is listed first.
+		world:CreateMacroInUI("Costumes", body)
+		eq(world.macros[1].name, "Costumes", "the copy is listed first")
+		eq(CodeOf(world:FindMacroByName("Illusion").body), code, "the original keeps its code")
+		ok(CodeOf(world:FindMacroByName("Costumes").body) ~= code, "the copy gets its own")
+		eq(Macro(world, "Illusion").id, code, "and the macro is still Illusion's")
+		eq(world.env["Clicky" .. code]:GetAttribute("useOnKeyDown"), false, "with its button")
+		world:Advance(1)
+		eq(DrawerCount(world, code), 1, "and its drawer")
+	end)
+
+	it("8. Delete: a macro deleted while its drawer is open closes the drawer and empties its buttons", function()
+		local world = World()
+		local m = MakeMacro(world, PIRATE, "Illusion")
+		world:Advance(1)
+		local drawer = world.ns.GetDrawer(m.id)
+		drawer.opener:Click("RightButton", false)
+		ok(drawer.frame:IsShown(), "open")
+		assert(world.ns.DeleteMacro(m))
+		ok(not drawer.frame:IsShown(), "closed with the macro")
+		eq(drawer.buttons[1]:GetAttribute("toy"), nil, "its toy button uses nothing")
+		eq(drawer.buttons[1].itemID, nil)
+		ok(not drawer.buttons[1]:IsShown(), "and is hidden")
+		eq(DrawerCount(world, m.id), 0)
+	end)
+
+	describe("14. The drawer is filled again", function()
+		local function WorldWithWand()
+			local toys = Toys()
+			toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
+			local world = World({ toys = toys })
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, NEW_TOY, "Illusion")
+			world:Advance(1)
+			eq(DrawerCount(world, m.id), 1, "the Wand isn't owned")
+			return world, m
+		end
+
+		it("after combat ends, with a toy learned in combat", function()
+			local world, m = WorldWithWand()
+			world:EnterCombat()
+			world:LearnToy({ id = NEW_TOY, name = "Wand" })
+			world:Advance(1)
+			eq(DrawerCount(world, m.id), 1, "nothing is refilled in combat")
+			world:LeaveCombat()
+			world:Advance(1)
+			eq(DrawerCount(world, m.id), 2, "refilled once it ends")
+		end)
+
+		it("after a loading screen", function()
+			local world, m = WorldWithWand()
+			world:LearnToy({ id = NEW_TOY, name = "Wand" })
+			world:Advance(1)
+			eq(DrawerCount(world, m.id), 1, "a toy learned doesn't refill it")
+			world:Fire("PLAYER_ENTERING_WORLD", false, false)
+			world:Advance(1)
+			eq(DrawerCount(world, m.id), 2, "the loading screen does")
+		end)
+	end)
+
+	it("14. The drawer: its opener opens it on the up click only", function()
+		local world = World()
+		local m = MakeMacro(world, PIRATE, "Illusion")
+		world:Advance(1)
+		local drawer = world.ns.GetDrawer(m.id)
+		drawer.opener:Click("RightButton", true)
+		ok(not drawer.frame:IsShown(), "the down click does nothing")
+		drawer.opener:Click("RightButton", false)
+		ok(drawer.frame:IsShown(), "the up click opens it")
+		drawer.opener:Click("RightButton", true)
+		ok(drawer.frame:IsShown(), "and a down click doesn't close it")
+		drawer.opener:Click("RightButton", false)
+		ok(not drawer.frame:IsShown(), "the next up click does")
+	end)
+
+	it("Sync: a macro that changes while a sync reads them is picked up by a second pass", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		local other = NextLogin(world)
+		assert(other.ns.MakeMacro("Hats", HAT))
+		local real, fired = world.env.GetMacroInfo, false
+		world.env.GetMacroInfo = function(...)
+			if not fired then
+				fired = true
+				world:Fire("UPDATE_MACROS") -- announced while the sync is reading
+			end
+			return real(...)
+		end
+		world.ns.SetTracing(true)
+		world.prints = {}
+		world.ns.Sync("test")
+		ok(fired, "the event came during the sync")
+		local passes = 0
+		for _, line in ipairs(world.prints) do
+			passes = tonumber(line:match("%[sync test%] (%d+) pass")) or passes
+		end
+		ok(passes >= 2, "a second pass ran: " .. passes)
+	end)
+
+	it("5. Pick a toy: a toy taken out of a macro and put back can come up on the next click", function()
+		local world = World()
+		local m = MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		world:PressBar(1)
+		local used = world:LastUsed()
+		local button = world.env["Clicky" .. m.id]
+		world:EnterCombat()
+		eq(button:GetAttribute("lastentry"), used, "the toy used is the one not repeated")
+		world:LeaveCombat()
+		assert(world.ns.SetEntry(m, used, false))
+		assert(world.ns.SetEntry(m, used, true))
+		world:EnterCombat()
+		eq(button:GetAttribute("lastentry"), nil, "taking it out and putting it back forgets it")
+		world:LeaveCombat()
+	end)
+
+	it("5. Pick a toy: a toy another computer takes out of a macro is forgotten here", function()
+		local world = World()
+		local m = MakeMacro(world, PIRATE, "Illusion")
+		AddTo(world, ORB, "Illusion")
+		PutOnBar(world, "Illusion", 1)
+		world:PressBar(1)
+		local used = world:LastUsed()
+		local other = NextLogin(world)
+		assert(other.ns.SetEntry(Macro(other, "Illusion"), used, false))
+		world:Fire("UPDATE_MACROS")
+		world:EnterCombat()
+		eq(world.env["Clicky" .. m.id]:GetAttribute("lastentry"), nil, "no longer the last used")
+		world:LeaveCombat()
+	end)
+
+	it("15. The toy grid: the filter reset arrow shows only when the filters differ from the defaults", function()
+		local world = World()
+		world:LoadCollections()
+		world:OpenToyBox()
+		local filter = world.env.ClickyGridFilter
+		ok(filter.isDefaultCallback(), "the defaults at the start")
+		world:GridFilterMenu()[2].toggle()
+		ok(not filter.isDefaultCallback(), "Not Collected on")
+		world:GridFilterMenu()[2].toggle()
+		ok(filter.isDefaultCallback(), "and off again")
+		world:GridFilterMenu()[3].toggle()
+		ok(not filter.isDefaultCallback(), "Usable Only on")
+		filter.defaultCallback()
+		ok(filter.isDefaultCallback(), "reset")
+	end)
+
+	it("Debugging: the panel is in /clicky debug, and opening or closing a macro in the panel is traced", function()
+		local world = World()
+		eq(world.ns.GetPanelState(), "not made")
+		MakeMacro(world, PIRATE, "Illusion")
+		world:LoadCollections()
+		world:OpenToyBox()
+		world:Advance(1)
+		world.ns.SetTracing(true)
+		world.prints = {}
+		local row = world.ns.PanelRows()[2]
+		local rowFrame
+		for _, shown in ipairs(world.scrollList.rows) do
+			if shown:IsShown() and shown.name:GetText() == "Illusion" then rowFrame = shown end
+		end
+		local function Traced(text)
+			for _, line in ipairs(world.prints) do
+				if line:find("[panel] " .. row.macro.id .. text, 1, true) then return true end
+			end
+		end
+		rowFrame.scripts.OnClick(rowFrame, "LeftButton") -- it was open when made
+		ok(Traced(" closed, scroll to it: false"), "closing is traced")
+		world:Advance(1)
+		rowFrame.scripts.OnClick(rowFrame, "LeftButton")
+		ok(Traced(" opened, scroll to it: true"), "opening is traced")
+		eq(world.ns.GetPanelState(), "made, shown, next refresh scrolls to " .. row.macro.id)
+		world:Advance(1)
+		eq(world.ns.GetPanelState(), "made, shown, next refresh scrolls to nothing")
+		world:Slash("/clicky debug")
+		ok(table.concat(world.prints, "\n"):find("panel: made, shown", 1, true), "in the debug output")
+	end)
+
+	describe("Views", function()
+		it("ns.Changed refreshes every view that is shown, once per burst, after the view's own delay", function()
+			local world = World()
+			local ns = world.ns
+			local shown = true
+			local quick = CountingView(ns, "quick", 0)
+			local slow = CountingView(ns, "slow", 0.2)
+			local sometimes = CountingView(ns, "sometimes", 0, function() return shown end)
+			ns.Changed()
+			ns.Changed()
+			ns.Changed()
+			eq(quick.refreshes, 0, "not at once: a burst of changes is one refresh")
+			shown = false
+			world:Advance(0)
+			eq(quick.refreshes, 1, "a view with no delay refreshes next frame")
+			eq(slow.refreshes, 0, "a view with a delay waits for it")
+			eq(sometimes.refreshes, 0, "a view hidden by then is not refreshed")
+			world:Advance(0.2)
+			eq(slow.refreshes, 1, "once, not once per change")
+			eq(quick.refreshes, 1)
+			ns.Changed()
+			world:Advance(1)
+			eq(quick.refreshes, 2, "the next change refreshes again")
+			eq(slow.refreshes, 2)
+			eq(sometimes.refreshes, 0, "still hidden")
+			shown = true
+			ns.Changed()
+			world:Advance(1)
+			eq(sometimes.refreshes, 1, "shown: refreshed")
+		end)
+
+		it("every change the player or the game makes reaches the views", function()
+			local GIFT = 151
+			local toys = Toys()
+			toys[#toys + 1] = { id = GIFT, name = "Gift", owned = false }
+			local world = World({ toys = toys })
+			local ns = world.ns
+			local view = CountingView(ns, "test", 0)
+			-- Runs change, then lets time pass; true if the view refreshed.
+			local function Refreshes(change)
+				local before = view.refreshes
+				change()
+				world:Advance(1)
+				return view.refreshes > before
+			end
+			local macro
+			ok(Refreshes(function() macro = MakeMacro(world, PIRATE, "Illusion") end), "making a macro")
+			ok(Refreshes(function() assert(ns.SetEntry(macro, ORB, true)) end), "adding a toy")
+			ok(Refreshes(function() assert(ns.SetEntry(macro, ORB, false)) end), "taking one out")
+			ok(Refreshes(function() assert(ns.RenameMacro(macro, "Dress up")) end), "renaming")
+			ok(Refreshes(function() world:EditMacroInUI(1, "Dress up", world.macros[1].body) end), "editing in /macro")
+			ok(Refreshes(function()
+				ns.OpenEntryMenu(world.env.UIParent, HAT)
+				world:ChooseMenuEntry(world.env.BATTLE_PET_FAVORITE)
+			end), "starring a toy")
+			ok(world.toys[HAT].favorite, "the star is set")
+			ok(Refreshes(function()
+				ns.OpenEntryMenu(world.env.UIParent, HAT)
+				world:ChooseMenuEntry(world.env.BATTLE_PET_UNFAVORITE)
+			end), "unstarring it")
+			ok(Refreshes(function() world:Fire("NEW_TOY_ADDED", GIFT) end), "a toy added")
+			ok(Refreshes(function() world:LearnToy({ id = GIFT, fanfare = true }) end), "learning a toy")
+			ok(Refreshes(function() ns.Unwrap(GIFT) end), "opening a gift-wrapped toy")
+			ok(Refreshes(function() world:Fire("GET_ITEM_INFO_RECEIVED", HAT, true) end), "a toy's name arriving")
+			ok(Refreshes(function() world:LoadToys() end), "the player's toys arriving")
+			ok(Refreshes(function() assert(ns.DeleteMacro(macro)) end), "deleting a macro")
+		end)
+	end)
+
+	describe("Events", function()
+		it("an error in one handler goes to the error handler and the handlers after it still run", function()
+			local world = World()
+			local ns = world.ns
+			local seen, errors = {}, {}
+			world.errorHandler = function(err) errors[#errors + 1] = err end
+			ns.RegisterEvent("TEST_EVENT", function() seen[#seen + 1] = "first" end)
+			ns.RegisterEvent("TEST_EVENT", function() error("second fails") end)
+			ns.RegisterEvent("TEST_EVENT", function(...) seen[#seen + 1] = { n = select("#", ...), ... } end)
+			world:Fire("TEST_EVENT", 1, nil, 3)
+			eq(#errors, 1, "the error reached the error handler")
+			ok(errors[1]:find("second fails", 1, true), errors[1])
+			eq(seen[1], "first")
+			list(seen[2], { n = 3, 1, nil, 3 }, "the next handler runs, with the whole payload")
+		end)
+	end)
+
+	-- Every reader of Clicky's toy list, given the toys that list can't promise anything about.
+	it("Edge-case toys: a toy the game no longer has, one only a patch added, one not owned and one still loading", function()
+		local GONE, ADDED = 160, 170
+		local toys = Toys()
+		toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
+		toys[#toys + 1] = { id = GONE, name = "Relic" } -- in Clicky's list; a patch takes it out of the game
+		toys[#toys + 1] = { id = ADDED, name = "Novelty" } -- in the game; not in Clicky's list
+		local ids = {}
+		for _, toy in ipairs(toys) do
+			if toy.id ~= ADDED then ids[#ids + 1] = toy.id end
+		end
+		local world = World({ toys = toys, toyList = ids })
+		local ns = world.ns
+		MakeMacro(world, PIRATE, "Edge")
+		for _, id in ipairs({ NEW_TOY, GONE, HAT }) do
+			AddTo(world, id, "Edge")
+		end
+		PutOnBar(world, "Edge", 1)
+		world:RemoveToyFromGame(GONE)
+		world.toys[HAT].loading = true
+		ns.Sync("test")
+
+		-- The grid, under every filter: whatever it lists can be drawn, and only from Clicky's list.
+		for _, collected in ipairs({ true, false }) do
+			for _, uncollected in ipairs({ true, false }) do
+				for _, usableOnly in ipairs({ true, false }) do
+					local filters = { collected = collected, uncollected = uncollected, usableOnly = usableOnly }
+					for _, id in ipairs(GridToys(ns, filters, "")) do
+						ok(ns.ToyIcon(id) ~= nil, ("the grid lists %d with nothing to draw"):format(id))
+						ok(id ~= ADDED, "the grid lists a toy Clicky's list doesn't have")
+					end
+				end
+			end
+		end
+
+		-- The panel, the toy menu, the drawer, a click and the slash commands don't fail.
+		local edge = Macro(world, "Edge")
+		ns.expanded[edge.id], ns.expanded[ns.FAVORITES_ID] = true, true
+		ok(#ns.PanelRows() > 0, "the panel lists rows")
+		eq(#MenuLabels(world, GONE), 1, "the toy menu, for a toy the game no longer has")
+		eq(#MenuLabels(world, ADDED), 1, "the toy menu, for a toy Clicky doesn't know yet")
+		ns.FillDrawer(edge)
+		local drawer = ns.GetDrawer(edge.id)
+		for i = 1, DrawerCount(world, edge.id) do
+			local id = drawer.buttons[i]:GetAttribute("toy")
+			ok(ns.ToyIcon(id) ~= nil, ("the drawer holds %d with nothing to draw"):format(id))
+		end
+		world:PressBar(1)
+		world:Slash("/clicky status")
+		world:Slash("/clicky debug")
+		list(world:TakeErrors(), {}, "no errors shown")
+	end)
+
+	-- The panel and the drawer on screen: the rows and buttons Clicky makes, and what a click or
+	-- hover on them does (the list is tests/wow.lua's ScrollList; menus are replaced by recording).
+	describe("The panel and the drawer on screen", function()
+		local function OpenPanel(world)
+			world:LoadCollections()
+			world:OpenToyBox()
+			world:Advance(1)
+		end
+
+		-- The panel's rows that show: { row, name, count }.
+		local function PanelShown(world)
+			local shown = {}
+			for _, row in ipairs(world.scrollList.rows) do
+				if row:IsShown() then
+					shown[#shown + 1] = { row = row, name = row.name:GetText(), count = row.count:GetText() }
+				end
+			end
+			return shown
+		end
+
+		local function Names(shown)
+			local names = {}
+			for i, entry in ipairs(shown) do names[i] = entry.name end
+			return names
+		end
+
+		it("14. The panel lists a row per macro, opens one to its toys on a click, and greys the toys not owned", function()
+			local toys = Toys()
+			toys[#toys + 1] = { id = NEW_TOY, name = "Wand", icon = 4001, owned = false }
+			local world = World({ toys = toys })
+			local ns = world.ns
+			local menus = {}
+			ns.OpenEntryMenu = function(owner, itemID) menus[#menus + 1] = { owner, itemID } end
+			ns.OpenMacroMenu = function(owner, m) menus[#menus + 1] = { owner, m.name } end
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			AddTo(world, NEW_TOY, "Illusion")
+			OpenPanel(world)
+			local shown = PanelShown(world)
+			-- A macro the player just made is open.
+			list(Names(shown), { "Favorites", "Illusion", "Orb of Deception", "Pirate's Costume", "Wand" })
+			eq(shown[1].count, 2, "the two stars")
+			eq(shown[2].count, 3)
+			eq(shown[2].row.arrow.texture, "Interface\\Buttons\\UI-MinusButton-Up")
+			ok(shown[2].row.macroIcon:IsShown() and not shown[2].row.toyIcon:IsShown())
+			ok(not shown[2].row.macroIcon.warning:IsShown(), "no warning on a macro Clicky can read")
+			shown[2].row.macroIcon.scripts.OnEnter(shown[2].row.macroIcon)
+			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose an item." },
+				"the macro icon's tooltip")
+			shown[1].row.macroIcon.scripts.OnEnter(shown[1].row.macroIcon)
+			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose a toy." },
+				"Favorites holds only toys")
+			local orb, wand = shown[3].row, shown[5].row
+			eq(orb.toyIcon.texture, 1002)
+			eq(orb.toyIcon.desaturated, false)
+			eq(wand.toyIcon.texture, 4001)
+			eq(wand.toyIcon.desaturated, true, "a toy not owned is grey")
+			eq(wand.toyIcon.alpha, nil, "and not dimmed")
+			ok(orb.toyIcon:IsShown() and not orb.macroIcon:IsShown() and not orb.arrow:IsShown())
+
+			orb.scripts.OnEnter(orb)
+			eq(world.tooltip.owner, orb)
+			eq(world.tooltip.toy, ORB)
+			eq(world.tooltip.anchor, "ANCHOR_RIGHT")
+			orb.scripts.OnLeave(orb)
+			eq(world.tooltip, nil)
+			orb.scripts.OnClick(orb, "LeftButton")
+			list(menus, {}, "a left click on a toy does nothing")
+			orb.scripts.OnClick(orb, "RightButton")
+			list(menus, { { orb, ORB } }, "a right click opens the toy's menu")
+			shown[2].row.scripts.OnClick(shown[2].row, "RightButton")
+			list(menus[2], { shown[2].row, "Illusion" }, "and on a macro, the macro's")
+
+			shown[2].row.scripts.OnClick(shown[2].row, "LeftButton")
+			world:Advance(1)
+			list(Names(PanelShown(world)), { "Favorites", "Illusion" }, "a click closes it")
+			eq(PanelShown(world)[2].row.arrow.texture, "Interface\\Buttons\\UI-PlusButton-Up")
+			world.scrollList.scrolledTo = nil
+			shown[2].row.scripts.OnClick(shown[2].row, "LeftButton")
+			world:Advance(1)
+			eq(#PanelShown(world), 5, "and opens it again")
+			eq(world.scrollList.scrolledTo, 2, "scrolled to show the macro's row")
+			assert(ns.RenameMacro(Macro(world, "Illusion"), "Dress up"))
+			world:Advance(1)
+			eq(Names(PanelShown(world))[2], "Dress up", "a rename shows")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("14. The panel: a macro Clicky can't read has a greyed icon, a warning and a ? and says why when hovered or clicked", function()
+			local world = World()
+			local ns = world.ns
+			local data = ns.EncodePlaces({ 0, 1 })
+			world:CreateMacroInUI("Broken", ns.NewBody("BRKN", data:sub(1, -2) .. (data:sub(-1) == "A" and "B" or "A")))
+			OpenPanel(world)
+			local shown = PanelShown(world)
+			list(Names(shown), { "Favorites", "Broken" })
+			local row = shown[2].row
+			eq(shown[2].count, "?")
+			ok(row.macroIcon.warning:IsShown(), "the warning mark")
+			eq(row.macroIcon.texture.desaturated, true)
+			row.scripts.OnEnter(row)
+			eq(world.tooltip.owner, row)
+			eq(world.tooltip.title, "Broken")
+			eq(world.tooltip.lines[1], UNREADABLE)
+			row.macroIcon.scripts.OnEnter(row.macroIcon)
+			eq(world.tooltip.owner, row.macroIcon, "the icon says it too")
+			row.scripts.OnClick(row, "LeftButton")
+			list(world:TakeErrors(), { UNREADABLE }, "a click shows the reason")
+			ok(not ns.expanded[ns.GetMacros()[1].id], "and doesn't open it")
+			row.macroIcon.scripts.OnLeave(row.macroIcon)
+			local favorites = shown[1].row
+			favorites.scripts.OnEnter(favorites)
+			eq(world.tooltip, nil, "a macro Clicky can read has no tooltip on its row")
+		end)
+
+		it("14. The drawer: each button shows its toy's icon and tooltip, the cooldown, and a click uses the toy and closes it", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			PutOnBar(world, "Illusion", 1)
+			world.toys[ORB].cooldown = 30
+			world:PressBar(1, "RightButton")
+			ok(DrawerOpen(world, "Illusion"))
+			local drawer = world.ns.GetDrawer(Macro(world, "Illusion").id)
+			local orb, pirate = drawer.buttons[1], drawer.buttons[2]
+			eq(orb:GetAttribute("toy"), ORB)
+			eq(orb.icon.texture, 1002)
+			eq(pirate.icon.texture, 1001)
+			ok(orb.cooldown.start ~= nil, "a toy on cooldown shows it when the drawer opens")
+			ok(pirate.cooldown.start == nil)
+			orb.scripts.OnEnter(orb)
+			eq(world.tooltip.owner, orb)
+			eq(world.tooltip.toy, ORB)
+			eq(world.tooltip.anchor, "ANCHOR_LEFT")
+			orb.scripts.OnLeave(orb)
+			eq(world.tooltip, nil)
+			world:MouseClick(pirate)
+			list(world.used, { PIRATE }, "a click uses the toy")
+			ok(not DrawerOpen(world, "Illusion"), "and closes the drawer")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("14. The drawer: when a macro loses toys, the buttons left over hold no toy", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			AddTo(world, GNOME, "Illusion")
+			local m = Macro(world, "Illusion")
+			world.ns.FillDrawer(m)
+			eq(DrawerCount(world, m.id), 3)
+			assert(world.ns.SetEntry(m, ORB, false))
+			assert(world.ns.SetEntry(m, GNOME, false))
+			world:Advance(1)
+			eq(DrawerCount(world, m.id), 1)
+			list(DrawerToys(world, "Illusion"), { PIRATE })
+			local drawer = world.ns.GetDrawer(m.id)
+			for i = 2, 3 do
+				local button = drawer.buttons[i]
+				ok(not button:IsShown(), "button " .. i .. " is hidden")
+				eq(button.itemID, nil)
+				eq(button:GetAttribute("toy"), nil)
+				eq(button:GetAttribute("type"), nil, "and a click uses nothing")
+			end
+		end)
+
+		it("14. The panel: an error in the window manager's calls still leaves it filled", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			world:LoadCollections()
+			world.env.SetUIPanelAttribute = function() error("no window manager") end
+			ok(not pcall(world.OpenToyBox, world), "the error reaches the game")
+			list(Names(PanelShown(world)), { "Favorites", "Illusion", "Pirate's Costume" })
+		end)
+
+		it("14. The panel: shown and hidden in combat, it leaves the window manager alone", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			world:LoadCollections()
+			world:EnterCombat()
+			world:OpenToyBox()
+			world:Advance(1)
+			list(Names(PanelShown(world)), { "Favorites", "Illusion", "Pirate's Costume" })
+			world:CloseToyBox()
+			list(world:TakeErrors(), {})
+		end)
+
+		it("14. The drawer: a cooldown that started while it was closed shows when it opens, in combat too", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			PutOnBar(world, "Illusion", 1)
+			world:Advance(1)
+			world:EnterCombat() -- nothing refills the drawer when it opens in combat
+			world.toys[ORB].cooldown = 30
+			world:PressBar(1, "RightButton")
+			ok(DrawerOpen(world, "Illusion"))
+			ok(world.ns.GetDrawer(Macro(world, "Illusion").id).buttons[1].cooldown.start ~= nil, "the toy shows its cooldown")
+		end)
+
+		it("8. Delete: a macro that comes back with the same code starts closed", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion") -- open when made
+			local body = world.macros[1].body
+			assert(world.ns.DeleteMacro(m))
+			world:CreateMacroInUI("Illusion", body)
+			list(PanelTexts(world), { "Favorites", "Illusion" })
+		end)
+
+		it("4. The menus: renaming, deleting and making a macro from a toy are refused in combat, with the reason", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			world:EnterCombat()
+			world.ns.OpenMacroMenu(world.env.UIParent, m)
+			world:ChooseMenuEntry("Rename")
+			world:ChooseMenuEntry(world.env.DELETE)
+			world.ns.OpenEntryMenu(world.env.UIParent, ORB)
+			world:ChooseMenuEntry("Add to new macro...")
+			list(world:TakeErrors(), { COMBAT, COMBAT, COMBAT })
+		end)
+
+		it("14. The panel: closing the Toy Box before it scrolls to a macro just opened doesn't scroll when it opens again", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			OpenPanel(world)
+			local row = PanelShown(world)[2].row
+			row.scripts.OnClick(row, "LeftButton")
+			world:Advance(1)
+			world.scrollList.scrolledTo = nil
+			row.scripts.OnClick(row, "LeftButton") -- opens it: the next refresh scrolls
+			world:CloseToyBox()
+			world:Advance(1)
+			world:OpenToyBox()
+			world:Advance(1)
+			eq(world.scrollList.scrolledTo, nil)
+		end)
+	end)
+
+	-- Journey 15 on screen: the grid's buttons. The Collections window and the Toy Box are the
+	-- minimal frames of World:LoadCollections; a click goes through the secure click path of
+	-- tests/wow.lua, as the mouse does (World:MouseClick).
+	describe("15. The toy grid's buttons", function()
+		local STARS = { 1007, 1050, 1120 }
+		local WAND = 2001 -- a toy in the game the player doesn't own yet
+
+		-- Toys the player owns: "Toy 001", "Toy 002"... with item IDs 1001..., so by name is by ID;
+		-- STARS are favorites.
+		local function ManyToys(count)
+			local toys = {}
+			for i = 1, count do
+				toys[i] = { id = 1000 + i, name = ("Toy %03d"):format(i), icon = 5000 + i }
+			end
+			for _, id in ipairs(STARS) do
+				if toys[id - 1000] then toys[id - 1000].favorite = true end
+			end
+			toys[#toys + 1] = { id = WAND, name = "Wand", owned = false }
+			return toys
+		end
+
+		-- The item IDs of toys 1001 to 1000 + count that aren't starred, in the order they're listed.
+		local function Rest(count, starred)
+			starred = starred or STARS
+			local ids = {}
+			for id = 1001, 1000 + count do
+				local isStar = false
+				for _, star in ipairs(starred) do isStar = isStar or id == star end
+				if not isStar then ids[#ids + 1] = id end
+			end
+			return ids
+		end
+
+		local function Slice(ids, from, to)
+			local out = {}
+			for i = from, math.min(to, #ids) do out[#out + 1] = ids[i] end
+			return out
+		end
+
+		-- The toys 1001 to 1000 + count as listed: the favorites, then the rest.
+		local function Listed(count)
+			local ids = {}
+			for _, star in ipairs(STARS) do
+				if star <= 1000 + count then ids[#ids + 1] = star end
+			end
+			for _, id in ipairs(Rest(count)) do ids[#ids + 1] = id end
+			return ids
+		end
+
+		-- What the 9 rows of 12 from row top show.
+		local function From(ids, top)
+			return Slice(ids, (top - 1) * 12 + 1, (top - 1 + 9) * 12)
+		end
+
+		-- A world with the Collections window loaded and the Toy Box open: with count toys the
+		-- player owns (ManyToys), or the toys given.
+		local function GridWorld(toys)
+			local world = World({ toys = type(toys) == "number" and ManyToys(toys) or toys })
+			world:LoadCollections()
+			world:OpenToyBox()
+			return world
+		end
+
+		local function Shown(world)
+			local shown = {}
+			for _, button in ipairs(world.env.ClickyGrid.buttons) do
+				if button:IsShown() then shown[#shown + 1] = button end
+			end
+			return shown
+		end
+
+		local function ButtonFor(world, id)
+			for _, button in ipairs(Shown(world)) do
+				if button.itemID == id then return button end
+			end
+		end
+
+		local function ShownToys(world)
+			local ids = {}
+			for i, button in ipairs(Shown(world)) do ids[i] = button.itemID end
+			return ids
+		end
+
+		local function TopRow(world)
+			return tonumber(world.ns.GetGridState():match("top row (%d+) of"))
+		end
+
+		-- The mouse wheel over the grid: delta -1 is a notch down.
+		local function Wheel(world, delta, times)
+			for _ = 1, times or 1 do world:MouseWheel(world.env.ClickyGrid, delta) end
+		end
+
+		-- What the player sees on the buttons, to tell that nothing moved.
+		local function Snapshot(world)
+			local snapshot = {}
+			for i, button in ipairs(world.env.ClickyGrid.buttons) do
+				local point, _, _, x, y = button:GetPoint()
+				snapshot[i] = { button.itemID, button:IsShown(), button:GetAttribute("type1"),
+					button:GetAttribute("toy"), point, x, y, button.icon.texture, button.check:IsShown(),
+					button.new:IsShown(), button.cooldown.start }
+			end
+			return snapshot
+		end
+
+		-- Clicks every button in view; each uses the toy it shows, and only that.
+		local function ClickAll(world, what)
+			for _, button in ipairs(Shown(world)) do
+				world.used = {}
+				world:MouseClick(button)
+				list(world.used, { button.itemID }, ("%s: a click on %d"):format(what, button.itemID))
+			end
+		end
+
+		-- How many times a view redrew, from the trace (with tracing on).
+		local function Refreshes(world, view)
+			local n = 0
+			for _, line in ipairs(world.prints) do
+				if line:find("[" .. view .. "] refresh,", 1, true) then n = n + 1 end
+			end
+			return n
+		end
+
+		it("a button for each place in view, made when the Collections window loads, with the Toy Box's own grid hidden", function()
+			local world = World({ toys = ManyToys(200) })
+			local ns = world.ns
+			eq(ns.GetGridState(), "not made")
+			eq(world.env.ClickyGrid, nil)
+			world:LoadCollections()
+			local grid, bar = world.env.ClickyGrid, world.env.ClickyGridScrollBar
+			-- The Collections window is 703 x 606 and the grid's room is what Blizzard's layout leaves.
+			eq(#grid.buttons, 12 * 9)
+			for _, button in ipairs(grid.buttons) do
+				ok(button:IsProtected(), "a secure button")
+			end
+			ok(ns.GetGridState():find("made, showing toys, top row 1 of 17", 1, true), "drawn when made, shown or not: " .. ns.GetGridState())
+			eq(#Shown(world), 108, "the first screen")
+			ok(not grid:IsVisible(), "though the Toy Box isn't open")
+			eq(world.env.ToyBox.mouseWheel, false, "the Toy Box's own wheel is off, so it can't turn its hidden pages")
+			eq(world.env.ClickyGridFilter.resizeToText, false, "the filter button keeps its width")
+			for _, key in ipairs({ "iconsFrame", "PagingFrame", "searchBox", "FilterDropdown", "progressBar" }) do
+				ok(not world.env.ToyBox[key]:IsShown(), "the Toy Box's " .. key .. " is hidden")
+			end
+			ok(not grid.BGCornerTopLeft:IsShown() and not grid.BGCornerTopRight:IsShown(), "the top corners, under the tabs")
+			world:OpenToyBox()
+			eq(bar:GetVisibleExtentPercentage(), 1 / 9, "the thumb is the share of the 9 first rows it can scroll to")
+			eq(bar:GetPanExtentPercentage(), 3 / 8, "a wheel step goes three rows")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("an error while the grid is built leaves no grid, and the Toy Box keeps its own", function()
+			local world = World({ toys = ManyToys(20) })
+			local ns = world.ns
+			local CreateFrame = world.env.CreateFrame
+			world.env.CreateFrame = function(frameType, name, parent, template)
+				if name == "ClickyGridScrollBar" then error("no scroll bar") end
+				return CreateFrame(frameType, name, parent, template)
+			end
+			local built, err = pcall(world.LoadCollections, world)
+			ok(not built and tostring(err):find("no scroll bar", 1, true), err)
+			eq(ns.GetGridState(), "not made")
+			ok(not world.env.ClickyGrid:IsVisible(), "the half-built frame isn't on screen")
+			ok(world.env.ToyBox.iconsFrame:IsShown(), "the Toy Box's own grid is still shown")
+			-- Nothing else fails afterwards, or tries to build the grid again.
+			world:OpenToyBox()
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			world:EnterCombat()
+			world:LeaveCombat()
+			world:Advance(1)
+			ok(world.env.ToyBox.iconsFrame:IsShown())
+			list(world:TakeErrors(), {})
+		end)
+
+		it("the rows in view: nine rows from the top row, clamped", function()
+			local ns = World().ns
+			local rows = {}
+			for i = 1, 14 do rows[i] = { keys = { i } } end
+			local function Offsets(from)
+				local view, used, highest = ns.GridView(rows, from)
+				local out = {}
+				for i, entry in ipairs(view) do out[i] = entry.index .. "@" .. entry.offset end
+				return out, used, highest
+			end
+			-- A toy row is 48 high (42 and a gap of 6); nine end at 426, the grid's height.
+			list(Offsets(1), { "1@0", "2@48", "3@96", "4@144", "5@192", "6@240", "7@288", "8@336", "9@384" })
+			ok(384 + 42 <= 426, "the last row ends inside the grid")
+			list(Offsets(4), { "4@0", "5@48", "6@96", "7@144", "8@192", "9@240", "10@288", "11@336", "12@384" })
+			local _, used, highest = Offsets(99)
+			eq(used, 6, "past the end is the highest first row")
+			eq(highest, 6, "the last row ends the view: rows 6 to 14")
+			eq(select(2, Offsets(0)), 1, "before the start is the first")
+			eq(select(2, Offsets(-3)), 1)
+			rows = { rows[1], rows[2], rows[3] }
+			list(Offsets(2), { "1@0", "2@48", "3@96" }, "few rows: nothing to scroll")
+			eq(select(3, Offsets(2)), 1)
+			rows = {}
+			list(Offsets(1), {}, "no rows")
+			eq(select(3, Offsets(1)), 1)
+		end)
+
+		it("a toy button's place, whether its plain left click is secure, and an emptied button", function()
+			local toys = ManyToys(20)
+			toys[3].fanfare = true -- 1003 is still in its gift wrap
+			toys[4].owned = false
+			local world = GridWorld(toys)
+			world:GridFilterMenu()[2].toggle()
+			local board = world.env.ClickyGridBoard
+			list({ ButtonFor(world, 1007):GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 0, 0 }, "the favorite first")
+			list({ ButtonFor(world, 1001):GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 48, 0 }, "the rest right after it, as in the Toy Box")
+			list({ ButtonFor(world, 1002):GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 2 * 48, 0 })
+			ok(ButtonFor(world, 1007).star:IsShown(), "the favorite has the Toy Box's star")
+			ok(not ButtonFor(world, 1001).star:IsShown(), "the others don't")
+			eq(ButtonFor(world, 1001):GetAttribute("type1"), "toy")
+			eq(ButtonFor(world, 1001):GetAttribute("type"), nil, "and no other click uses the toy")
+			eq(ButtonFor(world, 1001):GetAttribute("toy"), 1001)
+			eq(ButtonFor(world, 1003):GetAttribute("type1"), nil, "a wrapped toy: a click opens the wrap")
+			eq(ButtonFor(world, 1004):GetAttribute("type1"), nil, "a toy not owned: a click does nothing")
+			eq(ButtonFor(world, 1003):GetAttribute("toy"), nil, "nor does a wrapped toy hold one to use")
+			eq(ButtonFor(world, 1004):GetAttribute("toy"), nil)
+			world.env.ClickyGridSearch:SetText("Toy 002")
+			list(ShownToys(world), { 1002 })
+			local emptied = world.env.ClickyGrid.buttons[2]
+			eq(emptied.itemID, nil, "a button with no toy to show holds none")
+			eq(emptied:GetAttribute("toy"), nil)
+			eq(emptied:GetAttribute("type1"), nil)
+			ok(not emptied:IsShown())
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a button emptied while the mouse is over it hides its tooltip, one still holding a toy keeps it", function()
+			local world = GridWorld(20)
+			local buttons = Shown(world)
+			buttons[1].scripts.OnEnter(buttons[1])
+			world.env.ClickyGridSearch:SetText("Toy 007")
+			list(ShownToys(world), { 1007 })
+			world:UpdateTooltip()
+			eq(world.tooltip.owner, buttons[1], "the button still holding its toy keeps the tooltip")
+			world.env.ClickyGridSearch:SetText("")
+			buttons[5].scripts.OnEnter(buttons[5])
+			world.env.ClickyGridSearch:SetText("Toy 007")
+			world:UpdateTooltip()
+			eq(world.tooltip, nil, "the one that lost its toy hides it")
+		end)
+
+		it("a check mark on the toys in a Clicky macro, not Favorites, whose toys have their star, kept up to date", function()
+			local world = GridWorld(20)
+			local function Marked()
+				world:Advance(1)
+				local marked = {}
+				for _, button in ipairs(Shown(world)) do
+					if button.check:IsShown() then marked[#marked + 1] = button.itemID end
+				end
+				table.sort(marked)
+				return marked
+			end
+			list(Marked(), {}, "the favorite, 1007, is in Favorites and has no mark")
+			local macro = MakeMacro(world, 1002, "Illusion")
+			list(Marked(), { 1002 }, "a toy in a new macro")
+			AddTo(world, 1003, "Illusion")
+			AddTo(world, 1007, "Illusion")
+			list(Marked(), { 1002, 1003, 1007 }, "a favorite in a macro of the player's has one")
+			assert(world.ns.SetEntry(macro, 1002, false))
+			list(Marked(), { 1003, 1007 }, "taken out of the macro")
+			assert(world.ns.DeleteMacro(macro))
+			list(Marked(), {}, "its macro deleted")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("the scroll bar snaps to the row it is moved to, for every row", function()
+			local world = GridWorld(200)
+			local bar = world.env.ClickyGridScrollBar
+			for row = 9, 1, -1 do
+				bar:SetScrollPercentage((row - 1) / 8)
+				eq(TopRow(world), row, "row " .. row)
+				eq(bar:GetScrollPercentage(), (row - 1) / 8)
+			end
+			bar:SetScrollPercentage(0.05)
+			eq(TopRow(world), 1, "a position between rows goes to the nearest")
+			bar:SetScrollPercentage(0.4)
+			eq(TopRow(world), 4)
+			eq(bar:GetScrollPercentage(), 3 / 8, "and the bar is on it")
+			bar:SetScrollPercentage(0.45)
+			eq(TopRow(world), 5)
+		end)
+
+		it("a click on a button uses the toy it shows, wherever the grid is scrolled to", function()
+			local world = GridWorld(200)
+			local listed = Listed(200)
+			-- The three favorites, then the rest: 9 rows of 12.
+			list(ShownToys(world), From(listed, 1), "from the top")
+			local buttons = Shown(world)
+			eq(#buttons, 108)
+			local board = world.env.ClickyGridBoard
+			list({ buttons[3]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 2 * 48, 0 }, "the third favorite")
+			list({ buttons[4]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 3 * 48, 0 }, "and the first of the rest after it")
+			list({ buttons[13]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 0, -48 }, "the second row")
+			ClickAll(world, "top")
+
+			-- The wheel scrolls three rows a notch, down to the last row and back.
+			Wheel(world, -1)
+			eq(TopRow(world), 4)
+			list(ShownToys(world), From(listed, 4))
+			ClickAll(world, "row 4")
+			Wheel(world, -1)
+			eq(TopRow(world), 7)
+			list(ShownToys(world), From(listed, 7))
+			ClickAll(world, "row 7")
+			Wheel(world, -1)
+			eq(TopRow(world), 9, "the last row ends the view")
+			list(ShownToys(world), From(listed, 9), "the last toys, in the last 9 rows")
+			ClickAll(world, "bottom")
+			Wheel(world, -1, 5)
+			eq(TopRow(world), 9, "no further")
+			Wheel(world, 1)
+			eq(TopRow(world), 6)
+			list(ShownToys(world), From(listed, 6))
+			ClickAll(world, "row 6")
+			Wheel(world, 1, 5)
+			eq(TopRow(world), 1)
+			list(ShownToys(world), From(listed, 1), "back at the top")
+
+			world.env.ClickyGridScrollBar:SetScrollPercentage(1 / 8)
+			eq(TopRow(world), 2)
+			list(ShownToys(world), From(listed, 2))
+			ClickAll(world, "row 2")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a refresh keeps the place, and goes back to the top for a search or a filter", function()
+			local world = GridWorld(200)
+			Wheel(world, -1, 2)
+			eq(TopRow(world), 7)
+			world:Fire("GET_ITEM_INFO_RECEIVED", 1005, true)
+			world:Advance(1)
+			eq(TopRow(world), 7, "a toy's name arriving keeps the place")
+			list(ShownToys(world), From(Listed(200), 7))
+
+			Wheel(world, -1)
+			eq(TopRow(world), 9)
+			for id = 1176, 1200 do world.toys[id].owned = false end
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			eq(TopRow(world), 7, "fewer rows: the place is clamped to the last full view")
+			list(ShownToys(world), From(Listed(175), 7), "ending with the last toy")
+
+			world.env.ClickyGridSearch:SetText("Toy 12")
+			world:Advance(1)
+			eq(TopRow(world), 1, "a search goes to the top")
+			list(ShownToys(world), { 1120, 1121, 1122, 1123, 1124, 1125, 1126, 1127, 1128, 1129 })
+			ok(world.ns.GetGridState():find('search "Toy 12"', 1, true), world.ns.GetGridState())
+			world.env.ClickyGridSearch:SetText("")
+			world:Advance(1)
+			eq(TopRow(world), 1)
+			Wheel(world, -1, 2)
+			eq(TopRow(world), 7)
+
+			local filters = world:GridFilterMenu()
+			list({ filters[1].text, filters[2].text, filters[3].text }, { "Collected", "Not Collected", "Usable Only" })
+			list({ filters[1].isSelected(), filters[2].isSelected(), filters[3].isSelected() }, { true, false, false })
+			filters[2].toggle()
+			world:Advance(1)
+			eq(TopRow(world), 1, "a filter goes to the top")
+			ok(world.ns.GetGridState():find("not collected true", 1, true), "Not Collected is on")
+			Wheel(world, -1, 2)
+			eq(TopRow(world), 7, "Not Collected adds the toys not owned: more rows to scroll")
+			world.env.ClickyGridFilter.defaultCallback()
+			world:Advance(1)
+			eq(TopRow(world), 1, "resetting the filters goes to the top")
+			ok(world.ns.GetGridState():find("not collected false", 1, true))
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a search or a filter redraws the grid only; the other views are not refreshed", function()
+			local world = GridWorld(20)
+			local other = CountingView(world.ns, "other", 0)
+			local before = Refreshes(world, "grid")
+			world.ns.SetTracing(true)
+			world.env.ClickyGridSearch:SetText("Toy 002")
+			world:GridFilterMenu()[2].toggle()
+			world.env.ClickyGridFilter.defaultCallback()
+			world:Advance(1)
+			eq(Refreshes(world, "grid") - before, 3, "the grid redrew for each")
+			eq(other.refreshes, 0, "and no other view refreshed")
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			eq(other.refreshes, 1, "a change every view shows still refreshes them all")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("the grid waits its refresh delay for a burst of changes, and the panel only the next frame", function()
+			local world = GridWorld(20)
+			world.ns.SetTracing(true)
+			world:Fire("TOYS_UPDATED")
+			world:Advance(0)
+			eq(Refreshes(world, "panel"), 1, "the panel next frame")
+			eq(Refreshes(world, "grid"), 0, "the grid not yet")
+			world:Advance(0.19)
+			eq(Refreshes(world, "grid"), 0, "still waiting")
+			world:Advance(0.02)
+			eq(Refreshes(world, "grid"), 1, "and once the delay is over")
+		end)
+
+		it("a button isn't re-pointed while a mouse button is held: the toy used is the one pressed", function()
+			local world = GridWorld(20)
+			local other = CountingView(world.ns, "other", 0)
+			local pressed = Shown(world)[2]
+			eq(pressed.itemID, 1001)
+			world:HoldMouse(pressed)
+			world.toys[1001].name = "Zzz" -- its name arrives, and it goes to the end of the list
+			world:Fire("GET_ITEM_INFO_RECEIVED", 1001, true)
+			world:Advance(1)
+			eq(pressed.itemID, 1001, "the button holds the toy that was pressed")
+			eq(other.refreshes, 1, "waiting for the release doesn't refresh the other views again")
+			ok(world.ns.GetGridState():find(", redrawing waits for the mouse button", 1, true), world.ns.GetGridState())
+			world:ReleaseMouse(pressed)
+			list(world.used, { 1001 }, "and the click uses it")
+			world:Advance(1)
+			eq(pressed.itemID, 1002, "the next refresh after the release redraws")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a gift-wrapped toy unwraps on its first click, which doesn't use it, and the next click uses it", function()
+			local toys = ManyToys(20)
+			toys[3].fanfare = true
+			local world = GridWorld(toys)
+			local ns = world.ns
+			local button = ButtonFor(world, 1003)
+			eq(button:GetAttribute("type1"), nil, "a click doesn't use it")
+			ok(button.new:IsShown(), "NEW until opened")
+			world:MouseClick(button)
+			list(world.used, {}, "the first click only opens it")
+			ok(not ns.IsWrapped(1003), "opened")
+			button = ButtonFor(world, 1003) -- redrawn at once, not after the refresh delay
+			eq(button:GetAttribute("type1"), "toy")
+			ok(not button.new:IsShown(), "no longer NEW")
+			world:MouseClick(button)
+			list(world.used, { 1003 }, "the next click uses it")
+		end)
+
+		it("a right click opens the toy's menu, a shift-click links it, and no other click uses the toy or does anything", function()
+			local world = GridWorld(20)
+			local menus = {}
+			world.ns.OpenEntryMenu = function(owner, itemID) menus[#menus + 1] = { owner, itemID } end
+			local button = Shown(world)[1]
+			local id = button.itemID
+			local link = world.env.C_ToyBox.GetToyLink(id)
+			world:MouseClick(button, "RightButton")
+			list(menus, { { button, id } }, "the menu opens on the button")
+			list(world.used, {}, "and uses nothing")
+			world.keys.shift = true
+			world:MouseClick(button)
+			list(world.chat, { link }, "linked in chat")
+			list(world.used, {}, "and uses nothing")
+			world:MouseClick(button, "RightButton")
+			list(menus, { { button, id } }, "no menu for a shift-click")
+			list(world.chat, { link, link }, "a shift-right-click links too, as in the Toy Box")
+			world.chat = {}
+			world.keys.shift, world.keys.ctrl = false, true
+			world:MouseClick(button)
+			world:MouseClick(button, "RightButton")
+			world.keys.ctrl, world.keys.alt = false, true
+			world:MouseClick(button)
+			world.keys.alt = false
+			world:MouseClick(button, "MiddleButton")
+			list(world.chat, {}, "nothing else links")
+			list(menus, { { button, id } }, "or opens a menu")
+			list(world.used, {}, "or uses the toy")
+			world:MouseClick(button)
+			list(world.used, { id }, "a plain left click does")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a toy not owned: greyed, no menu, no use, and a shift-click still links it", function()
+			local world = GridWorld(20)
+			local menus = 0
+			world.ns.OpenEntryMenu = function() menus = menus + 1 end
+			world:GridFilterMenu()[2].toggle()
+			world:Advance(1)
+			local button = Shown(world)[#Shown(world)]
+			eq(button.itemID, WAND)
+			eq(button:GetAttribute("type1"), nil)
+			ok(button.icon.desaturated, "greyed")
+			eq(button.icon.alpha, 0.5)
+			world:MouseClick(button)
+			world:MouseClick(button, "RightButton")
+			eq(menus, 0)
+			list(world.used, {})
+			world.keys.shift = true
+			world:MouseClick(button)
+			list(world.chat, { world.env.C_ToyBox.GetToyLink(WAND) })
+		end)
+
+		it("each button shows its toy's icon, cooldown, check mark and NEW and tooltip, and drags the toy", function()
+			local toys = ManyToys(200)
+			toys[10].cooldown = 30
+			local world = GridWorld(toys)
+			local ns = world.ns
+			MakeMacro(world, 1003, "Illusion")
+			world:Advance(1)
+			local byToy = {}
+			for _, button in ipairs(Shown(world)) do byToy[button.itemID] = button end
+			eq(byToy[1002].icon.texture, 5002, "the toy's icon")
+			ok(not byToy[1002].icon.desaturated)
+			eq(byToy[1002].icon.alpha, 1)
+			ok(byToy[1003].check:IsShown(), "a toy in a macro")
+			ok(not byToy[1002].check:IsShown())
+			ok(byToy[1007].star:IsShown(), "a favorite has the Toy Box's star")
+			ok(not byToy[1007].check:IsShown(), "and no check mark for Favorites")
+			ok(not byToy[1002].star:IsShown())
+			ok(byToy[1010].cooldown.start ~= nil, "a toy on cooldown")
+			ok(byToy[1011].cooldown.start == nil)
+			world.toys[1011].cooldown = 30
+			world:Fire("SPELL_UPDATE_COOLDOWN")
+			ok(byToy[1011].cooldown.start ~= nil, "a cooldown that starts")
+			ok(byToy[1002].cooldown.start == nil)
+
+			byToy[1002].scripts.OnEnter(byToy[1002])
+			eq(world.tooltip.toy, 1002)
+			eq(world.tooltip.owner, byToy[1002])
+			eq(world.tooltip.anchor, "ANCHOR_RIGHT", "right of the button")
+			byToy[1002].scripts.OnLeave(byToy[1002])
+			eq(world.tooltip, nil)
+			world:Drag(byToy[1002])
+			list(world.cursor, { toy = 1002 }, "dragged")
+
+			-- A toy learned this session says NEW until hovered over.
+			world:LearnToy({ id = WAND })
+			world.env.ClickyGridSearch:SetText("Wand")
+			world:Advance(1)
+			local wand = Shown(world)[1]
+			eq(wand.itemID, WAND)
+			ok(wand.new:IsShown(), "NEW")
+			wand.scripts.OnEnter(wand)
+			ok(not wand.new:IsShown(), "hovered")
+			ok(not ns.IsNewToy(WAND))
+
+			-- A tooltip follows the button when the grid scrolls under the mouse.
+			world.env.ClickyGridSearch:SetText("")
+			world:Advance(1)
+			Wheel(world, -1)
+			local button = Shown(world)[1]
+			button.scripts.OnEnter(button)
+			eq(world.tooltip.toy, button.itemID)
+			local shown = button.itemID
+			Wheel(world, -1)
+			ok(button.itemID ~= shown, "the button holds another toy")
+			eq(world.tooltip.toy, shown, "the tooltip hasn't noticed yet")
+			button.UpdateTooltip(button)
+			eq(world.tooltip.toy, button.itemID)
+			list(world:TakeErrors(), {})
+		end)
+
+		it("names not loaded yet: the first draw waits for them, up to 5 seconds, so nothing moves; later redraws don't wait", function()
+			local toys = ManyToys(20)
+			toys[3].loading = true -- after a reload, a name the game hasn't loaded
+			toys[21].loading = true -- the Wand, not owned
+			local world = GridWorld(toys)
+			list(ShownToys(world), {}, "nothing drawn while a name loads")
+			ok(world.ns.GetGridState():find(", waiting for names", 1, true), world.ns.GetGridState())
+			world.toys[1003].loading = false
+			world:Fire("GET_ITEM_INFO_RECEIVED", 1003, true)
+			world:Advance(1)
+			list(ShownToys(world), Listed(20), "drawn once the name is in, in its place")
+			eq(world.ns.GetGridState():find("waiting for names", 1, true), nil)
+			world:GridFilterMenu()[2].toggle() -- Not Collected: the Wand's name is still loading
+			list(ShownToys(world), With(Listed(20), WAND), "a later change draws at once")
+
+			world = GridWorld(toys) -- 1003's name never arrives
+			world:Advance(4.9)
+			list(ShownToys(world), {}, "still waiting")
+			world:Advance(0.2)
+			eq(#ShownToys(world), 20, "after 5 seconds the grid draws without it")
+			eq(world.ns.GetGridState():find("waiting for names", 1, true), nil)
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a button moved from a toy on cooldown to a toy not owned has no cooldown swipe", function()
+			local toys = ManyToys(20)
+			toys[20].cooldown = 30
+			local world = GridWorld(toys)
+			world:GridFilterMenu()[2].toggle()
+			local button = Shown(world)[20]
+			eq(button.itemID, 1020, "the last toy owned")
+			ok(button.cooldown.start ~= nil, "on cooldown")
+			world.toys[1019].owned = false
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			eq(button.itemID, 1019, "the toy not owned is listed after the ones owned")
+			eq(button.cooldown.start, nil, "no swipe")
+		end)
+
+		it("in combat every button still uses its toy, and the grid stays as it was until combat ends", function()
+			local world = GridWorld(200)
+			local ns = world.ns
+			local bar = world.env.ClickyGridScrollBar
+			world:LearnToy({ id = 1020 }) -- in view, says NEW
+			world:Advance(1)
+			ns.SetTracing(true)
+			bar:SetScript("OnUpdate", function() end) -- a thumb being dragged
+			local menus = {}
+			ns.OpenEntryMenu = function(owner, itemID) menus[#menus + 1] = { owner, itemID } end
+			local before = Snapshot(world)
+			local toysBefore = ShownToys(world)
+			world:EnterCombat()
+			eq(bar:IsScrollAllowed(), false, "scrolling is off")
+			eq(bar.scripts.OnUpdate, nil, "a drag is stopped")
+
+			ClickAll(world, "in combat")
+			local button = Shown(world)[2]
+			world:MouseClick(button, "RightButton")
+			list(menus, { { button, button.itemID } }, "the menu opens in combat")
+			world.used = {}
+			world.keys.shift = true
+			world:MouseClick(button)
+			world.keys.shift = false
+			list(world.chat, { world.env.C_ToyBox.GetToyLink(button.itemID) }, "a chat link too")
+			list(world.used, {})
+			button.scripts.OnEnter(button)
+			eq(world.tooltip.toy, button.itemID, "hover shows the tooltip")
+
+			-- Scrolling does nothing.
+			Wheel(world, -1, 3)
+			Wheel(world, 1)
+			bar:SetScrollPercentage(0.9)
+			eq(TopRow(world), 1)
+			-- Neither does anything that changes what's listed.
+			world.env.ClickyGridSearch:SetText("Toy")
+			world:GridFilterMenu()[2].toggle()
+			world:LearnToy({ id = WAND })
+			world.env.C_ToyBox.SetIsFavorite(1002, true)
+			world:Fire("GET_ITEM_INFO_RECEIVED", 1005, true)
+			world:Advance(5)
+			list(Snapshot(world), before, "no button changed")
+			list(ShownToys(world), toysBefore)
+			list(world:TakeErrors(), {})
+			ok(ns.GetGridState():find(", in combat: redrawing waits for it to end", 1, true), ns.GetGridState())
+			eq(Refreshes(world, "grid"), 0, "no refresh yet")
+
+			-- What is inside a button isn't locked: a toy used in combat shows its cooldown, and
+			-- hovering over a NEW toy clears its label.
+			local used = ButtonFor(world, 1021)
+			world:MouseClick(used)
+			eq(world:LastUsed(), 1021)
+			world.toys[1021].cooldown = 30 -- the game starts it
+			world:Fire("SPELL_UPDATE_COOLDOWN")
+			ok(used.cooldown.start ~= nil, "the toy used in combat shows its cooldown")
+			local new = ButtonFor(world, 1020)
+			ok(new.new:IsShown(), "NEW")
+			new.scripts.OnEnter(new)
+			ok(not new.new:IsShown(), "hovering over it in combat clears the label")
+
+			world:LeaveCombat()
+			world:Advance(5)
+			eq(bar:IsScrollAllowed(), true, "scrolling is on again")
+			eq(Refreshes(world, "grid"), 1, "one refresh for everything asked for in combat")
+			eq(ns.GetGridState():find("waits", 1, true), nil)
+			ok(ns.GetGridState():find("not collected true", 1, true), "the filter changed in combat applies")
+			ok(ns.GetGridState():find('search "Toy"', 1, true), "and the search")
+			eq(TopRow(world), 1, "the search goes to the top")
+			-- 1002 is a favorite now, and the toy learned in combat is in the list.
+			list(ShownToys(world), { 1002, 1007, 1050, 1120, unpack(Slice(Rest(200, { 1002, 1007, 1050, 1120 }), 1, 104)) })
+			ok(not ns.IsNewToy(1020), "and 1020 is no longer NEW")
+			ClickAll(world, "after combat")
+			Wheel(world, -1)
+			eq(TopRow(world), 4, "the wheel works again")
+			list(world:TakeErrors(), {})
+			ns.SetTracing(false)
+		end)
+
+		it("when combat ends the grid asks for its own refresh, whatever else does", function()
+			local world = GridWorld(200)
+			local ns = world.ns
+			world:EnterCombat()
+			world.env.ClickyGridSearch:SetText("Toy 12")
+			world:Advance(1)
+			eq(#ShownToys(world), 108, "not yet")
+			ns.Sync = function() end -- the macros' own call to ns.Changed, after combat
+			world:LeaveCombat()
+			world:Advance(1)
+			list(ShownToys(world), { 1120, 1121, 1122, 1123, 1124, 1125, 1126, 1127, 1128, 1129 })
+		end)
+
+		it("a gift-wrapped toy clicked in combat opens, and a click after combat uses it", function()
+			local toys = ManyToys(20)
+			toys[3].fanfare = true
+			local world = GridWorld(toys)
+			local ns = world.ns
+			local button = ButtonFor(world, 1003)
+			world:EnterCombat()
+			world:MouseClick(button)
+			ok(not ns.IsWrapped(1003), "opened")
+			world:Advance(1)
+			world:MouseClick(button)
+			list(world.used, {}, "not used in combat: its button can't be set then")
+			world:LeaveCombat()
+			world:Advance(1)
+			world:MouseClick(button)
+			list(world.used, { 1003 })
+			list(world:TakeErrors(), {})
+		end)
+
+		it("the Collections window loading in combat: the grid is made when combat ends", function()
+			local world = World({ toys = ManyToys(20), combat = true })
+			local ns = world.ns
+			world:LoadCollections()
+			eq(ns.GetGridState(), "waiting for combat to end")
+			eq(world.env.ClickyGrid, nil)
+			ok(world.env.ToyBox.iconsFrame:IsShown(), "the Toy Box shows its own grid meanwhile")
+			world:OpenToyBox()
+			list(world:TakeErrors(), {})
+			world:LeaveCombat()
+			ok(ns.GetGridState():find("^made"), ns.GetGridState())
+			ok(not world.env.ToyBox.iconsFrame:IsShown(), "its own grid is hidden once the grid is made")
+			eq(#ShownToys(world), 20, "and the toys are listed, the Toy Box having been open")
+			ClickAll(world, "made after combat")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("the Toy Box opened in combat shows the toys it had, and lists the rest when combat ends", function()
+			local world = GridWorld(20)
+			local ns = world.ns
+			world:CloseToyBox()
+			world:LearnToy({ id = WAND })
+			world:EnterCombat()
+			world:OpenToyBox()
+			world:Advance(1)
+			list(world:TakeErrors(), {})
+			eq(#ShownToys(world), 20, "the toys it had")
+			ok(ns.GetGridState():find(", in combat: redrawing waits for it to end", 1, true), ns.GetGridState())
+			ClickAll(world, "in combat")
+			world:LeaveCombat()
+			world:Advance(1)
+			eq(#ShownToys(world), 21, "and the toy learned meanwhile")
+			ClickAll(world, "after combat")
+		end)
+
+		it("a patch that takes a part of the Toy Box away leaves the Toy Box with its own grid", function()
+			local world = World({ toys = ManyToys(20) })
+			world:LoadCollections("searchBox")
+			eq(world.ns.GetGridState(), "not made")
+			eq(world.env.ClickyGrid, nil)
+			world:OpenToyBox()
+			for _, key in ipairs({ "iconsFrame", "PagingFrame", "FilterDropdown" }) do
+				ok(world.env.ToyBox[key]:IsShown(), "the Toy Box's " .. key .. " is still shown")
+			end
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a wheel turn while a mouse button is held leaves the buttons alone: the toy used is the one pressed", function()
+			local world = GridWorld(200)
+			local pressed = Shown(world)[5]
+			local id = pressed.itemID
+			world:HoldMouse(pressed)
+			Wheel(world, -1)
+			eq(TopRow(world), 1, "not scrolled")
+			world:ReleaseMouse(pressed)
+			list(world.used, { id }, "the click uses the toy pressed")
+			Wheel(world, -1)
+			eq(TopRow(world), 4, "and the wheel works again")
+		end)
+
+		it("the Toy Box tab shown for the first time in combat, the Collections window having loaded before, lists the toys", function()
+			local world = World({ toys = ManyToys(20) })
+			world:LoadCollections()
+			world:EnterCombat()
+			world:OpenToyBox()
+			eq(#ShownToys(world), 20)
+			ClickAll(world, "in combat")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("the grid and the panel aren't refreshed while the Toy Box is closed, and draw when it opens", function()
+			local world = GridWorld(20)
+			world:Advance(1)
+			world:CloseToyBox()
+			world.ns.SetTracing(true)
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			eq(Refreshes(world, "grid"), 0, "the grid")
+			eq(Refreshes(world, "panel"), 0, "the panel")
+			world:OpenToyBox()
+			eq(Refreshes(world, "grid"), 1, "the grid draws when shown")
+			eq(Refreshes(world, "panel"), 1, "and so does the panel")
+		end)
+		it("a NEW toy that scrolls under the button the mouse is over stops saying NEW once its tooltip shows", function()
+			local world = GridWorld(200)
+			local button = Shown(world)[1]
+			button.scripts.OnEnter(button)
+			local target = From(Listed(200), 4)[1] -- the toy this button holds after one notch down
+			world:LearnToy({ id = target })
+			world:Advance(1)
+			Wheel(world, -1)
+			eq(button.itemID, target)
+			ok(button.new:IsShown(), "NEW as it arrives under the button")
+			world:UpdateTooltip()
+			eq(world.tooltip.toy, target, "the tooltip follows")
+			ok(not button.new:IsShown(), "and the toy is seen")
+			ok(not world.ns.IsNewToy(target))
+		end)
+
+		it("the bar put on each row's position turns the grid to that row, for each of 26 first rows", function()
+			-- 403 toys: 34 rows of 12, less 8 more in view, are 26 first rows. A row's position times 25 isn't
+			-- always a whole number in floating point, so the bar's position has to be rounded to a row.
+			local toys = ManyToys(403)
+			local world = GridWorld(toys)
+			local bar = world.env.ClickyGridScrollBar
+			for row = 1, 26 do
+				bar:SetScrollPercentage((row - 1) / 25)
+				eq(TopRow(world), row, "row " .. row)
+			end
+		end)
+
+		it("several changes while a mouse button is held make one retry, not one each", function()
+			local world = GridWorld(20)
+			local pending = #world.timers
+			world:HoldMouse(Shown(world)[1])
+			world.env.ClickyGridSearch:SetText("Toy 01")
+			local after = #world.timers
+			eq(after, pending + 1, "one retry waits")
+			world.env.ClickyGridSearch:SetText("Toy 011")
+			world.env.ClickyGridSearch:SetText("Toy 012")
+			world.env.ClickyGridFilter.defaultCallback()
+			eq(#world.timers, after, "and the others join it")
+		end)
+
+		it("a search typed while the grid is hidden re-points no button", function()
+			local world = GridWorld(20)
+			world:CloseToyBox()
+			local before = Snapshot(world)
+			world.env.ClickyGridSearch:SetText("Toy 012")
+			world:Advance(1)
+			list(Snapshot(world), before)
+			world:OpenToyBox()
+			list(ShownToys(world), { 1012 }, "and it applies when the grid shows")
+		end)
+
+		it("a right click with shift, ctrl or alt held opens no menu", function()
+			local world = GridWorld(20)
+			local menus = 0
+			world.ns.OpenEntryMenu = function() menus = menus + 1 end
+			local button = Shown(world)[4]
+			for _, key in ipairs({ "shift", "ctrl", "alt" }) do
+				world.keys[key] = true
+				world:MouseClick(button, "RightButton")
+				world.keys[key] = false
+				eq(menus, 0, key)
+			end
+			world:MouseClick(button, "RightButton")
+			eq(menus, 1, "a plain right click does")
+		end)
+
+	end)
+
+	-- Journeys 4, 15 and the Portal journey with spells and items: the grid lists the spells the
+	-- character knows and the items it carries after the toys, and they go into macros through the
+	-- same menu.
+	describe("15. The grid lists spells and items", function()
+		local FIRE, STORM, HOME, OVER = "s500", "s506", "s501", "s508" -- Path of the Fire and Portal: Stormwind (in a flyout), Teleport: Home, a spell overriding another
+		local RING, SPARE, CLOAK, SHADOWS = "i600", "i602", "i601", "i605"
+		-- Hearth Ring and Spare Ring in bags, Cloak of Teleport worn, Cloak of Shadows in a bag and
+		-- not worn (the item action wears it instead of using it).
+		local LIST = { PIRATE, ORB, GNOME, HAT, WINGS, CHEST, FIRE, HOME, "s502", "s503", "s505", STORM, "s507", "s508",
+			RING, CLOAK, SPARE, "i604", SHADOWS }
+
+		local function GridWorld(options)
+			options = options or {}
+			options.toyList = options.toyList or LIST
+			options.spells = options.spells or {
+				{ id = 500, name = "Path of the Fire", icon = 5000, flyout = 1 },
+				{ id = 506, name = "Portal: Stormwind", icon = 5060, flyout = 1 },
+				{ id = 507, name = "Portal: Unlearned", icon = 5070, flyout = 1, known = false },
+				{ id = 501, name = "Teleport: Home", icon = 5010 },
+				{ id = 502, name = "Passive Gift", icon = 5020, passive = true },
+				{ id = 503, name = "Future Spell", icon = 5030, known = false },
+				{ id = 504, name = "Not In The List", icon = 5040 },
+				{ id = 505, name = "Other Spec Spell", icon = 5050, line = 2, offSpec = true },
+				{ id = 508, name = "Overriding Spell", icon = 5080, base = 509 }, -- the list has 508, the override
+			}
+			options.items = options.items or {
+				{ id = 600, name = "Hearth Ring", icon = 6000 },
+				{ id = 601, name = "Cloak of Teleport", icon = 6010, equippable = true, worn = 15 },
+				{ id = 602, name = "Spare Ring", icon = 6020, bag = 5, count = 3 }, -- the reagent bag
+				{ id = 603, name = "Not In The List", icon = 6030 },
+				{ id = 604, name = "Gone Ring", icon = 6040, count = 0 },
+				{ id = 605, name = "Cloak of Shadows", icon = 6050, equippable = true },
+			}
+			local world = World(options)
+			world:LoadCollections()
+			world:OpenToyBox()
+			return world
+		end
+
+		local function Shown(world)
+			local shown = {}
+			for _, button in ipairs(world.env.ClickyGrid.buttons) do
+				if button:IsShown() then shown[#shown + 1] = button end
+			end
+			return shown
+		end
+
+		local function ShownKeys(world)
+			local keys = {}
+			for i, button in ipairs(Shown(world)) do keys[i] = button.entry end
+			return keys
+		end
+
+		local function ButtonFor(world, key)
+			for _, button in ipairs(Shown(world)) do
+				if button.entry == key then return button end
+			end
+			error("not in the grid: " .. tostring(key), 2)
+		end
+
+		-- The player clicking a tab: 1 Toys, 2 Spells, 3 Items.
+		local TOYS_TAB, SPELLS_TAB, ITEMS_TAB = 1, 2, 3
+		local function ClickTab(world, index)
+			local tab = world.env.ClickyGrid.Tabs[index]
+			tab.scripts.OnClick(tab, "LeftButton", false)
+		end
+
+		local function TabTexts(world)
+			local texts = {}
+			for i, tab in ipairs(world.env.ClickyGrid.Tabs) do texts[i] = tab.text end
+			return texts
+		end
+
+		it("the spells the character knows that Clicky has, flyouts included, then the items carried or worn, each by name", function()
+			local world = GridWorld()
+			local sections = world.ns.GridSections({ collected = true, uncollected = false, usableOnly = false }, "")
+			list(sections[1].keys, { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }, "the toys as before")
+			list(sections[2].keys, { OVER, FIRE, STORM, HOME },
+				"known spells in the list, and an overriding one by the ID the list has: not a passive, a spell not known yet, one off the spellbook's active page or one the list lacks")
+			list(sections[3].keys, { SHADOWS, CLOAK, RING, SPARE },
+				"items in a bag or worn and in the list: not one that is gone or the list lacks")
+			list(ShownKeys(world), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }, "the Toys tab shows the toys")
+			ClickTab(world, SPELLS_TAB)
+			list(ShownKeys(world), { OVER, FIRE, STORM, HOME }, "the Spells tab, the spells")
+			ClickTab(world, ITEMS_TAB)
+			list(ShownKeys(world), { SHADOWS, CLOAK, RING, SPARE }, "the Items tab, the items")
+			ok(world.ns.GetGridState():find("showing items, top row 1 of 1 (6 toys, 4 spells, 4 items)", 1, true),
+				"/clicky debug: " .. world.ns.GetGridState())
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("a tab for the toys, the spells and the items, each with its count; a click shows its own from the top", function()
+			local world = GridWorld()
+			local grid = world.env.ClickyGrid
+			list(TabTexts(world), { "Toys (6)", "Spells (4)", "Items (4)" })
+			eq(world.env.PanelTemplates_GetSelectedTab(grid), TOYS_TAB, "the toys first")
+			ClickTab(world, SPELLS_TAB)
+			eq(world.env.PanelTemplates_GetSelectedTab(grid), SPELLS_TAB)
+			list(ShownKeys(world), { OVER, FIRE, STORM, HOME })
+			world.env.ClickyGridSearch:SetText("portal")
+			list(TabTexts(world), { "Toys (0)", "Spells (1)", "Items (0)" }, "the counts follow the search, which looks at every tab")
+			list(ShownKeys(world), { STORM }, "and the tab stays")
+			world.env.ClickyGridSearch:SetText("ring")
+			list(TabTexts(world), { "Toys (0)", "Spells (0)", "Items (2)" })
+			list(ShownKeys(world), {}, "nothing on this tab")
+			ClickTab(world, ITEMS_TAB)
+			list(ShownKeys(world), { RING, SPARE })
+			world.env.ClickyGridSearch:SetText("")
+			world:EnterCombat()
+			ClickTab(world, TOYS_TAB)
+			eq(world.env.PanelTemplates_GetSelectedTab(grid), ITEMS_TAB, "in combat a tab changes nothing")
+			list(ShownKeys(world), { SHADOWS, CLOAK, RING, SPARE })
+			world:LeaveCombat()
+			world:Advance(1)
+			ClickTab(world, TOYS_TAB)
+			list(ShownKeys(world), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE })
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a tab shows its own from the top", function()
+			-- 200 toys and 200 spells: 17 rows of 12 each.
+			local toys, spells, toyList = {}, {}, {}
+			for i = 1, 200 do
+				toys[i] = { id = 1000 + i, name = ("Toy %03d"):format(i) }
+				spells[i] = { id = 5000 + i, name = ("Spell %03d"):format(i) }
+				toyList[i], toyList[200 + i] = 1000 + i, "s" .. (5000 + i)
+			end
+			local world = GridWorld({ toys = toys, spells = spells, toyList = toyList })
+			world:MouseWheel(world.env.ClickyGrid, -1)
+			ok(world.ns.GetGridState():find("showing toys, top row 4 of 17", 1, true), world.ns.GetGridState())
+			ClickTab(world, SPELLS_TAB)
+			ok(world.ns.GetGridState():find("showing spells, top row 1 of 17", 1, true), world.ns.GetGridState())
+			world:MouseWheel(world.env.ClickyGrid, -1)
+			ClickTab(world, TOYS_TAB)
+			ok(world.ns.GetGridState():find("showing toys, top row 1 of 17", 1, true), "and back: " .. world.ns.GetGridState())
+		end)
+
+		it("the filter button is on the Toys tab only, and its filters change the toys only", function()
+			local world = GridWorld()
+			local filterButton = world.env.ClickyGridFilter
+			ok(filterButton:IsShown(), "on the Toys tab")
+			local menu = world:GridFilterMenu()
+			world.spells[500].usable = false
+			world.items[600].usable = false
+			world.toys[GNOME].usable = false
+			menu[3].toggle() -- Usable Only
+			list(TabTexts(world), { "Toys (5)", "Spells (4)", "Items (4)" }, "Usable Only leaves the spells and items")
+			menu[1].toggle() -- Collected off
+			list(TabTexts(world), { "Toys (0)", "Spells (4)", "Items (4)" }, "and so does Collected off")
+			ClickTab(world, SPELLS_TAB)
+			ok(not filterButton:IsShown(), "not on the Spells tab")
+			list(ShownKeys(world), { OVER, FIRE, STORM, HOME })
+			ClickTab(world, ITEMS_TAB)
+			ok(not filterButton:IsShown(), "nor the Items tab")
+			ClickTab(world, TOYS_TAB)
+			ok(filterButton:IsShown())
+			list(world:TakeErrors(), {})
+		end)
+
+		it("a spell learned or an item picked up shows in the grid; in combat the grid waits for the fight to end", function()
+			local world = GridWorld()
+			ClickTab(world, SPELLS_TAB)
+			world.spells[503].known = true
+			world:Fire("SPELLS_CHANGED")
+			world:Advance(1)
+			ok(ButtonFor(world, "s503"), "a spell learned (Future Spell is in the list)")
+			ClickTab(world, ITEMS_TAB)
+			world.items[604].count = 1
+			world:Fire("BAG_UPDATE_DELAYED")
+			world:Advance(1)
+			ok(ButtonFor(world, "i604"), "an item picked up")
+			world.items[601].worn = nil -- the cloak taken off and put away: gone from the grid
+			world.items[601].equipped, world.items[601].count = false, 0
+			world:Fire("PLAYER_EQUIPMENT_CHANGED")
+			world:Advance(1)
+			hasNot(ShownKeys(world), CLOAK, "gear taken off")
+			world.items[601].worn, world.items[601].equipped = 15, true
+			world:Fire("PLAYER_EQUIPMENT_CHANGED")
+			world:Advance(1)
+			ok(ButtonFor(world, CLOAK), "gear put on")
+			local before = #Shown(world)
+			world:EnterCombat()
+			world.items[604].count = 0
+			world.spells[503].known = false
+			world:Fire("SPELLS_CHANGED")
+			world:Fire("BAG_UPDATE_DELAYED")
+			world:Advance(1)
+			eq(#Shown(world), before, "the grid keeps what it had in combat")
+			ok(ButtonFor(world, "i604"))
+			list(TabTexts(world), { "Toys (6)", "Spells (5)", "Items (5)" }, "and so do the counts")
+			world:LeaveCombat()
+			world:Advance(1)
+			list(ShownKeys(world), { SHADOWS, CLOAK, RING, SPARE }, "and redraws when it ends")
+			list(TabTexts(world), { "Toys (6)", "Spells (4)", "Items (4)" })
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("a click uses a spell or an item, wears a cloak that isn't worn, and does so in combat", function()
+			local world = GridWorld()
+			ClickTab(world, SPELLS_TAB)
+			world:MouseClick(ButtonFor(world, FIRE))
+			eq(ButtonFor(world, FIRE):GetAttribute("type1"), "spell")
+			eq(ButtonFor(world, FIRE):GetAttribute("spell"), 500)
+			eq(ButtonFor(world, FIRE):GetAttribute("toy"), nil)
+			ClickTab(world, ITEMS_TAB)
+			world:MouseClick(ButtonFor(world, SPARE))
+			world:MouseClick(ButtonFor(world, CLOAK))
+			list(world.used, { FIRE, SPARE, CLOAK }, "a spell cast, an item used, a worn cloak used")
+			list(world.equipped, {})
+			world:MouseClick(ButtonFor(world, SHADOWS))
+			list(world.equipped, { 605 }, "a cloak that isn't worn is worn instead")
+			eq(ButtonFor(world, SPARE):GetAttribute("item"), "item:602", "not the bare ID, which names a slot")
+			world:EnterCombat()
+			world.used = {}
+			world:MouseClick(ButtonFor(world, RING))
+			list(world.used, { RING }, "in combat too")
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("a spell or item unknown or not carried any more has no action: it isn't listed to click", function()
+			local world = GridWorld()
+			ClickTab(world, SPELLS_TAB)
+			world.spells[500].known = false
+			world:Fire("SPELLS_CHANGED")
+			world:Advance(1)
+			hasNot(ShownKeys(world), FIRE, "a spell forgotten")
+			ClickTab(world, ITEMS_TAB)
+			world.items[600].count = 0
+			world:Fire("BAG_UPDATE_DELAYED")
+			world:Advance(1)
+			hasNot(ShownKeys(world), RING, "an item gone from the bags")
+		end)
+
+		it("a right click opens the menu, shift-click links, a drag picks up: for spells and items as for toys", function()
+			local world = GridWorld()
+			local opened = {}
+			world.ns.OpenEntryMenu = function(owner, key) opened[#opened + 1] = { owner, key } end
+			world:Drag(ButtonFor(world, PIRATE))
+			list(world.cursor, { toy = PIRATE }, "a toy as before")
+			ClickTab(world, SPELLS_TAB)
+			local fire = ButtonFor(world, FIRE)
+			world:MouseClick(fire, "RightButton")
+			world.keys.shift = true
+			world:MouseClick(fire)
+			world.keys.shift = false
+			world:Drag(fire)
+			list(world.cursor, { spell = 500 })
+			ClickTab(world, ITEMS_TAB)
+			local ring = ButtonFor(world, RING)
+			world:MouseClick(ring, "RightButton")
+			list(opened, { { fire, FIRE }, { ring, RING } })
+			world.keys.shift = true
+			world:MouseClick(ring)
+			world.keys.shift = false
+			list(world.chat, { world.env.C_Spell.GetSpellLink(500), select(2, world.env.C_Item.GetItemInfo(600)) },
+				"a spell's and an item's link")
+			list(world.used, {}, "a shift-click uses nothing")
+			world:Drag(ring)
+			list(world.cursor, { item = 600 })
+			world.items[600].loading = true
+			world.chat = {}
+			world.keys.shift = true
+			world:MouseClick(ring)
+			world.keys.shift = false
+			list(world.chat, {}, "an item whose data hasn't loaded has no link yet")
+		end)
+
+		it("hovering shows the tooltip of a spell or an item; only a toy can say NEW", function()
+			local world = GridWorld()
+			ClickTab(world, SPELLS_TAB)
+			local fire = ButtonFor(world, FIRE)
+			fire:GetScript("OnEnter")(fire)
+			eq(world.tooltip.spell, 500)
+			ok(not fire.new:IsShown() and not fire.star:IsShown(), "no NEW, no star")
+			ClickTab(world, ITEMS_TAB)
+			local ring = ButtonFor(world, RING)
+			ring:GetScript("OnEnter")(ring)
+			eq(world.tooltip.item, 600)
+			ok(not ring.new:IsShown() and not ring.star:IsShown())
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("a cooldown shows on a spell or an item and follows the cooldown events", function()
+			local world = GridWorld()
+			ClickTab(world, SPELLS_TAB)
+			local fire = ButtonFor(world, FIRE)
+			eq(fire.cooldown.start, nil)
+			world.spells[500].cooldown = 30
+			world.items[600].cooldown = 30
+			eq(fire.cooldown.start, nil, "nothing changes until the game says so")
+			world:Fire("SPELL_UPDATE_COOLDOWN")
+			ok(fire.cooldown.start, "the spell's swipe")
+			ClickTab(world, ITEMS_TAB)
+			local ring = ButtonFor(world, RING)
+			ring.cooldown:Clear()
+			world:Fire("BAG_UPDATE_COOLDOWN")
+			ok(ring.cooldown.start, "the item's swipe, on the bags' event")
+		end)
+
+		it("the check mark shows a spell or an item that is in a macro", function()
+			local world = GridWorld()
+			local m = MakeMacro(world, PIRATE, "Portal")
+			assert(world.ns.SetEntry(m, FIRE, true))
+			assert(world.ns.SetEntry(m, CLOAK, true))
+			world:Advance(1)
+			ClickTab(world, SPELLS_TAB)
+			ok(ButtonFor(world, FIRE).check:IsShown() and not ButtonFor(world, HOME).check:IsShown())
+			ClickTab(world, ITEMS_TAB)
+			ok(ButtonFor(world, CLOAK).check:IsShown() and not ButtonFor(world, RING).check:IsShown())
+			ClickTab(world, SPELLS_TAB)
+			assert(world.ns.SetEntry(m, FIRE, false))
+			world:Advance(1)
+			ok(not ButtonFor(world, FIRE).check:IsShown(), "taken out")
+		end)
+
+		it("a spell's or an item's menu has the macros and no star; Favorites takes no spell or item", function()
+			local world = GridWorld()
+			MakeMacro(world, PIRATE, "Portal")
+			for _, key in ipairs({ FIRE, RING }) do
+				world.ns.OpenEntryMenu(world.env.UIParent, key)
+				local texts = {}
+				for _, entry in ipairs(world.menu.entries) do texts[#texts + 1] = entry.text or entry.kind end
+				hasNot(texts, "Favorite", key .. " has no star")
+				hasNot(texts, "Unfavorite", key .. " has no star")
+				has(texts, "Portal", key .. " can go in a macro")
+				has(texts, "Add to new macro...")
+			end
+			world.ns.OpenEntryMenu(world.env.UIParent, PIRATE)
+			local texts = {}
+			for _, entry in ipairs(world.menu.entries) do texts[#texts + 1] = entry.text or entry.kind end
+			has(texts, "Favorite", "a toy still has its star")
+			list({ world.ns.SetEntry(Favorites(world), FIRE, true) }, { nil, "Favorites' toys are the toys you star in the Toy Box." })
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("4. a macro holds up to 100 of any mix of toys, spells and items; one more is refused", function()
+			local toys, spells, items, list_ = {}, {}, {}, {}
+			for i = 1, 40 do
+				toys[i] = { id = 3000 + i }
+				list_[#list_ + 1] = 3000 + i
+			end
+			for i = 1, 35 do
+				spells[i] = { id = 100 + i }
+				list_[#list_ + 1] = "s" .. (100 + i)
+			end
+			for i = 1, 26 do
+				items[i] = { id = 200 + i }
+				list_[#list_ + 1] = "i" .. (200 + i)
+			end
+			local world = World({ toys = toys, spells = spells, items = items, toyList = list_ })
+			local m = MakeMacro(world, list_[1], "Mix")
+			for i = 2, 100 do
+				assert(world.ns.SetEntry(m, list_[i], true))
+			end
+			ok(#world:FindMacroByName("Mix").body <= 255, "100 of any mix fit")
+			list({ world.ns.SetEntry(m, list_[101], true) }, { nil, "Mix is full: a macro holds up to 100 items." })
+			assert(world.ns.SetEntry(m, list_[1], false))
+			assert(world.ns.SetEntry(m, list_[101], true), "room again once one is out")
+		end)
+
+		it("Portal: portal toys, a \"Path of the ...\" spell and a teleport cloak from the bags, in one macro", function()
+			local world = GridWorld()
+			-- Add to new macro... from a toy (the dialog calls MakeMacro), then tick Portal in a
+			-- spell's and an item's menu.
+			local m = assert(world.ns.MakeMacro("Portal", PIRATE))
+			world.ns.OpenEntryMenu(world.env.UIParent, FIRE)
+			world:ChooseMenuEntry("Portal")
+			world.ns.OpenEntryMenu(world.env.UIParent, CLOAK)
+			world:ChooseMenuEntry("Portal")
+			world.ns.OpenEntryMenu(world.env.UIParent, RING)
+			world:ChooseMenuEntry("Portal")
+			list(MenuLabels(world, FIRE), { "[x] Portal" }, "ticked")
+			list(PanelToys(world, "Portal"), { "Cloak of Teleport", "Hearth Ring", "Path of the Fire", "Pirate's Costume" },
+				"the panel lists them by name")
+			eq(PanelRow(world, "Portal").count, 4)
+			PutOnBar(world, "Portal", 1)
+			local seen = {}
+			for _ = 1, 60 do
+				world:PressBar(1)
+				seen[world:LastUsed()] = true
+			end
+			list(seen, { [PIRATE] = true, [FIRE] = true, [RING] = true }, "a click picks the toy, the spell or the ring, never the cloak")
+			list(world.equipped, {})
+			world:PressBar(1, "RightButton")
+			list(DrawerToys(world, "Portal"), { CLOAK, RING, FIRE, PIRATE }, "the drawer has all four, by name")
+			world.used = {}
+			ClickInDrawer(world, "Portal", CLOAK)
+			list(world.used, { CLOAK }, "the cloak is worn already: the drawer uses it")
+			eq(#world:TakeErrors(), 0)
+			-- Other computer: the same macro, with the same entries.
+			local later = NextLogin(world, { toyList = LIST })
+			list(PanelToys(later, "Portal"), PanelToys(world, "Portal"), "on another computer")
+			ok(m.state == "ready")
+		end)
 	end)
 
 end)

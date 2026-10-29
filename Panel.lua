@@ -1,11 +1,14 @@
 -- The Clicky panel, docked to the right edge of the Toy Box: one scrolling list of macros, each
--- collapsed by default. Click a macro to show or hide its toys. Drag a macro's icon to put it
--- on a bar; right-click a macro to rename or delete it; right-click
--- a toy for the same menu as the Toy Box. It's parented to the Toy Box, so it shows only on the
--- Toy Box tab. A macro whose toys can't be read has a greyed icon with a warning mark and "?" for
--- its count; hovering over it says why, and clicking it shows the same message as an error.
---   ns.OnMacrosChanged()   refreshes the panel next frame, if it's shown
+-- collapsed by default. Click a macro to show or hide its entries. Drag a macro's icon to put it
+-- on a bar; right-click a macro to rename or delete it; right-click an entry for the same menu as
+-- in the grid (Menu.lua). It's parented to the Toy Box, so it shows only on the Toy Box tab. A
+-- macro whose entries can't be read has a greyed icon with a warning mark and "?" for its count;
+-- hovering over it says why, and clicking it shows the same message as an error.
 --   ns.PanelRows()         the rows the panel lists (see Rows below); for tests
+--   ns.GetPanelState()     for /clicky debug: whether the panel is made and shown, and the macro the
+--                          next refresh scrolls to
+--
+-- The panel is a view (ns.RegisterView, Core.lua): ns.Changed refreshes it next frame, if it's shown.
 
 local _, ns = ...
 
@@ -17,7 +20,7 @@ local HIGHLIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
 local WARNING = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
 local panel, list
-local refreshPending = false
+local scrollTo -- the id of a macro just opened: the next refresh scrolls to show its entries
 
 local function IconTexture(icon)
 	if type(icon) == "string" then
@@ -26,10 +29,8 @@ local function IconTexture(icon)
 	return icon
 end
 
-local Refresh
-
--- After a macro opens, scroll just enough to show its toys, keeping the macro's own row in view
--- when there are more toys than fit.
+-- After a macro opens, scroll just enough to show its entries, keeping the macro's own row in view
+-- when there are more entries than fit.
 local function ScrollToMacro(id)
 	local macroIndex = list:FindElementDataIndexByPredicate(function(data)
 		return data.kind == "macro" and data.macro.id == id
@@ -51,10 +52,10 @@ end
 
 ------------------------------------------------------------------------------------------
 -- Rows. The list holds three kinds of element, all drawn by the same pooled button:
---   { kind = "macro", macro = m, count = n,   a macro, with its expand arrow, drag icon and toy
+--   { kind = "macro", macro = m, count = n,   a macro, with its expand arrow, drag icon and entry
 --     unreadable = why }                      count; why is ns.Unreadable(m), and the count "?"
---   { kind = "toy", itemID = itemID,          a toy in an expanded macro, greyed if the player
---     owned = bool }                          doesn't own it
+--   { kind = "entry", key = key,              an entry (a toy, spell or item, Entries.lua) in an
+--     owned = bool }                          expanded macro, greyed if the player doesn't have it
 --   { kind = "note", text = text }            a line of help text
 
 local function Row_OnClick(row, mouseButton)
@@ -67,13 +68,12 @@ local function Row_OnClick(row, mouseButton)
 		else
 			local id = data.macro.id
 			ns.expanded[id] = not ns.expanded[id] or nil
-			Refresh()
-			if ns.expanded[id] then
-				ScrollToMacro(id)
-			end
+			scrollTo = ns.expanded[id] and id or nil
+			ns.Trace("[panel] %s %s, scroll to it: %s", id, ns.expanded[id] and "opened" or "closed", scrollTo ~= nil)
+			ns.Changed()
 		end
-	elseif data.kind == "toy" and mouseButton == "RightButton" then
-		ns.OpenToyMenu(row, data.itemID)
+	elseif data.kind == "entry" and mouseButton == "RightButton" then
+		ns.OpenEntryMenu(row, data.key)
 	end
 end
 
@@ -85,16 +85,16 @@ local function ShowMacroTooltip(owner, data)
 	end
 	GameTooltip:AddLine("Drag to an action bar.", 1, 1, 1)
 	if not data.unreadable then
-		GameTooltip:AddLine("On the bar, right-click it to choose a toy.", 1, 1, 1)
+		-- Favorites holds only toys (ns.MacroNoun).
+		GameTooltip:AddLine(("On the bar, right-click it to choose %s."):format(data.macro.builtin and "a toy" or "an item"),
+			1, 1, 1)
 	end
 	GameTooltip:Show()
 end
 
 local function Row_OnEnter(row)
-	if row.data.kind == "toy" then
-		GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-		GameTooltip:SetToyByItemID(row.data.itemID)
-		GameTooltip:Show()
+	if row.data.kind == "entry" then
+		ns.ShowEntryTooltip(row, row.data.key)
 	elseif row.data.kind == "macro" and row.data.unreadable then
 		ShowMacroTooltip(row, row.data)
 	end
@@ -158,7 +158,7 @@ local function InitRow(row, data)
 	row.arrow:SetShown(kind == "macro")
 	row.macroIcon:SetShown(kind == "macro")
 	row.count:SetShown(kind == "macro")
-	row.toyIcon:SetShown(kind == "toy")
+	row.toyIcon:SetShown(kind == "entry")
 	row:GetHighlightTexture():SetAlpha(kind == "note" and 0 or 1)
 	row.name:ClearAllPoints()
 
@@ -174,14 +174,12 @@ local function InitRow(row, data)
 		row.name:SetPoint("LEFT", row.macroIcon, "RIGHT", 8, 0)
 		row.name:SetPoint("RIGHT", row.count, "LEFT", -6, 0)
 		row.name:SetText(m.name)
-	elseif kind == "toy" then
-		local _, name = C_ToyBox.GetToyInfo(data.itemID)
-		row.toyIcon:SetTexture(ns.ToyIcon(data.itemID))
-		row.toyIcon:SetDesaturated(not data.owned)
+	elseif kind == "entry" then
+		ns.SetEntryTexture(row.toyIcon, data.key, data.owned)
 		row.name:SetFontObject(data.owned and "GameFontNormal" or "GameFontDisable")
 		row.name:SetPoint("LEFT", row.toyIcon, "RIGHT", 8, 0)
 		row.name:SetPoint("RIGHT", -4, 0)
-		row.name:SetText(name or "")
+		row.name:SetText(ns.EntryName(data.key))
 	else
 		row.name:SetFontObject("GameFontDisable")
 		row.name:SetPoint("LEFT", TOY_INDENT, 0)
@@ -194,53 +192,67 @@ end
 
 local function PanelRows()
 	local data = {}
-	for _, m in ipairs(ns.GetMacros()) do
+	local macros = ns.GetMacros()
+	for _, m in ipairs(macros) do
 		local unreadable = ns.Unreadable(m)
-		local toys = unreadable and {} or ns.GetMacroToys(m, true)
-		data[#data + 1] = { kind = "macro", macro = m, count = unreadable and "?" or #toys, unreadable = unreadable }
+		local entries = ns.GetMacroEntries(m, true)
+		data[#data + 1] = { kind = "macro", macro = m, count = unreadable and "?" or #entries, unreadable = unreadable }
 		if ns.expanded[m.id] and not unreadable then
-			for _, itemID in ipairs(toys) do
-				data[#data + 1] = { kind = "toy", itemID = itemID, owned = PlayerHasToy(itemID) }
+			for _, key in ipairs(entries) do
+				data[#data + 1] = { kind = "entry", key = key, owned = ns.IsEntryOwned(key) }
 			end
-			if #toys == 0 then
+			if #entries == 0 then
 				data[#data + 1] = { kind = "note", text = m.builtin and "Star toys to add them."
-					or "Right-click toys to add them." }
+					or "Right-click a toy, spell or item to add it." }
 			end
 		end
 	end
-	if not ns.HasOwnMacros() then
-		data[#data + 1] = { kind = "note", text = "Right-click a toy to make one." }
+	if #macros == 1 then
+		data[#data + 1] = { kind = "note", text = "Right-click a toy, spell or item to make one." }
 	end
 	return data
 end
 ns.PanelRows = PanelRows
 
-function Refresh()
+function ns.GetPanelState()
+	if not panel then
+		return "not made"
+	end
+	return ("made, %s, next refresh scrolls to %s"):format(panel:IsShown() and "shown" or "hidden", tostring(scrollTo or "nothing"))
+end
+
+local function Refresh()
 	local data = PanelRows()
 	ns.Trace("[panel] refresh, %d rows", #data)
 	list:SetDataProvider(CreateDataProvider(data), ScrollBoxConstants.RetainScrollPosition)
+	if scrollTo then
+		ns.Trace("[panel] scrolling to show %s's entries", scrollTo)
+		ScrollToMacro(scrollTo)
+		scrollTo = nil
+	end
 end
 
--- Changes can arrive in bursts, so refresh once, next frame.
-function ns.OnMacrosChanged()
-	if not panel or not panel:IsVisible() or refreshPending then
-		return
+-- Next frame: changes arrive in bursts, and the panel is small enough not to wait longer.
+ns.RegisterView("panel", function()
+	return panel ~= nil and panel:IsVisible()
+end, Refresh, 0)
+
+-- The window manager doesn't take addon calls in combat (UIParentPanelManager.lua:840-864), so the
+-- window keeps its width until the panel is next shown or hidden out of combat.
+local function SetExtraWidth(width)
+	if not InCombatLockdown() then
+		SetUIPanelAttribute(CollectionsJournal, "extraWidth", width)
+		UpdateUIPanelPositions(CollectionsJournal)
 	end
-	refreshPending = true
-	C_Timer.After(0, function()
-		refreshPending = false
-		if panel:IsVisible() then
-			Refresh()
-		end
-	end)
 end
 
 local function CreatePanel()
 	panel = CreateFrame("Frame", "ClickyPanel", ToyBox, "ButtonFrameTemplate")
 	ButtonFrameTemplate_HidePortrait(panel)
 	ButtonFrameTemplate_HideButtonBar(panel)
+	-- No title: the window beside it says Clicky (Grid.lua). The list starts under the top edge.
+	ButtonFrameTemplate_HideAttic(panel)
 	panel.CloseButton:Hide()
-	panel:SetTitle("Clicky")
 	panel:SetWidth(PANEL_WIDTH)
 	panel:SetPoint("TOPLEFT", ToyBox, "TOPRIGHT", 2, 0)
 	panel:SetPoint("BOTTOMLEFT", ToyBox, "BOTTOMRIGHT", 2, 0)
@@ -260,15 +272,15 @@ local function CreatePanel()
 
 	-- WoW places windows such as /macro beside the Collections window by its layout width, which
 	-- doesn't include this panel; while it shows, widen that width, as the Calendar does for its
-	-- side panel (Blizzard_Calendar.lua, CalendarCreateEventFrame_OnShow).
+	-- side panel (Blizzard_Calendar.lua, CalendarCreateEventFrame_OnShow). The panel is filled
+	-- first: an error in the UI panel calls must not leave it empty.
 	panel:SetScript("OnShow", function()
-		SetUIPanelAttribute(CollectionsJournal, "extraWidth", panel:GetWidth() + 2)
-		UpdateUIPanelPositions(CollectionsJournal)
 		Refresh()
+		SetExtraWidth(panel:GetWidth() + 2)
 	end)
 	panel:SetScript("OnHide", function()
-		SetUIPanelAttribute(CollectionsJournal, "extraWidth", nil)
-		UpdateUIPanelPositions(CollectionsJournal)
+		scrollTo = nil
+		SetExtraWidth(nil)
 	end)
 	if panel:IsVisible() then
 		panel:GetScript("OnShow")()
@@ -276,15 +288,4 @@ local function CreatePanel()
 end
 
 -- The Collections window is load-on-demand.
-if C_AddOns.IsAddOnLoaded("Blizzard_Collections") then
-	CreatePanel()
-else
-	local loader = CreateFrame("Frame")
-	loader:RegisterEvent("ADDON_LOADED")
-	loader:SetScript("OnEvent", function(self, _, name)
-		if name == "Blizzard_Collections" then
-			self:UnregisterEvent("ADDON_LOADED")
-			CreatePanel()
-		end
-	end)
-end
+EventUtil.ContinueOnAddOnLoaded("Blizzard_Collections", CreatePanel)

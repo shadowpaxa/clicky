@@ -1,6 +1,6 @@
 ## Interface: 120105
 ## Title: Clicky
-## Notes: Turn groups of toys into action bar buttons.
+## Notes: Turn groups of toys, spells and items into action bar buttons.
 ## Author: shadowpaxa
 ## Version: @project-version@
 ## X-Wago-ID: j6jAEMNR
@@ -8,10 +8,15 @@
 Core.lua
 Codec.lua
 ToyList.lua
+Entries.lua
 Toys.lua
+Spells.lua
+Items.lua
 MacroStore.lua
 Macros.lua
+EntryButton.lua
 Drawer.lua
 Commands.lua
 Menu.lua
 Panel.lua
+Grid.lua

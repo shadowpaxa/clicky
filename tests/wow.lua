@@ -7,19 +7,23 @@
 -- Clicky.toc as the game does (each file gets ("Clicky", ns)) and fires the login events.
 --
 -- Clicky's toy list (ToyList.lua) is shipped with Clicky, not read from the game, so a world has
--- its own: options.toyList, a list of item IDs, stands in for ToyList.lua's ns.TOY_IDS. Without
--- it the list is the account's toys (account.toyOrder) as they are when the world is made. A
--- test that adds a toy to the game or takes one out passes the list explicitly, so the toys'
--- places don't move. A computer with an older or newer Clicky gets a shorter or longer toyList.
+-- its own: options.toyList, a list of entries (item IDs, "s<id>", "i<id>"), stands in for
+-- ToyList.lua's ns.TOY_IDS. Without it the list is the account's toys (account.toyOrder) as they
+-- are when the world is made. A test that adds a toy to the game or takes one out passes the list
+-- explicitly, so the toys' places don't move. A computer with an older or newer Clicky gets a
+-- shorter or longer toyList.
 --
--- Only game state is stubbed: toys, macros, action bars running /click lines (with macro
+-- Only game state is stubbed: toys, spells, items, macros, action bars running /click lines (with macro
 -- conditionals and the mouse button), secure buttons and their modified attributes, secure
 -- snippets in a restricted-like environment, modifier keys, auto-hiding frames, timers, combat
 -- lockdown and events, each following Blizzard's documentation or UI source (cited where it
--- matters). Blizzard's UI (the Toy Box, menus, dialogs, scroll lists, tooltips) isn't: tests
--- call the functions Clicky's UI is built on (the Macros API, ns.PanelRows, ns.ToyMenuEntries),
--- and the UI itself is checked by playing. tests/check_api.py checks every API Clicky calls
--- exists.
+-- matters), and the Blizzard frames and widgets Clicky relies on (the Toy Box's frames, a scroll
+-- bar and list, a filter menu, tooltips, cooldown frames, the context menu's entries), as far as
+-- Clicky uses them, each citing Blizzard's source. The mouse reaches a button as WoW sends it:
+-- the clicks it registered for, the wheel and drags only if enabled (World:HoldMouse,
+-- World:MouseWheel, World:Drag). UI behavior is shown by tests, or relies only on behavior Blizzard's source shows; menus
+-- and dialogs aren't stubbed, so a test replaces ns.OpenEntryMenu to see what opens.
+-- tests/check_api.py checks every API Clicky calls exists.
 
 local wow = {}
 
@@ -27,6 +31,24 @@ local ADDON = "Clicky"
 local ROOT = (debug.getinfo(1, "S").source:match("^@(.*)/tests/wow%.lua$") or ".")
 local MAX_ACCOUNT = 120 -- MacroConstantsDocumentation.lua
 local MAX_CHARACTER = 30
+
+-- WoW's string.format is Lua 5.1's, where %s takes only a string or a number and anything else is
+-- "bad argument" (Lua 5.1 reference manual, string.format; its C code checks the argument with
+-- luaL_checklstring). LuaJIT's takes anything, so this makes it strict, to see code that would
+-- fail in the game.
+local formatLoose = string.format
+rawset(string, "format", function(fmt, ...)
+	local args, n = { ... }, 0
+	for spec in tostring(fmt):gmatch("%%[-+ #0]*%d*%.?%d*([%a%%])") do
+		if spec ~= "%" then
+			n = n + 1
+			if spec == "s" and type(args[n]) ~= "string" and type(args[n]) ~= "number" then
+				error(("bad argument #%d to 'format' (string expected, got %s)"):format(n + 1, type(args[n])), 2)
+			end
+		end
+	end
+	return formatLoose(fmt, ...)
+end)
 
 local function strtrim(s)
 	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
@@ -38,6 +60,8 @@ end
 
 local Frame = {}
 
+-- Methods Clicky calls only for how a frame looks (SetAtlas, SetColorTexture...) are accepted and
+-- do nothing.
 Frame.__index = function(self, key)
 	local method = rawget(Frame, key)
 	if method then
@@ -53,7 +77,6 @@ end
 local PROTECTED = {
 	SecureFrameTemplate = true,
 	SecureActionButtonTemplate = true, -- SecureTemplates.xml
-	SecureHandlerBaseTemplate = true, -- SecureHandlerTemplates.xml
 	SecureHandlerClickTemplate = true,
 	SecureHandlerShowHideTemplate = true,
 }
@@ -83,14 +106,39 @@ local function SortMacros(macros, m)
 	return index
 end
 
+local Cooldown, ScrollBar, ScrollList, FilterDropdown, ButtonFrame -- templates with methods of their own, below
+
 local function NewFrame(world, name, parent, template)
 	local frame = setmetatable({ world = world, name = name, parent = parent, template = template,
-		scripts = {}, attributes = {}, wraps = {}, shown = true }, Frame)
+		scripts = {}, hooks = {}, attributes = {}, wraps = {}, shown = true, points = {}, width = 0,
+		height = 0, level = 1 }, Frame)
 	if PROTECTED[template] then
 		if world.combat then
 			error("ADDON_ACTION_BLOCKED: CreateFrame of a protected frame in combat", 3)
 		end
 		frame.protected = true
+	end
+	-- Blizzard's templates that Clicky's frames are made of, as far as Clicky uses them.
+	local methods = template == "MinimalScrollBar" and ScrollBar
+		or template == "WowScrollBoxList" and ScrollList
+		or template == "WowStyle1FilterDropdownTemplate" and FilterDropdown
+		or template == "CooldownFrameTemplate" and Cooldown
+	for key, method in pairs(methods or {}) do
+		frame[key] = method
+	end
+	if template == "WowStyle1FilterDropdownTemplate" then
+		frame.resizeToText = true -- MenuTemplates.xml:74
+	elseif template == "MinimalScrollBar" then
+		frame.allowScroll, frame.panExtentPercentage, frame.visibleExtentPercentage = true, 0.1, 0
+		frame.scrollPercentage, frame.callbacks = 0, {}
+	elseif template == "WowScrollBoxList" then
+		frame.rows, frame.elements, world.scrollList = {}, {}, frame
+	elseif template == "ButtonFrameTemplate" then
+		ButtonFrame(world, frame)
+	elseif template == "CollectionsBackgroundTemplate" then
+		-- Its top corners (SharedCollectionTemplates.xml:177-186), shown.
+		frame.BGCornerTopLeft, frame.BGCornerTopRight = frame:CreateTexture(), frame:CreateTexture()
+		frame.BGCornerTopLeft.shown, frame.BGCornerTopRight.shown = true, true
 	end
 	if name then
 		world.env[name] = frame
@@ -99,40 +147,188 @@ local function NewFrame(world, name, parent, template)
 end
 
 function Frame:SetScript(script, fn) self.scripts[script] = fn end
+function Frame:GetScript(script) return self.scripts[script] end
 function Frame:IsProtected() return self.protected or false, self.protected or false end
+
+-- HookScript post-hooks: the hook runs after the frame's own script (warcraft.wiki.gg API
+-- ScriptRegion:HookScript, "Securely post-hooks").
+function Frame:HookScript(script, fn)
+	self.hooks[script] = self.hooks[script] or {}
+	table.insert(self.hooks[script], fn)
+end
+
+local function RunScripts(frame, script, ...)
+	if frame.scripts[script] then frame.scripts[script](frame, ...) end
+	for _, fn in ipairs(frame.hooks[script] or {}) do fn(frame, ...) end
+end
+
+-- A frame is visible when it and every parent are shown (warcraft.wiki.gg API
+-- ScriptRegion:IsVisible).
+local function Visible(frame)
+	while frame do
+		if not frame.shown then return false end
+		frame = frame.parent
+	end
+	return true
+end
+
+function Frame:IsVisible() return Visible(self) end
+
+-- In combat addon code can't set the attributes of a protected frame, or move, resize, re-parent,
+-- show or hide it, and "control restrictions on protected frames are also applied to their parents
+-- and any frames they are anchored to" (warcraft.wiki.gg Secure Execution and Tainting). A frame is
+-- locked here if it is protected, the parent of a protected frame or something a protected frame is
+-- anchored to. The page doesn't say whether this goes further up the chain.
+local function Locked(frame)
+	if frame.protected then return true end
+	for _, other in ipairs(frame.world.frames) do
+		if other.protected then
+			if other.parent == frame then return true end
+			for _, point in ipairs(other.points) do
+				if point.relativeTo == frame then return true end
+			end
+		end
+	end
+	return false
+end
+
+local function CheckCombat(frame, what)
+	if frame.world.combat and Locked(frame) then
+		error(("ADDON_ACTION_BLOCKED: %s on %s, a protected frame or one tied to a protected frame, in combat")
+			:format(what, tostring(frame.name or frame.template or "a frame")), 3)
+	end
+end
+
+-- Cooldown frames (FrameAPICooldownDocumentation.lua): SetCooldown starts a swipe, Clear ends it.
+-- Both carry IsProtectedFunction, the mark SetPoint and SetHeight carry
+-- (SimpleScriptRegionResizingAPIDocumentation.lua), so they are blocked in combat on a locked frame
+-- only. A cooldown isn't protected (CooldownFrameTemplate, Blizzard_FrameXMLUtil/Mainline/Cooldown.xml:3).
+Cooldown = {}
+function Cooldown:SetCooldown(start, duration)
+	CheckCombat(self, "SetCooldown")
+	self.start, self.duration = start, duration
+end
+function Cooldown:Clear()
+	CheckCombat(self, "Clear")
+	self.start, self.duration = nil, nil
+end
 
 local RunSnippet
 
 -- Showing or hiding: SecureHandlerShowHideTemplate's OnShow and OnHide run its _onshow and
 -- _onhide snippets (SecureHandlerTemplates.xml, SecureHandler_OnSimpleEvent). A hidden frame
--- leaves auto-hide.
+-- leaves auto-hide. A frame that becomes visible or invisible, itself or through a parent, runs its
+-- OnShow or OnHide (warcraft.wiki.gg UIHANDLER OnShow: it runs when the frame is about to become
+-- visible). Blizzard's code depends on the "through a parent" part: a Toy Box button registers for
+-- TOYS_UPDATED in its OnShow and unregisters in its OnHide (Blizzard_ToyBox.lua:201-211), and stays
+-- shown while the Toy Box page itself is closed and opened (it's hidden one by one only on a page
+-- with fewer toys, Blizzard_ToyBox.lua:316-320).
 local function SetShown(frame, shown)
 	if frame.shown == shown then return end
+	local before = {}
+	for _, other in ipairs(frame.world.frames) do before[other] = Visible(other) end
 	frame.shown = shown
 	if not shown then frame.autoHide = nil end
 	local snippet = frame.template == "SecureHandlerShowHideTemplate"
 		and frame.attributes[shown and "_onshow" or "_onhide"]
 	if snippet then RunSnippet(frame.world, frame, snippet) end
+	local changed = {}
+	for _, other in ipairs(frame.world.frames) do
+		if Visible(other) ~= before[other] then changed[#changed + 1] = other end
+	end
+	for _, other in ipairs(changed) do RunScripts(other, Visible(other) and "OnShow" or "OnHide") end
 end
 
 -- Addon code can't show or hide a protected frame in combat; secure snippets can.
 function Frame:Show()
-	if self.protected and self.world.combat then
-		error("ADDON_ACTION_BLOCKED: Show on a protected frame in combat", 2)
-	end
+	CheckCombat(self, "Show")
 	SetShown(self, true)
 end
 
 function Frame:Hide()
-	if self.protected and self.world.combat then
-		error("ADDON_ACTION_BLOCKED: Hide on a protected frame in combat", 2)
-	end
+	CheckCombat(self, "Hide")
 	SetShown(self, false)
 end
 
 function Frame:IsShown() return self.shown end
-function Frame:IsVisible() return false end -- nothing Clicky draws is on screen in the tests
 function Frame:SetShown(shown) if shown then self:Show() else self:Hide() end end
+
+function Frame:SetPoint(point, a, b, c, d)
+	CheckCombat(self, "SetPoint")
+	-- SetPoint(point [, relativeTo [, relativePoint]] [, x, y]): relativeTo defaults to the parent.
+	local relativeTo, relativePoint, x, y
+	if type(a) == "number" or a == nil then
+		relativeTo, relativePoint, x, y = self.parent, point, a or 0, b or 0
+	elseif type(b) == "number" then
+		relativeTo, relativePoint, x, y = a, point, b, c or 0
+	else
+		relativeTo, relativePoint, x, y = a, b or point, c or 0, d or 0
+	end
+	table.insert(self.points, { point = point, relativeTo = relativeTo, relativePoint = relativePoint, x = x, y = y })
+end
+
+function Frame:SetAllPoints(relativeTo)
+	CheckCombat(self, "SetAllPoints")
+	relativeTo = relativeTo or self.parent
+	self.points = {
+		{ point = "TOPLEFT", relativeTo = relativeTo, relativePoint = "TOPLEFT", x = 0, y = 0 },
+		{ point = "BOTTOMRIGHT", relativeTo = relativeTo, relativePoint = "BOTTOMRIGHT", x = 0, y = 0 },
+	}
+end
+
+function Frame:ClearAllPoints()
+	CheckCombat(self, "ClearAllPoints")
+	self.points = {}
+end
+
+function Frame:GetPoint(i)
+	local p = self.points[i or 1]
+	if p then return p.point, p.relativeTo, p.relativePoint, p.x, p.y end
+end
+
+function Frame:SetSize(width, height)
+	CheckCombat(self, "SetSize")
+	self.width, self.height = width, height
+end
+
+function Frame:SetWidth(width)
+	CheckCombat(self, "SetWidth")
+	self.width = width
+end
+
+function Frame:SetHeight(height)
+	CheckCombat(self, "SetHeight")
+	self.height = height
+end
+
+function Frame:GetWidth() return self.width end
+
+function Frame:GetParent() return self.parent end
+function Frame:SetFrameLevel(level) self.level = level end
+function Frame:GetFrameLevel() return self.level end
+
+-- Regions: textures and font strings are made by their frame, are never protected and have the
+-- state Clicky sets on them.
+local function NewRegion(frame, kind)
+	local region = NewFrame(frame.world, nil, frame)
+	region.region = kind
+	return region
+end
+
+function Frame:CreateTexture() return NewRegion(self, "texture") end
+function Frame:CreateFontString() return NewRegion(self, "fontstring") end
+function Frame:SetTexture(texture) self.texture = texture end
+function Frame:SetDesaturated(desaturated) self.desaturated = desaturated end
+function Frame:SetAlpha(alpha) self.alpha = alpha end
+
+-- Text set by code runs OnTextChanged, with userInput false (warcraft.wiki.gg UIHANDLER OnTextChanged).
+function Frame:SetText(text)
+	local changed = self.text ~= text
+	self.text = text
+	if changed then RunScripts(self, "OnTextChanged", false) end
+end
+
+function Frame:GetText() return self.text or "" end
 
 function Frame:RegisterEvent(event)
 	self.world.eventFrames[self] = self.world.eventFrames[self] or {}
@@ -154,6 +350,28 @@ function Frame:SetAttribute(key, value)
 end
 
 function Frame:GetAttribute(key) return self.attributes[key] end
+
+-- Which mouse clicks a button receives: "AnyUp", "AnyDown", or "LeftButtonUp", "RightButtonDown"...
+-- A button that never registered gets a left button up click (warcraft.wiki.gg API Button
+-- RegisterForClicks).
+function Frame:RegisterForClicks(...) self.clicks = { ... } end
+
+local function ReceivesClick(frame, button, down)
+	local suffix = down and "Down" or "Up"
+	for _, registered in ipairs(frame.clicks or { "LeftButtonUp" }) do
+		if registered == "Any" .. suffix or registered == button .. suffix then return true end
+	end
+	return false
+end
+
+-- The mouse wheel reaches a frame only after EnableMouseWheel (enable defaults to false,
+-- SimpleScriptRegionAPIDocumentation.lua:95-103), and a drag only after RegisterForDrag, which
+-- "enables OnDragStart" (warcraft.wiki.gg API Frame RegisterForDrag).
+function Frame:EnableMouseWheel(enable)
+	CheckCombat(self, "EnableMouseWheel") -- IsProtectedFunction (SimpleScriptRegionAPIDocumentation.lua:94-96)
+	self.mouseWheel = enable
+end
+function Frame:RegisterForDrag(...) self.drags = { ... } end
 
 -- A modified attribute, as SecureButton_GetModifiedAttribute looks it up (SecureTemplates.lua):
 -- modifier prefix ("alt-", "ctrl-", "shift-", from the keys held) and button suffix ("1" for
@@ -262,10 +480,7 @@ function Frame:Click(button, down)
 				useOnKeyDown = world.cvars.ActionButtonUseKeyDown
 			end
 			if (down and useOnKeyDown) or (not down and not useOnKeyDown) then
-				if ModifiedAttribute(self, "type", button) == "toy" then
-					local toy = ModifiedAttribute(self, "toy", button)
-					if toy then world:UseToy(tonumber(toy) or toy) end
-				end
+				world:SecureAction(self, button)
 			end
 		elseif self.template == "SecureHandlerClickTemplate" and self.attributes._onclick then
 			RunSnippet(world, self, self.attributes._onclick, button, down)
@@ -275,15 +490,157 @@ function Frame:Click(button, down)
 end
 
 ------------------------------------------------------------------------------------------
+-- Blizzard templates that Clicky's toy grid and panel are made of, as far as Clicky uses them.
+
+local function Saturate(x) return math.max(0, math.min(1, x)) end
+
+local function Trigger(frame, event, ...)
+	for _, callback in ipairs(frame.callbacks[event] or {}) do
+		callback.fn(callback.owner, ...)
+	end
+end
+
+-- MinimalScrollBar (ScrollBar.lua, ScrollController.lua), driven by Clicky as Blizzard drives one
+-- for a scroll frame (ScrollUtil.lua, InitScrollFrameWithScrollBar): it reports its position with
+-- the OnScroll callback. The thumb and track are not here: a drag is the bar's SetScrollPercentage.
+ScrollBar = {}
+
+-- WowScrollBoxList (ScrollBox.lua) with a ScrollBoxListLinearView. SetDataProvider (ScrollBox.lua:703)
+-- shows each element on a row, a frame of the view's type that is reused, and calls the view's
+-- initializer(row, element) (ScrollBoxListView.lua:397-401, 487-). The real list makes rows only for
+-- the elements in view; here every element has one, and the rows after the last are hidden.
+ScrollList = {}
+
+function ScrollList:SetDataProvider(elements)
+	self.elements = elements
+	for i, element in ipairs(elements) do
+		local row = self.rows[i]
+		if not row then
+			row = self.world.env.CreateFrame(self.view.frameType, nil, self)
+			self.rows[i] = row
+		end
+		row:Show()
+		self.view.initializer(row, element)
+	end
+	for i = #elements + 1, #self.rows do self.rows[i]:Hide() end
+end
+
+-- ScrollBox.lua:638-650.
+function ScrollList:FindElementData(index) return self.elements[index] end
+function ScrollList:FindElementDataIndexByPredicate(predicate)
+	for i, element in ipairs(self.elements) do
+		if predicate(element) then return i end
+	end
+end
+
+-- ScrollBox.lua:813.
+function ScrollList:ScrollToNearest(index) self.scrolledTo = index end
+
+-- ScrollBar.lua:67-71 (sets no OnScroll).
+function ScrollBar:Init(visibleExtentPercentage, panExtentPercentage)
+	self.scrollPercentage = 0
+	self.panExtentPercentage = Saturate(panExtentPercentage)
+	self.visibleExtentPercentage = Saturate(visibleExtentPercentage)
+end
+
+-- CallbackRegistryMixin: the function gets the owner, then the event's arguments.
+function ScrollBar:RegisterCallback(event, fn, owner)
+	self.callbacks[event] = self.callbacks[event] or {}
+	table.insert(self.callbacks[event], { fn = fn, owner = owner })
+end
+
+function ScrollBar:GetScrollPercentage() return self.scrollPercentage end
+function ScrollBar:GetVisibleExtentPercentage() return self.visibleExtentPercentage end
+function ScrollBar:GetPanExtentPercentage() return self.panExtentPercentage end -- ScrollController.lua:144
+function ScrollBar:SetVisibleExtentPercentage(p) self.visibleExtentPercentage = Saturate(p) end -- ScrollBar.lua:133
+function ScrollBar:SetPanExtentPercentage(p) self.panExtentPercentage = Saturate(p) end -- ScrollController.lua:148
+function ScrollBar:IsScrollAllowed() return self.allowScroll end
+
+-- Snap to interval (ScrollController.lua:105-116): the bar has one position per 1 / visible
+-- extent, less 1 for the range, and its position goes to the nearest.
+function ScrollBar:EnableSnapToInterval() self.snapToInterval = true end
+
+function ScrollBar:GetIntervalRange()
+	if self.visibleExtentPercentage > 0 then
+		return math.floor(1 / self.visibleExtentPercentage + 0.000001) - 1 -- MathUtil.lua:4
+	end
+	return 0
+end
+
+-- ScrollBar.lua:155-179 and ScrollController.lua:168-178: the position is set, snapped to the
+-- nearest of the range's positions (Round is the game's, half up), and OnScroll is triggered
+-- (SetScrollPercentage takes no check of IsScrollAllowed); there's no interpolation unless the bar
+-- is set to (not by Clicky).
+function ScrollBar:SetScrollPercentage(p)
+	if self.snapToInterval then
+		local range = self:GetIntervalRange()
+		if range > 0 then p = math.floor(p * range + 0.5) / range end
+	end
+	self.scrollPercentage = Saturate(p)
+	Trigger(self, "OnScroll", self.scrollPercentage)
+end
+
+-- ScrollBar.lua:185-193.
+function ScrollBar:SetScrollAllowed(allow)
+	if self.allowScroll ~= allow then
+		self.allowScroll = allow
+		Trigger(self, "OnAllowScrollChanged", allow)
+	end
+end
+
+-- ScrollController.lua:128-142 moves the position unless scrolling is off (by at least one
+-- position when snapping), then ScrollBar.lua:105-111 triggers OnScroll whether it moved or not, so
+-- a wheel step reports twice.
+function ScrollBar:ScrollInDirection(percentage, direction)
+	if self.allowScroll then
+		local range = self.snapToInterval and self:GetIntervalRange() or 0
+		if range > 0 then percentage = math.max(1 / range, percentage) end
+		self:SetScrollPercentage(self.scrollPercentage + percentage * direction)
+	end
+	Trigger(self, "OnScroll", self.scrollPercentage)
+end
+
+-- ScrollBar.lua:117-119: direction is 1 to scroll down, -1 up (ScrollController.lua:71-74).
+function ScrollBar:ScrollStepInDirection(direction)
+	self:ScrollInDirection(self.panExtentPercentage, direction)
+end
+
+-- ScrollBar.lua:296-299: a drag or a held track is an OnUpdate script.
+function ScrollBar:UnregisterUpdate() self.scripts.OnUpdate = nil end
+
+-- A dropdown button (Blizzard_Menu/MenuTemplates.lua). Its menu is built when it opens; the world
+-- opens it for a test (World:GridFilterMenu).
+FilterDropdown = {}
+function FilterDropdown:SetupMenu(generator) self.menuGenerator = generator end
+function FilterDropdown:SetDefaultCallback(callback) self.defaultCallback = callback end -- MenuTemplates.lua:876
+function FilterDropdown:SetIsDefaultCallback(callback) self.isDefaultCallback = callback end -- MenuTemplates.lua:881
+
+-- ButtonFrameTemplate's children that the panel uses: parentKeys CloseButton and Inset
+-- (Blizzard_SharedXML/SharedUIPanelTemplates.xml).
+ButtonFrame = function(world, frame)
+	frame.CloseButton = NewFrame(world, nil, frame)
+	frame.Inset = NewFrame(world, nil, frame)
+end
+
+------------------------------------------------------------------------------------------
 -- The world.
 
 local World = {}
 World.__index = World
 
 -- options.toys: list of { id, name, icon, owned = true, usable = true, favorite, cooldown, loading }
+-- options.spells: list of { id, name, icon, known = true, usable = true, cooldown, loading, line = 1,
+--   flyout, passive, offSpec, base }: line is its spellbook skill line; flyout (a flyout ID) puts it in that
+--   flyout instead of on the line's own page; offSpec puts the line in a specialization the player
+--   isn't in; base is the spell it overrides, which is then the spellbook item's actionID
+--   (SpellBookItemInfo: spellID is the overriding spell). A spell that isn't known is a FutureSpell
+--   on the line (SpellBookItemType).
+-- options.items: list of { id, name, icon, count = 1, usable = true, cooldown, equippable, equipped,
+--   loading, bag = 0, worn }: count in the bag bag (0 is the backpack), or worn in inventory slot worn
 -- options.macros: list of { name, icon, body }
 -- options.account: another world's account, instead of toys and macros
--- options.toyList: item IDs, Clicky's toy list on this computer (see the top of this file)
+-- options.toyList: entries, Clicky's toy list on this computer (see the top of this file)
+-- options.toyHidden: item ID -> true, the toys its grid lists only when owned (ToyList.lua's TOY_HIDDEN)
 -- options.toysLoading: the player's toys haven't arrived yet (see World:LoadToys)
 -- options.combat: logging in (or reloading) in combat
 function wow.New(options)
@@ -299,16 +656,28 @@ function wow.New(options)
 		errors = {},
 		prints = {},
 		used = {},
+		equipped = {}, -- items the game wore because a click on them wasn't a use
 		keys = {}, -- modifier keys held: alt, ctrl, shift
+		mouse = {}, -- mouse buttons held
+		-- The key that makes a click link instead of act: the CHATLINK modified click is the
+		-- player's setting; the tests use shift.
+		chatLinkKey = "shift",
+		chat = {}, -- links put in the chat box (ChatFrameUtil.InsertLink)
 		timers = {}, -- C_Timer.After callbacks waiting
 		overrides = {}, -- frame -> key -> override binding, for this session only
 	}, World)
 	local account = options.account
 	if not account then
-		account = { toys = {}, toyOrder = {}, macros = {}, characterMacros = {}, bars = {} }
+		account = { toys = {}, toyOrder = {}, spells = {}, items = {}, macros = {}, characterMacros = {}, bars = {} }
 		world.account = account
 		for _, toy in ipairs(options.toys or {}) do
 			world:AddToy(toy)
+		end
+		for _, spell in ipairs(options.spells or {}) do
+			world:AddSpell(spell)
+		end
+		for _, item in ipairs(options.items or {}) do
+			world:AddItem(item)
 		end
 		for _, macro in ipairs(options.macros or {}) do
 			table.insert(account.macros, { name = macro.name, icon = macro.icon, body = macro.body })
@@ -316,8 +685,10 @@ function wow.New(options)
 	end
 	world.account = account
 	world.toys, world.toyOrder, world.macros, world.bars = account.toys, account.toyOrder, account.macros, account.bars
+	world.spells, world.items = account.spells, account.items
 	world.characterMacros = account.characterMacros
 	world.toyList = options.toyList or { unpack(account.toyOrder) }
+	world.toyHidden = options.toyHidden or {}
 	world:BuildEnv()
 	world:LoadAddon()
 	world:Fire("ADDON_LOADED", ADDON)
@@ -335,15 +706,16 @@ function World:LoadToys()
 	self:Fire("TOYS_UPDATED")
 end
 
--- Learning a toy: NEW_TOY_ADDED, then TOYS_UPDATED with itemID and isNew
--- (ToyBoxInfoDocumentation.lua).
+-- Learning a toy: NEW_TOY_ADDED, then TOYS_UPDATED with itemID, isNew and hasFanfare
+-- (ToyBoxInfoDocumentation.lua). toy.fanfare: it arrives gift-wrapped.
 function World:LearnToy(toy)
 	if not self.toys[toy.id] then
 		self:AddToy(toy)
 	end
 	self.toys[toy.id].owned = true
+	self.toys[toy.id].fanfare = toy.fanfare or false
 	self:Fire("NEW_TOY_ADDED", toy.id)
-	self:Fire("TOYS_UPDATED", toy.id, true)
+	self:Fire("TOYS_UPDATED", toy.id, true, self.toys[toy.id].fanfare)
 end
 
 function World:AddToy(toy)
@@ -356,9 +728,56 @@ function World:AddToy(toy)
 		favorite = toy.favorite or false,
 		cooldown = toy.cooldown or 0,
 		loading = toy.loading or false,
+		fanfare = toy.fanfare or false,
 	}
 	self.account.toys[t.id] = t
 	table.insert(self.account.toyOrder, t.id)
+end
+
+function World:AddSpell(spell)
+	self.account.spells[spell.id] = {
+		id = spell.id,
+		name = spell.name or ("Spell " .. spell.id),
+		icon = spell.icon or (spell.id * 10 + 1),
+		known = spell.known ~= false,
+		usable = spell.usable ~= false,
+		cooldown = spell.cooldown or 0,
+		loading = spell.loading or false,
+		line = spell.line or 1,
+		flyout = spell.flyout,
+		passive = spell.passive or false,
+		offSpec = spell.offSpec or false,
+		base = spell.base,
+	}
+end
+
+function World:AddItem(item)
+	self.account.items[item.id] = {
+		id = item.id,
+		name = item.name or ("Item " .. item.id),
+		icon = item.icon or (item.id * 10 + 2),
+		count = item.count or 1,
+		usable = item.usable ~= false,
+		cooldown = item.cooldown or 0,
+		equippable = item.equippable or false,
+		equipped = item.equipped or item.worn ~= nil,
+		loading = item.loading or false,
+		bag = item.bag or 0,
+		worn = item.worn,
+	}
+end
+
+-- A spell's or item's data arriving after Clicky asked for it: SPELL_DATA_LOAD_RESULT
+-- (SpellDocumentation.lua) and GET_ITEM_INFO_RECEIVED (ItemDocumentation.lua), each with the ID
+-- and success.
+function World:LoadSpell(id)
+	self.spells[id].loading = false
+	self:Fire("SPELL_DATA_LOAD_RESULT", id, true)
+end
+
+function World:LoadItem(id)
+	self.items[id].loading = false
+	self:Fire("GET_ITEM_INFO_RECEIVED", id, true)
 end
 
 -- A patch taking a toy out of the game's data.
@@ -370,6 +789,71 @@ function World:RemoveToyFromGame(id)
 			break
 		end
 	end
+end
+
+-- The Collections window loading (Blizzard_Collections is load-on-demand): its frames, hidden as
+-- Blizzard_Collections.xml and Blizzard_ToyBox.xml make them, with the Toy Box's children that
+-- Clicky hides and anchors to (parentKeys in Blizzard_ToyBox.xml), then ADDON_LOADED. `without`
+-- names a parentKey a patch took away.
+function World:LoadCollections(without)
+	local env = self.env
+	env.CollectionsJournal = env.CreateFrame("Frame", "CollectionsJournal", env.UIParent, "PortraitFrameTemplate")
+	env.CollectionsJournal.shown = false
+	env.CollectionsJournal.width, env.CollectionsJournal.height = 703, 606 -- Blizzard_Collections.xml:15
+	env.ToyBox = env.CreateFrame("Frame", "ToyBox", env.CollectionsJournal)
+	env.ToyBox.shown = false
+	env.ToyBox:SetAllPoints()
+	-- Its OnMouseWheel turns the pages of its PagingFrame (Blizzard_ToyBox.xml:154).
+	env.ToyBox.mouseWheel = true
+	for _, key in ipairs({ "progressBar", "searchBox", "FilterDropdown", "iconsFrame", "PagingFrame" }) do
+		if key ~= without then
+			env.ToyBox[key] = env.CreateFrame("Frame", nil, env.ToyBox)
+		end
+	end
+	-- The icons frame holds 18 Toy Box buttons (Blizzard_ToyBox.xml:50-135), protected as
+	-- CollectionsSpellButtonTemplate inherits SecureFrameTemplate (Blizzard_CollectionTemplates.xml:39).
+	-- The game makes them whatever its combat state is, as it makes the Toy Box.
+	local combat = self.combat
+	self.combat = false
+	for _ = 1, 18 do env.CreateFrame("CheckButton", nil, env.ToyBox.iconsFrame, "SecureFrameTemplate") end
+	self.combat = combat
+	self.collectionsLoaded = true
+	self:Fire("ADDON_LOADED", "Blizzard_Collections")
+end
+
+-- The player opening the Toy Box tab, or closing the window. The game shows and hides these
+-- windows itself, so the combat lock on protected frames doesn't stop it (the frames in them that
+-- Clicky made still run their OnShow and OnHide in combat).
+function World:OpenToyBox()
+	SetShown(self.env.CollectionsJournal, true)
+	SetShown(self.env.ToyBox, true)
+end
+
+function World:CloseToyBox()
+	SetShown(self.env.CollectionsJournal, false)
+end
+
+-- The player choosing an entry of the menu that opened last (a button's callback, or a
+-- checkbox's setter).
+function World:ChooseMenuEntry(text)
+	for _, entry in ipairs(self.menu.entries) do
+		if entry.text == text then
+			return (entry.kind == "CreateCheckbox" and entry.args[2] or entry.args[1])()
+		end
+	end
+	error("no menu entry " .. text)
+end
+
+-- The grid's filter menu as it opens: { text, isSelected(), toggle() } per checkbox.
+function World:GridFilterMenu()
+	local dropdown = self.env.ClickyGridFilter
+	local entries = {}
+	local root = {}
+	function root.CreateCheckbox(_, text, isSelected, setSelected)
+		entries[#entries + 1] = { text = text, isSelected = isSelected, toggle = function() setSelected() end }
+	end
+	dropdown.menuGenerator(dropdown, root)
+	return entries
 end
 
 -- The player editing macros in /macro, which saves through EditMacro and CreateMacro; bodies are
@@ -407,6 +891,9 @@ function World:Fire(event, ...)
 			frame.scripts.OnEvent(frame, event, ...)
 		end
 	end
+	if self.luaErrors[1] then
+		error(table.remove(self.luaErrors, 1), 0)
+	end
 end
 
 -- PLAYER_REGEN_DISABLED is synchronous (UnitDocumentation.lua): its handlers run before the
@@ -436,9 +923,84 @@ function World:Advance(seconds)
 	self.time = stop
 end
 
--- The game using a toy.
+-- The game using a toy: world.used lists what was used, a toy as its item ID, a spell as "s" and
+-- its ID, an item as "i" and its ID, which are the entries' keys (Entries.lua).
 function World:UseToy(itemID)
 	table.insert(self.used, itemID)
+end
+
+-- A secure button's action (SECURE_ACTIONS in SecureTemplates.lua), as far as Clicky sets them:
+-- toy uses the toy in its "toy" attribute (a number: UseToy); spell casts the spell ID in "spell"
+-- (a number: CastSpellByID); item reads "item" and, for an item that can be worn and isn't,
+-- wears it instead of using it (C_Item.IsEquippableItem, IsEquippedItem, EquipItemByName), else
+-- uses it (UseItemByName). A bare number in "item" is a slot, not an item ID (SecureCmdItemParse,
+-- ChatFrameUtil.lua), which Clicky must not pass.
+function World:SecureAction(frame, button)
+	local action = ModifiedAttribute(frame, "type", button)
+	if action == "toy" then
+		local toy = ModifiedAttribute(frame, "toy", button)
+		if toy then self:UseToy(tonumber(toy) or toy) end
+	elseif action == "spell" then
+		local spell = ModifiedAttribute(frame, "spell", button)
+		if tonumber(spell) then table.insert(self.used, "s" .. tonumber(spell)) end
+	elseif action == "item" then
+		local item = ModifiedAttribute(frame, "item", button)
+		if item then
+			assert(not tostring(item):match("^%d+$"), "a bare number in the item attribute is an inventory slot")
+			local id = tonumber(tostring(item):match("^item:(%d+)$"))
+			local t = id and self.items[id]
+			if t and t.equippable and not t.equipped then
+				t.equipped = true
+				table.insert(self.equipped, id)
+			elseif t then
+				table.insert(self.used, "i" .. id)
+			end
+		end
+	end
+end
+
+-- The player pressing a mouse button on a button, and releasing it: the mouse only reaches a
+-- visible frame (a /click line or a key binding can click a hidden one), and sends each click the
+-- button is registered for (RegisterForClicks). The button is held in between (IsMouseButtonDown).
+function World:HoldMouse(frame, button)
+	assert(Visible(frame), "the mouse can't click a frame that isn't visible")
+	button = button or "LeftButton"
+	self.mouse[button] = true
+	if ReceivesClick(frame, button, true) then frame:Click(button, true) end
+end
+
+function World:ReleaseMouse(frame, button)
+	button = button or "LeftButton"
+	self.mouse[button] = nil
+	if ReceivesClick(frame, button, false) then frame:Click(button, false) end
+end
+
+function World:MouseClick(frame, button)
+	self:HoldMouse(frame, button)
+	self:ReleaseMouse(frame, button)
+end
+
+-- The wheel turning over a frame; delta is -1 for a notch down (warcraft.wiki.gg UIHANDLER OnMouseWheel).
+function World:MouseWheel(frame, delta)
+	assert(Visible(frame) and frame.mouseWheel, "the wheel only reaches a visible frame that enabled it")
+	RunScripts(frame, "OnMouseWheel", delta)
+end
+
+-- The game updating the tooltip: GameTooltip_OnUpdate calls its owner's UpdateTooltip
+-- (GameTooltip.lua:456-458).
+function World:UpdateTooltip()
+	local owner = self.tooltip and self.tooltip.owner
+	if owner and owner.UpdateTooltip then owner:UpdateTooltip() end
+end
+
+-- The mouse dragging from a button.
+function World:Drag(frame, button)
+	assert(Visible(frame), "the mouse can't drag a frame that isn't visible")
+	button = button or "LeftButton"
+	for _, registered in ipairs(frame.drags or {}) do
+		if registered == button then RunScripts(frame, "OnDragStart", button) return end
+	end
+	error("the frame isn't registered for drags with " .. button)
 end
 
 -- Pressing a key with an override binding clicks its target, down then up. Returns false if no
@@ -480,8 +1042,6 @@ function World:TakeErrors()
 	self.errors = {}
 	return errors
 end
-
-function World:LastError() return self.errors[#self.errors] end
 
 -- Slash commands, as typed in chat.
 function World:Slash(text)
@@ -561,20 +1121,88 @@ function World:PressBar(slot, mouseButton)
 	return true
 end
 
+-- The spellbook the stubs show (SpellBookDocumentation.lua): skill lines in order, each with the
+-- items on its pages (itemIndexOffset + 1 is its first slot) and a Flyout item per flyout; and the
+-- flyouts' spells in order. Built from world.spells when asked.
+function World:SpellBook()
+	local ids = {}
+	for id in pairs(self.spells) do ids[#ids + 1] = id end
+	table.sort(ids)
+	local book, flyouts, flyoutSeen = { lines = {}, slots = {} }, {}, {}
+	book.flyouts = flyouts
+	local lines = {}
+	for _, id in ipairs(ids) do
+		local t = self.spells[id]
+		lines[t.line] = lines[t.line] or { items = {}, offSpec = t.offSpec }
+		local items = lines[t.line].items
+		if t.flyout then
+			flyouts[t.flyout] = flyouts[t.flyout] or {}
+			table.insert(flyouts[t.flyout], id)
+			if not flyoutSeen[t.flyout] then
+				flyoutSeen[t.flyout] = true
+				items[#items + 1] = { actionID = t.flyout, itemType = 4, name = "Flyout", subName = "", iconID = 1,
+					isPassive = false, isOffSpec = t.offSpec }
+			end
+		else
+			items[#items + 1] = { actionID = t.base or id, spellID = id, itemType = t.known and 1 or 2, name = t.name,
+				subName = "", iconID = t.icon, isPassive = t.passive, isOffSpec = t.offSpec }
+		end
+	end
+	local numbers = {}
+	for number in pairs(lines) do numbers[#numbers + 1] = number end
+	table.sort(numbers)
+	for _, number in ipairs(numbers) do
+		local l = lines[number]
+		l.offset = #book.slots
+		for _, item in ipairs(l.items) do book.slots[#book.slots + 1] = item end
+		book.lines[#book.lines + 1] = l
+	end
+	return book
+end
+
+-- The item IDs in a bag, by slot: the items counted in it, by ID.
+function World:BagItems(bag)
+	local ids = {}
+	for id, t in pairs(self.items) do
+		if t.bag == bag and t.count > 0 and not t.worn then ids[#ids + 1] = id end
+	end
+	table.sort(ids)
+	return ids
+end
+
 function World:BuildEnv()
 	local world = self
 	local env = setmetatable({}, { __index = _G })
 	self.env = env
 	env._G = env
 	env.strtrim = strtrim
+	-- TableUtil.lua:110-140, 218-228: tCompare (one level) and CopyTable (deep).
+	env.tCompare = function(a, b)
+		for k, v in pairs(a) do if b[k] ~= v then return false end end
+		for k in pairs(b) do if a[k] == nil then return false end end
+		return true
+	end
+	env.CopyTable = function(t)
+		local copy = {}
+		for k, v in pairs(t) do copy[k] = type(v) == "table" and env.CopyTable(v) or v end
+		return copy
+	end
+	-- WoW's xpcall passes its arguments on (FunctionUtil.lua:4).
+	env.xpcall = function(f, handler, ...)
+		local n, args = select("#", ...), { ... }
+		return xpcall(function() return f(unpack(args, 1, n)) end, handler)
+	end
+	env.tostringall = function(...) -- Blizzard_PrintHandler.lua:29
+		local n, out = select("#", ...), {}
+		for i = 1, n do out[i] = tostring((select(i, ...))) end
+		return unpack(out, 1, n)
+	end
 	env.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
 	env.print = function(...)
 		local parts = {}
 		for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
 		table.insert(world.prints, table.concat(parts, " "))
 	end
-	env.GetTime = function() return world.time end
-	env.debugprofilestop = function() return world.time * 1000 end
 	env.InCombatLockdown = function() return world.combat end
 	env.SlashCmdList = {}
 	env.UIParent = NewFrame(world)
@@ -585,7 +1213,18 @@ function World:BuildEnv()
 		table.insert(world.frames, frame)
 		return frame
 	end
-	env.C_Timer = { After = function(delay, fn) table.insert(world.timers, { at = world.time + delay, fn = fn }) end }
+	-- C_Timer (UITimerDocumentation.lua): After, and NewTimer, whose timer Cancel stops (Blizzard calls
+	-- it so, TimedCallback.lua:7-20).
+	env.C_Timer = {
+		After = function(delay, fn) table.insert(world.timers, { at = world.time + delay, fn = fn }) end,
+		NewTimer = function(delay, fn)
+			local timer = { at = world.time + delay }
+			timer.fn = function() if not timer.cancelled then fn() end end
+			function timer.Cancel() timer.cancelled = true end
+			table.insert(world.timers, timer)
+			return timer
+		end,
+	}
 	env.SecureCmdOptionParse = function(msg) return world:OptionParse(msg) end
 	-- SecureHandlers.lua: the header must be explicitly protected; frame refs are stored as the
 	-- frame's "frameref-<label>" attribute, holding a handle. Neither can run in combat (they go
@@ -609,14 +1248,56 @@ function World:BuildEnv()
 	}
 	-- GetAddOnMetadata reads the .toc's "## Field: value" lines (AddOnsDocumentation.lua).
 	env.C_AddOns = {
-		IsAddOnLoaded = function() return false end,
+		-- loadedOrLoading, loaded (AddOnsDocumentation.lua): the Collections window once
+		-- World:LoadCollections has loaded it.
+		IsAddOnLoaded = function(name)
+			local loaded = name == "Blizzard_Collections" and world.collectionsLoaded == true
+			return loaded, loaded
+		end,
 		GetAddOnMetadata = function(_, field) return world.toc[field] end,
 	}
-	env.Menu = { ModifyMenu = function() end }
 	env.StaticPopupDialogs = {}
+	-- EventUtil.ContinueOnAddOnLoaded (Blizzard_SharedXML/EventUtil.lua): the callback runs now if
+	-- the add-on is loaded (IsAddOnLoaded's second result), else once on its ADDON_LOADED.
+	env.EventUtil = {
+		ContinueOnAddOnLoaded = function(addOnName, callback)
+			local _, loaded = env.C_AddOns.IsAddOnLoaded(addOnName)
+			if loaded then
+				callback()
+				return
+			end
+			local frame = env.CreateFrame("Frame")
+			frame:RegisterEvent("ADDON_LOADED")
+			frame:SetScript("OnEvent", function(waiting, _, name)
+				if name == addOnName then
+					waiting:UnregisterEvent("ADDON_LOADED")
+					callback()
+				end
+			end)
+		end,
+	}
+	-- The function that gets Lua errors (geterrorhandler, warcraft.wiki.gg API geterrorhandler):
+	-- here it keeps them, and World:Fire raises the first so a test sees an error in a handler.
+	-- A test that expects one sets world.errorHandler.
+	world.luaErrors = {}
+	world.errorHandler = function(err) table.insert(world.luaErrors, err) end
+	env.geterrorhandler = function() return world.errorHandler end
 
 	-- Toys. GetToyLink answers for any toy in the game, owned or not, and nil for an item that
 	-- isn't one (warcraft.wiki.gg API_C_ToyBox.GetToyLink).
+	-- A toy learned gift-wrapped needs its fanfare until it's cleared (ToyBoxInfoDocumentation.lua;
+	-- Blizzard_ToyBox.lua clears it when the wrapped toy is clicked).
+	env.C_ToyBoxInfo = {
+		-- Both take a toy's item ID, a number (ToyBoxInfoDocumentation.lua: itemID, Type number).
+		NeedsFanfare = function(id)
+			assert(type(id) == "number", "NeedsFanfare takes an item ID")
+			return world.toys[id] and world.toys[id].fanfare or false
+		end,
+		ClearFanfare = function(id)
+			assert(type(id) == "number", "ClearFanfare takes an item ID")
+			if world.toys[id] then world.toys[id].fanfare = false end
+		end,
+	}
 	env.C_ToyBox = {
 		GetToyLink = function(id)
 			return world.toys[id] and ("|cffffffff|Hitem:" .. id .. "::::::::::::|h[" .. world.toys[id].name .. "]|h|r") or nil
@@ -628,24 +1309,33 @@ function World:BuildEnv()
 			if t then return id end
 		end,
 		GetNumToys = function() return #world.toyOrder end,
-		GetNumFilteredToys = function() return #world.toyOrder end,
-		HasFavorites = function()
-			for _, t in pairs(world.toys) do if t.favorite then return true end end
-			return false
+		-- The star calls take a toy's item ID (warcraft.wiki.gg API C_ToyBox.GetIsFavorite, SetIsFavorite).
+		GetIsFavorite = function(id)
+			assert(type(id) == "number", "GetIsFavorite takes an item ID")
+			return world.toys[id] and world.toys[id].favorite or false
 		end,
-		GetIsFavorite = function(id) return world.toys[id] and world.toys[id].favorite or false end,
-		-- The Toy Box's own favorite menu (Blizzard_ToyBox.lua) calls this and doesn't refresh
-		-- itself: the game fires TOYS_UPDATED.
-		SetIsFavorite = function(id, v) world.toys[id].favorite = v; world:Fire("TOYS_UPDATED", id, false) end,
+		SetIsFavorite = function(id, v)
+			assert(type(id) == "number", "SetIsFavorite takes an item ID")
+			world.toys[id].favorite = v
+		end,
 		IsToyUsable = function(id) return world.toys[id] and world.toys[id].usable or false end,
 	}
 	env.PlayerHasToy = function(id)
 		return world.toysLoaded and world.toys[id] and world.toys[id].owned or false
 	end
+	-- Dragging a toy picks it up on the cursor (Blizzard_ToyBox.lua:298, ToySpellButton_OnDrag).
+	env.C_ToyBox.PickupToyBoxItem = function(id) world.cursor = { toy = id } end
 	-- startTime, duration, enable (ContainerDocumentation.lua).
 	env.C_Container = {
+		-- The bag's slots, with one empty slot after its items so a test sees an empty slot answered
+		-- with nothing (GetContainerItemID MayReturnNothing, ContainerDocumentation.lua).
+		GetContainerNumSlots = function(bag)
+			local n = #world:BagItems(bag)
+			return n > 0 and n + 1 or 0
+		end,
+		GetContainerItemID = function(bag, slot) return world:BagItems(bag)[slot] end,
 		GetItemCooldown = function(id)
-			local cd = world.toys[id] and world.toys[id].cooldown or 0
+			local cd = world.toys[id] and world.toys[id].cooldown or world.items[id] and world.items[id].cooldown or 0
 			if cd > 0 then return world.time - 1, cd + 1, 1 end
 			return 0, 0, 1
 		end,
@@ -655,10 +1345,224 @@ function World:BuildEnv()
 	env.C_Item = {
 		RequestLoadItemDataByID = function() end,
 		GetItemInfoInstant = function(id)
-			local t = world.toys[id]
+			local t = world.toys[id] or world.items[id]
 			if t then return id, "Miscellaneous", "Junk", "", t.icon, 15, 0 end
 		end,
+		-- GetItemNameByID has no name for an item the game hasn't cached (itemName Nilable,
+		-- ItemDocumentation.lua); RequestLoadItemDataByID and GET_ITEM_INFO_RECEIVED bring it.
+		GetItemNameByID = function(id)
+			local t = world.items[id]
+			if t and not t.loading then return t.name end
+		end,
+		-- ItemDocumentation.lua: count, whether it's equippable, equipped, usable.
+		GetItemCount = function(id) return world.items[id] and world.items[id].count or 0 end,
+		IsEquippableItem = function(id) return world.items[id] and world.items[id].equippable or false end,
+		IsEquippedItem = function(id) return world.items[id] and world.items[id].equipped or false end,
+		-- ItemDocumentation.lua: PickupItem takes an item ID; GetItemInfo's second return is the
+		-- link, nothing until the item's data has loaded.
+		PickupItem = function(id) world.cursor = { item = id } end,
+		GetItemInfo = function(id)
+			local t = world.items[id]
+			if t and not t.loading then return t.name, "|cffffffff|Hitem:" .. id .. "::::::::::::|h[" .. t.name .. "]|h|r" end
+		end,
+		IsUsableItem = function(id)
+			local t = world.items[id]
+			return t and t.usable or false, false
+		end,
 	}
+	-- Constants.lua:153-186: the inventory slots from the head to the tabard, and the bag slots the
+	-- player equips (the four bags and the reagent bag).
+	env.INVSLOT_FIRST_EQUIPPED, env.INVSLOT_LAST_EQUIPPED = 1, 19
+	env.NUM_TOTAL_EQUIPPED_BAG_SLOTS = 5
+	-- warcraft.wiki.gg API GetInventoryItemID (used so in Blizzard_UIPanels_Game/PaperDollFrame.lua):
+	-- the ID of the item worn in a slot, nothing for an empty one.
+	env.GetInventoryItemID = function(unit, slot)
+		assert(unit == "player", "the stubs only have the player's inventory")
+		for id, t in pairs(world.items) do
+			if t.worn == slot then return id end
+		end
+	end
+	-- Spells (SpellDocumentation.lua, SpellBookDocumentation.lua). GetSpellName and
+	-- GetSpellTexture return nothing for a spell that isn't found; RequestLoadSpellData asks for a
+	-- spell's data and SPELL_DATA_LOAD_RESULT says when it has arrived.
+	-- GetSpellCooldown is SecretWhenCooldownsRestricted: with world.secretCooldowns its start and
+	-- duration are secret values, here world.SECRET, a table, which errors if compared with a
+	-- number; isActive and isEnabled are never secret (SpellSharedDocumentation.lua).
+	world.SECRET = { secret = true }
+	env.issecretvalue = function(value) return value == world.SECRET end
+	env.C_SpellBook = {
+		IsSpellKnown = function(id) return world.spells[id] and world.spells[id].known or false end,
+		GetNumSpellBookSkillLines = function() return #world:SpellBook().lines end,
+		GetSpellBookSkillLineInfo = function(line)
+			local l = world:SpellBook().lines[line]
+			if not l then return end
+			return {
+				name = "Line " .. line, iconID = 1, itemIndexOffset = l.offset, numSpellBookItems = #l.items,
+				isGuild = false, shouldHide = false, offSpecID = l.offSpec and 1 or nil,
+			}
+		end,
+		GetSpellBookItemInfo = function(slot, bank)
+			assert(bank == env.Enum.SpellBookSpellBank.Player, "the stubs only have the player's spellbook")
+			return world:SpellBook().slots[slot]
+		end,
+	}
+	-- SpellBookConstantsDocumentation.lua.
+	env.Enum = {
+		SpellBookSpellBank = { Player = 0, Pet = 1 },
+		SpellBookItemType = { None = 0, Spell = 1, FutureSpell = 2, PetAction = 3, Flyout = 4 },
+	}
+	-- A flyout's number of slots and a slot's spell ID, name and whether it's known: the returns
+	-- Blizzard_SpellSearchTextFilter.lua:230-237 reads (GetFlyoutInfo's third, GetFlyoutSlotInfo's
+	-- first, third and fourth).
+	env.GetFlyoutInfo = function(flyoutID)
+		local flyout = world:SpellBook().flyouts[flyoutID]
+		if flyout then return "Flyout " .. flyoutID, "", #flyout, true end
+	end
+	env.GetFlyoutSlotInfo = function(flyoutID, slot)
+		local id = world:SpellBook().flyouts[flyoutID][slot]
+		local t = world.spells[id]
+		return id, id, t.known, t.name
+	end
+	env.C_Spell = {
+		GetSpellName = function(id)
+			local t = world.spells[id]
+			if t and not t.loading then return t.name end
+		end,
+		GetSpellTexture = function(id)
+			local t = world.spells[id]
+			if t then return t.icon end
+		end,
+		RequestLoadSpellData = function() end,
+		-- SpellDocumentation.lua: a link for a spell that exists, nothing for one that doesn't; the
+		-- cursor holds the spell after PickupSpell.
+		GetSpellLink = function(id)
+			local t = world.spells[id]
+			if t then return "|cff71d5ff|Hspell:" .. id .. ":0|h[" .. t.name .. "]|h|r" end
+		end,
+		PickupSpell = function(id) world.cursor = { spell = id } end,
+		IsSpellUsable = function(id)
+			local t = world.spells[id]
+			return t and t.usable or false, false
+		end,
+		GetSpellCooldown = function(id)
+			local t = world.spells[id]
+			if not t then return end
+			local active = t.cooldown > 0
+			return {
+				startTime = active and (world.secretCooldowns and world.SECRET or world.time - 1) or 0,
+				duration = active and (world.secretCooldowns and world.SECRET or t.cooldown + 1) or 0,
+				isEnabled = true, isActive = active, modRate = 1,
+			}
+		end,
+	}
+
+	-- Keys and clicks. The three keys SecureButton_GetModifierPrefix reads (SecureTemplates.lua:70-90).
+	env.IsShiftKeyDown = function() return world.keys.shift or false end
+	env.IsControlKeyDown = function() return world.keys.ctrl or false end
+	env.IsAltKeyDown = function() return world.keys.alt or false end
+	-- No argument: any mouse button (used so in ModelControlButtonMixin.lua:167); InputDocumentation.lua.
+	env.IsMouseButtonDown = function(button)
+		if button then return world.mouse[button] or false end
+		return next(world.mouse) ~= nil
+	end
+	env.IsModifiedClick = function(action)
+		assert(action == "CHATLINK", "a modified click the stubs don't know: " .. tostring(action))
+		return world.keys[world.chatLinkKey] or false
+	end
+	-- Blizzard_ChatFrameBase/Mainline/ChatFrameUtilOverrides.lua:14: puts a link in the chat box.
+	env.ChatFrameUtil = { InsertLink = function(link) table.insert(world.chat, link) return true end }
+
+	-- The tooltip: its owner and the toy it shows, until GameTooltip_Hide (GameTooltip.lua:618).
+	env.GameTooltip = {
+		SetOwner = function(_, owner, anchor) world.tooltip = { owner = owner, anchor = anchor, lines = {} } end,
+		-- warcraft.wiki.gg API GameTooltip:SetText and AddLine.
+		SetText = function(_, text) world.tooltip.title = text end,
+		AddLine = function(_, text) table.insert(world.tooltip.lines, text) end,
+		-- Shows the toy, and answers whether it could (Blizzard_ToyBox.lua:215).
+		SetToyByItemID = function(_, id)
+			world.tooltip.toy = id
+			return world.toys[id] ~= nil
+		end,
+		-- The tooltip data handler's SetSpellByID and SetItemByID (TooltipDataHandler.lua).
+		SetSpellByID = function(_, id)
+			world.tooltip.spell = id
+			return world.spells[id] ~= nil
+		end,
+		SetItemByID = function(_, id)
+			world.tooltip.item = id
+			return world.items[id] ~= nil
+		end,
+		Show = function() end,
+	}
+	env.GameTooltip_Hide = function() world.tooltip = nil end
+	-- Cooldown.lua:2-9: a cooldown swipe is set when it has started and lasts, and cleared otherwise.
+	env.CooldownFrame_Set = function(cooldown, start, duration, enable)
+		if enable and enable ~= 0 and start > 0 and duration > 0 then
+			cooldown:SetCooldown(start, duration)
+		else
+			cooldown:Clear()
+		end
+	end
+	-- Global strings and colors the toy grid and panel read (the files that define them aren't in
+	-- wow-ui-source): the English texts of the filter names, which a test picks a filter by, and the
+	-- gold of the Toy Box's toy names.
+	env.COLLECTED, env.NOT_COLLECTED, env.PET_JOURNAL_FILTER_USABLE_ONLY = "Collected", "Not Collected", "Usable Only"
+	env.NEW_CAPS = "NEW"
+	env.DELETE = "Delete" -- the menu's entry is found by it
+	-- The toy menu's star entries are found by these; any two different texts do.
+	env.BATTLE_PET_FAVORITE, env.BATTLE_PET_UNFAVORITE = "Favorite", "Unfavorite"
+	env.NORMAL_FONT_COLOR = { r = 1, g = 0.82, b = 0 }
+	-- MenuUtil.CreateContextMenu calls the generator with the owner and a root description
+	-- (MenuUtil.lua:151-161). Each entry the generator makes on it is kept in world.menu for
+	-- World:ChooseMenuEntry; only the menu itself is stubbed, not what Blizzard draws.
+	env.MenuUtil = {
+		CreateContextMenu = function(owner, generator)
+			local entries = {}
+			local root = setmetatable({}, { __index = function(_, kind)
+				return function(_, text, ...) table.insert(entries, { kind = kind, text = text, args = { ... } }) end
+			end })
+			generator(owner, root)
+			world.menu = { owner = owner, entries = entries }
+		end,
+	}
+	-- The panel's window functions do nothing here. Its list is ScrollList below; a data provider is
+	-- the table of its elements.
+	env.ButtonFrameTemplate_HidePortrait = function() end
+	env.ButtonFrameTemplate_HideButtonBar = function() end
+	env.ButtonFrameTemplate_HideAttic = function() end
+	-- EventRegistry (Blizzard_SharedXMLBase/GlobalCallbackRegistry.lua): Clicky only registers callbacks; none
+	-- is triggered here.
+	env.EventRegistry = { RegisterCallback = function() end }
+	-- PanelTemplates (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua:369-480): the selected
+	-- tab and the count are kept on the frame; how the tabs look and their widths aren't here.
+	env.PanelTemplates_SetNumTabs = function(frame, numTabs) frame.numTabs = numTabs end
+	env.PanelTemplates_SetTab = function(frame, id) frame.selectedTab = id end
+	env.PanelTemplates_GetSelectedTab = function(frame) return frame.selectedTab end
+	env.PanelTemplates_TabResize = function() end
+	-- The window manager doesn't take addon calls in combat (UIParentPanelManager.lua:840-864).
+	local function PanelBlocked(what)
+		if world.combat then error("ADDON_ACTION_BLOCKED: " .. what .. " by addon code in combat", 3) end
+	end
+	env.SetUIPanelAttribute = function() PanelBlocked("SetUIPanelAttribute") end
+	env.UpdateUIPanelPositions = function() PanelBlocked("UpdateUIPanelPositions") end
+	-- SetCollectionsJournalShown shows the window with ShowUIPanel, which refuses addon code in combat
+	-- (Blizzard_Collections_Bootstrap.lua:22-28, UIParentPanelManager.lua:844-870); it then selects
+	-- the tab. The toys tab follows the mounts' and pets' (Blizzard_Collections_Bootstrap.lua:7-9).
+	env.COLLECTIONS_JOURNAL_TAB_INDEX_TOYS = 3
+	env.SetCollectionsJournalShown = function(shown, tabIndex)
+		PanelBlocked("ShowUIPanel")
+		world.journal = { shown = shown, tab = tabIndex }
+	end
+	env.CreateDataProvider = function(elements) return elements end
+	-- ScrollBoxListView.lua:487-: the view makes its rows from a frame type and an initializer.
+	env.CreateScrollBoxListLinearView = function()
+		return { SetElementExtentCalculator = function() end,
+			SetElementInitializer = function(view, frameType, initializer) view.frameType, view.initializer = frameType, initializer end }
+	end
+	env.ScrollUtil = { InitScrollBoxListWithScrollBar = function(list, _, view) list.view = view end }
+	-- ScrollBox.lua:2-18.
+	env.ScrollBoxConstants = { NoScrollInterpolation = true, RetainScrollPosition = true }
+	env.BaseScrollBoxEvents = { OnScroll = "OnScroll", OnAllowScrollChanged = "OnAllowScrollChanged" }
 
 	-- Macros: general (account) macros at 1..120, character macros from 121. Names are capped at
 	-- 16 characters; bodies longer than 255 are cut (warcraft.wiki.gg API_EditMacro). Every
@@ -724,7 +1628,7 @@ function World:LoadAddon()
 		if field then
 			self.toc[field] = value
 		elseif line == "ToyList.lua" then
-			ns.TOY_IDS, ns.TOY_LIST_BUILD = self.toyList, "test"
+			ns.TOY_IDS, ns.TOY_LIST_BUILD, ns.TOY_HIDDEN = self.toyList, "test", self.toyHidden
 		elseif line ~= "" and not line:find("^#") then
 			local chunk = assert(loadfile(ROOT .. "/" .. line))
 			setfenv(chunk, self.env)

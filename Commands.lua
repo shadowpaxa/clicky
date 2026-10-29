@@ -5,8 +5,13 @@ local ADDON, ns = ...
 
 local Print = ns.Print
 
--- Blizzard_Collections_Bootstrap.lua (always loaded) loads the Collections window if needed.
+-- Blizzard_Collections_Bootstrap.lua (always loaded) loads the Collections window if needed, and
+-- shows it with ShowUIPanel, which refuses addon code in combat (UIParentPanelManager.lua:840-864).
 local function OpenToyBox()
+	if InCombatLockdown() then
+		ns.ShowError("Can't open the Toy Box in combat.")
+		return
+	end
 	SetCollectionsJournalShown(true, COLLECTIONS_JOURNAL_TAB_INDEX_TOYS)
 end
 
@@ -14,71 +19,57 @@ local function PrintStatus()
 	Print(("%d toys owned."):format(ns.CountOwnedToys()))
 	for _, m in ipairs(ns.GetMacros()) do
 		local unreadable = ns.Unreadable(m)
-		local line = unreadable and ("%s: %s"):format(m.name, unreadable)
-		if not line then
-			line = ("%s: %d toys owned, %d ready to use here."):format(
-				m.name, #ns.GetMacroToys(m), #ns.GetCandidates(m, true))
-			if m.linedUp then
-				local _, name = C_ToyBox.GetToyInfo(m.linedUp)
-				line = line .. " Next up: " .. (name or m.linedUp)
-			end
-		end
-		Print(line)
+		Print(unreadable and ("%s: %s"):format(m.name, unreadable)
+			or ("%s: %d %s owned, %d ready to use here."):format(m.name, #ns.GetMacroEntries(m), ns.MacroNoun(m),
+				#ns.GetCandidates(m, true)))
 	end
 end
 
 local function PrintDebug()
-	Print(("toys in game: %d, listed by your Toy Box filters: %d, HasFavorites: %s, Collections loaded: %s"):format(
-		C_ToyBox.GetNumToys(), C_ToyBox.GetNumFilteredToys(), tostring(C_ToyBox.HasFavorites()),
-		tostring(C_AddOns.IsAddOnLoaded("Blizzard_Collections"))))
 	Print(("Clicky %s"):format(tostring(C_AddOns.GetAddOnMetadata(ADDON, "Version"))))
 	ns.Sync("debug")
 	local list = ns.GetToyList()
-	Print(("toy list: %d toys from build %s (game counts %d), owned: %d"):format(
-		#list.ids, tostring(ns.TOY_LIST_BUILD), C_ToyBox.GetNumToys(), ns.CountOwnedToys()))
-	local probedUpTo, found, ms = ns.GetProbeInfo()
-	if probedUpTo then
-		Print(("format 4 scan: item IDs 1-%d in %d ms, %d toys"):format(probedUpTo, ms, found))
-	end
-	Print(("a macro holds up to %d toys"):format(ns.MACRO_TOY_CAP))
+	Print(("toy list: %d toys from build %s (game counts %d)"):format(
+		#list.ids, tostring(ns.TOY_LIST_BUILD), C_ToyBox.GetNumToys()))
+	Print(("a macro holds up to %d items"):format(ns.MACRO_ENTRY_CAP))
+	Print(("grid: %s; new toys this session: %d"):format(ns.GetGridState(), ns.CountNewToys()))
+	Print("panel: " .. ns.GetPanelState())
 	local waits = {}
 	for what, n in pairs(ns.GetWaiting()) do
 		waits[#waits + 1] = ("%s: %d"):format(what, n)
 	end
 	table.sort(waits)
 	Print("waiting: " .. (#waits > 0 and table.concat(waits, ", ") or "nothing"))
+	local views = {}
+	for _, view in ipairs(ns.GetViews()) do
+		views[#views + 1] = ("%s %s%s"):format(view.name, view.shown and "shown" or "hidden",
+			view.pending and ", refresh pending" or "")
+	end
+	Print("views: " .. table.concat(views, "; "))
 	for _, m in ipairs(ns.GetMacros()) do
 		local members, unusable, cooldown = 0, 0, 0
-		for itemID in pairs(ns.MemberPool(m)) do
-			if ns.HasToy(m, itemID) then
-				members = members + 1
-				if not C_ToyBox.IsToyUsable(itemID) then unusable = unusable + 1 end
-				if ns.IsToyOnCooldown(itemID) then cooldown = cooldown + 1 end
-			end
+		for key in pairs(ns.MacroEntries(m)) do
+			members = members + 1
+			if not ns.IsEntryUsable(key) then unusable = unusable + 1 end
+			if ns.IsEntryOnCooldown(key) then cooldown = cooldown + 1 end
 		end
 		local macro
 		if m.builtin then
 			local fav = ns.FindFavoritesMacro()
-			macro = ("%s, state %s%s%s"):format(fav and tostring(fav.index) or "none", tostring(m.state),
-				m.reason and (" (" .. m.reason .. ")") or "", fav and fav.old and " (line needs updating)" or "")
+			macro = ("%s, state %s%s"):format(fav and tostring(fav.index) or "none", tostring(m.state),
+				m.reason and (" (" .. m.reason .. ")") or "")
 		else
-			local written = m.data and ns.DecodeToys(m.data)
-			local saved = "?"
-			if written then
-				saved = written.format == 4 and ("4, saved against %d game toys up to item %d"):format(written.count, written.highest)
-					or ("5, %d toys"):format(#written.positions)
-			end
-			macro = ("%s, state %s%s, data %d chars, format %s%s"):format(tostring(m.index),
+			macro = ("%s, state %s%s, data %d chars, %s"):format(tostring(m.index),
 				tostring(m.state), m.reason and (" (" .. m.reason .. ")") or "", m.data and #m.data or 0,
-				saved, m.stale and " (needs re-saving)" or "")
+				m.state == "ready" and (members .. " items") or "no items")
 		end
 		local button = m.button
 		local drawer = ns.GetDrawer(m.id)
+		local count = drawer and drawer.frame:GetAttribute("count") or 0
 		local mode = ("ready for combat %s, drawer %s"):format(tostring(button and button:GetAttribute("readycount")),
-			drawer and (drawer.count .. " toys" .. (drawer.frame:IsShown() and ", open" or "")) or "none")
-		Print(("%s (%s): %d toys (unusable: %d, on cooldown: %d), %s, lined up: %s, toy attr: %s, macro: %s"):format(
-			m.name, m.buttonName, members, unusable, cooldown, mode, tostring(m.linedUp),
-			tostring(button and button:GetAttribute("toy")), macro))
+			drawer and (count .. " items" .. (drawer.frame:IsShown() and ", open" or "")) or "none")
+		Print(("%s (%s): %d items (unusable: %d, on cooldown: %d), %s, macro: %s"):format(
+			m.name, ns.ButtonName(m.id), members, unusable, cooldown, mode, macro))
 	end
 end
 
@@ -96,7 +87,7 @@ SlashCmdList.CLICKY = function(msg)
 		OpenToyBox()
 	else
 		Print("/clicky - open the Toy Box to manage your macros")
-		Print("/clicky status - show how many of each macro's toys you own and can use here")
+		Print("/clicky status - show how many of each macro's items you own and can use here")
 		Print("/clicky debug - print Clicky's full state")
 		Print("/clicky trace - print each pick and change as it happens; type it again to stop")
 	end

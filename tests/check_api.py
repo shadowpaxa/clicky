@@ -5,9 +5,10 @@
    game's C API and widget API: names, argument counts and types. Any diagnostic fails, except
    undefined globals, which go to step 2.
 2. Blizzard's UI code (tests/.cache/wow-ui-source, live branch) checks what the annotations don't
-   cover: Blizzard Lua globals (StaticPopup_Show, MenuResponse, GlobalStrings...), CreateFrame
-   templates, events, menu tags, and methods Clicky calls on Blizzard objects (ScrollBox, menus,
-   dialogs). A global counts if Blizzard's code defines it or uses it.
+   cover: Blizzard Lua globals (StaticPopup_Show, ScrollBoxConstants, GlobalStrings...),
+   CreateFrame templates, events, the Toy Box child frames Clicky reads, and methods Clicky calls
+   on Blizzard objects (ScrollBox, menus, dialogs). A global counts if Blizzard's code defines it
+   or uses it.
 
 Run tests/fetch.sh first. Exits non-zero on any problem.
 """
@@ -102,9 +103,11 @@ def main():
     addon = "\n".join(strip_comments(s) for s in sources.values())
 
     # 2a. Globals the annotations don't know: Blizzard's code must define or use them as a
-    #     bare name (not a field or method), or name a frame that way in XML.
+    #     bare name (not a field or method), or name a frame that way in XML, or be a global
+    #     string XML shows (text="NEW_CAPS").
     blizzard_names = set(re.findall(r"(?<![\w.:])([A-Za-z_]\w*)", blizzard_lua))
     xml_frames = set(re.findall(r'name="(\w+)"', blizzard_xml))
+    xml_frames |= set(re.findall(r'text="([A-Z][A-Z0-9_]+)"', blizzard_xml))
     for name, where in sorted(run_luals().items()):
         if name not in blizzard_names and name not in xml_frames:
             problems.append(f"{where}: `{name}` isn't defined or used anywhere in Blizzard's UI code")
@@ -121,10 +124,11 @@ def main():
         if not re.search(rf'LiteralName = "{event}"', blizzard_lua) and not re.search(rf'"{event}"', blizzard_lua):
             problems.append(f"event {event} isn't documented or used by Blizzard")
 
-    # 2d. Menu tags.
-    for tag in sorted(set(re.findall(r'ModifyMenu\("(\w+)"', addon))):
-        if not re.search(rf'SetTag\("{tag}"', blizzard_lua):
-            problems.append(f"menu tag {tag} isn't set anywhere in Blizzard's UI code")
+    # 2d. The Toy Box's child frames Clicky hides and anchors to: each must be a parentKey in
+    #     Blizzard's XML.
+    for key in sorted(set(re.findall(r"(?<![\w.])ToyBox\.(\w+)", addon))):
+        if not re.search(rf'parentKey="{key}"', blizzard_xml):
+            problems.append(f"ToyBox.{key} isn't a parentKey in Blizzard's XML")
 
     # 2e. Methods called with ':' that Clicky doesn't define itself: each must be widget API
     #     (annotations) or a method in Blizzard's code (mixins such as ScrollBox, menus, dialogs).
@@ -151,8 +155,11 @@ def main():
             problems.append(f"{call} isn't in the WoW API annotations or Blizzard's API docs")
 
     # 2g. Fields read from Blizzard tables (Foo.Bar where Foo is a Blizzard global table).
+    #     An Enum field also counts when Blizzard's API docs list it as that enumeration's field.
     for table, field in sorted(set(re.findall(r"\b(MenuResponse|ScrollBoxConstants|Enum\.\w+)\.(\w+)", addon))):
-        if not re.search(rf"\b{field}\s*=", blizzard_lua):
+        documented = table.startswith("Enum.") and re.search(
+            rf'Name = "{field}", Type = "{table[5:]}", EnumValue', blizzard_lua)
+        if not re.search(rf"\b{field}\s*=", blizzard_lua) and not documented:
             problems.append(f"{table}.{field} isn't defined in Blizzard's UI code")
 
     with open(os.path.join(ADDON, "Clicky.toc"), encoding="utf-8") as f:

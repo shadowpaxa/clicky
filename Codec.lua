@@ -1,54 +1,41 @@
--- How a macro's toys are written into its "#clicky" line. Nothing here touches the game, so all of
+-- How a macro's entries are written into its "#clicky" line. Nothing here touches the game, so all of
 -- it is on ns, for the other files and the offline tests:
---   ns.MACRO_TOY_CAP
---   ns.EncodeToys(positions)          -> data (format 5)
---   ns.DecodeToys(data)               -> { format (4 or 5), positions }, and for format 4 also
---                                        highest, count, checks
---                                        | nil, "newer" | "damaged"
---   ns.CheckNumbers(itemIDs)          -> checks    format 4: remove before the first full release
---   ns.SameChecks(a, b)                            format 4: remove before the first full release
+--   ns.MACRO_ENTRY_CAP                  how many entries a macro holds
+--   ns.EncodePlaces(positions)          -> data (format 6); the positions of a macro's entries
+--   ns.DecodePlaces(data)               -> { positions } | nil, "newer" | "damaged"
 --
--- A macro stores its toys as positions (0-based) in Clicky's toy list (ToyList.lua), which only
--- grows at the end, so a toy's position never changes.
+-- A macro stores its entries (toys, spells, items) as positions (0-based) in Clicky's list
+-- (ToyList.lua), which only grows at the end, so an entry's position never changes.
 --
--- data = one header character (format version * 8 + Rice parameter r), then a bit string six
--- bits per character in base64's alphabet (no "|", WoW's escape character, and no spaces): the
--- positions as Rice-coded gaps, then two checksum characters. Gaps are p1 and p(i) - p(i-1) - 1;
--- each is q = gap >> r one-bits, a zero, then gap's low r bits. The last character before the
--- checksum is padded with one-bits, which read as an unfinished gap and end the list. A position
--- past the end of the reader's toy list means the macro holds a toy it doesn't know yet (a newer
--- list), which Macros.lua reads as a newer version.
+-- data = characters in base64's alphabet (no "|", WoW's escape character, and no spaces), each a
+-- number from 0 to 63. Format 6: the first is 48, the second the Rice parameter r (0 to 15), then
+-- a bit string six bits per character: the positions as Rice-coded gaps, then two checksum
+-- characters. Gaps are p1 and p(i) - p(i-1) - 1; each is q = gap >> r one-bits, a zero, then
+-- gap's low r bits. The last character before the checksum is padded with one-bits, which read as
+-- an unfinished gap and end the list. A position past the end of the reader's list means the
+-- macro holds an entry it doesn't know yet (a newer list), which Macros.lua reads as a newer version.
 --
--- Format 4 (written by 0.4.0, read only to convert it; formats 1 to 3 read as damaged) put,
--- after the header, the highest item ID of the game's toys then (21 bits), their count (12 bits)
--- and CHECK_COUNT check numbers of them (21 bits each) before the positions. Check number j is
--- the sum over every item ID x in the list of x^j mod CHECK_PRIME. The positions were in the
--- game's toys sorted by item ID, so Macros.lua reads a format 4 macro only if the toys now,
--- up to its highest ID, give exactly its count and check numbers.
--- Lua 5.1's numbers are doubles, exact to 2^53, and there are no bitwise operators. Every
--- product here multiplies two numbers below 2^21, so it stays below 2^42 and is exact.
+-- A first character above 48 is a later format (48 + n is format 6 + n; 63 is format 21 and any
+-- after it), which reads as newer. Clicky 0.5.0 read the first character as version * 8 + r and
+-- anything past its version 5 as newer, so it reads format 6 and later as newer too.
+-- Every other first character reads as damaged: formats 1 to 5 (alpha releases may break
+-- macros), 0.4.0's and 0.5.0's included.
+-- Lua 5.1's numbers are doubles, exact to 2^53, and there are no bitwise operators.
 --
--- The fixed rule every macro follows: at most MACRO_TOY_CAP = 150 toys, guaranteed to fit while
--- the toy list has up to 12,501 toys. The arithmetic (tests/test_journeys.lua checks it):
+-- The fixed rule every macro follows: at most MACRO_ENTRY_CAP = 100 entries, guaranteed to fit while
+-- the list has up to 140,387 places. The arithmetic (tests/test_journeys.lua checks it):
 --   255 body characters, minus the /click line (a fixed 36 characters), the newline
---   and "#clicky ", leave 210 data characters. The header and the two checksum characters leave
---   207 for the positions = 1242 bits. A k-toy macro over N toys takes at most
+--   and "#clicky ", leave 210 data characters. The two header and two checksum characters leave
+--   206 for the positions = 1236 bits. A k-entry macro over N places takes at most
 --   k * (r + 1) + floor((N - k) / 2^r) bits with Rice parameter r (the encoder picks the best r).
---   With r = 6, 150 toys over 12,501 take 150 * 7 + floor(12351 / 64) = 1050 + 192 = 1242 bits.
+--   With r = 10, 100 entries over 140,387 places take 100 * 11 + floor(140287 / 1024) = 1100 + 136
+--   = 1236 bits.
 
 local _, ns = ...
 
-local MACRO_TOY_CAP = 150
-local CHECK_COUNT = 16
-local CHECK_PRIME = 2097143 -- the largest prime below 2^21
-local CHECK_BITS = 21
-local COUNT_BITS = 12
-local HIGHEST_BITS = 21
-local FORMAT_VERSION = 5
-local OLD_FORMAT_VERSION = 4
-local MAX_RICE = 7
--- Format 4's header character and the numbers before the positions.
-local OLD_PREFIX_CHARS = 1 + math.ceil((HIGHEST_BITS + COUNT_BITS + CHECK_COUNT * CHECK_BITS) / 6)
+local MACRO_ENTRY_CAP = 100
+local FORMAT_6 = 48 -- the first character's value
+local MAX_RICE = 15
 
 local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local CHAR, VALUE = {}, {}
@@ -61,7 +48,7 @@ end
 -- and the sum of the running sums, which weighs each character by its place. Changing any one
 -- character changes the first, since two characters' values differ by less than 64; adding,
 -- removing or swapping characters changes the second, except by a 1-in-64 chance. A hand-edited
--- line then reads as damaged rather than as other toys.
+-- line then reads as damaged rather than as other entries.
 local function Checksum(data)
 	local a, b = 0, 0
 	for i = 1, #data do
@@ -69,33 +56,6 @@ local function Checksum(data)
 		b = (b + a) % 64
 	end
 	return CHAR[a] .. CHAR[b]
-end
-
-------------------------------------------------------------------------------------------
--- Check numbers (format 4: remove before the first full release).
-
-local function CheckNumbers(itemIDs)
-	local checks = {}
-	for j = 1, CHECK_COUNT do
-		checks[j] = 0
-	end
-	for _, x in ipairs(itemIDs) do
-		local power = 1
-		for j = 1, CHECK_COUNT do
-			power = power * x % CHECK_PRIME
-			checks[j] = (checks[j] + power) % CHECK_PRIME
-		end
-	end
-	return checks
-end
-
-local function SameChecks(a, b)
-	for j = 1, CHECK_COUNT do
-		if a[j] ~= b[j] then
-			return false
-		end
-	end
-	return true
 end
 
 ------------------------------------------------------------------------------------------
@@ -131,7 +91,7 @@ local function RiceBits(positions, r)
 end
 
 -- positions: sorted, distinct, 0-based.
-local function EncodeToys(positions)
+local function EncodePlaces(positions)
 	local best, bestBits = 0, RiceBits(positions, 0)
 	for r = 1, MAX_RICE do
 		local bits = RiceBits(positions, r)
@@ -153,7 +113,7 @@ local function EncodeToys(positions)
 	while #bits % 6 ~= 0 do
 		bits[#bits + 1] = 1
 	end
-	local out = { CHAR[FORMAT_VERSION * 8 + best] }
+	local out = { CHAR[FORMAT_6], CHAR[best] }
 	for i = 1, #bits, 6 do
 		out[#out + 1] = CHAR[(ReadNumber(bits, i, 6))]
 	end
@@ -161,46 +121,35 @@ local function EncodeToys(positions)
 	return data .. Checksum(data)
 end
 
-local function DecodeToys(data)
+local function DecodePlaces(data)
 	if type(data) ~= "string" or #data < 3 then
 		return nil, "damaged"
 	end
 	local first = VALUE[data:byte(1)]
 	if not first then
 		return nil, "damaged"
-	end
-	local version, r = math.floor(first / 8), first % 8
-	if version > FORMAT_VERSION then
+	elseif first > FORMAT_6 then
 		return nil, "newer"
-	elseif version < OLD_FORMAT_VERSION then
+	elseif first < FORMAT_6 then
+		return nil, "damaged"
+	end
+	local r = VALUE[data:byte(2)]
+	if not r or r > MAX_RICE then
 		return nil, "damaged"
 	end
 	local body = data:sub(1, -3)
-	if (version == OLD_FORMAT_VERSION and #body < OLD_PREFIX_CHARS) or Checksum(body) ~= data:sub(-2) then
+	if Checksum(body) ~= data:sub(-2) then
 		return nil, "damaged"
 	end
-	data = body
 	local bits = {}
-	for i = 2, #data do
-		local v = VALUE[data:byte(i)]
+	for i = 3, #body do
+		local v = VALUE[body:byte(i)]
 		if not v then
 			return nil, "damaged"
 		end
 		PushNumber(bits, v, 6)
 	end
-	local d, at = { format = version }, 1
-	if version == OLD_FORMAT_VERSION then
-		d.highest, at = ReadNumber(bits, at, HIGHEST_BITS)
-		d.count, at = ReadNumber(bits, at, COUNT_BITS)
-		d.checks = {}
-		for j = 1, CHECK_COUNT do
-			d.checks[j], at = ReadNumber(bits, at, CHECK_BITS)
-			if d.checks[j] >= CHECK_PRIME then
-				return nil, "damaged"
-			end
-		end
-	end
-	local positions, prev, n = {}, -1, #bits
+	local positions, prev, at, n = {}, -1, 1, #bits
 	while true do
 		local q = 0
 		while at <= n and bits[at] == 1 do
@@ -216,17 +165,11 @@ local function DecodeToys(data)
 		local rest
 		rest, at = ReadNumber(bits, at, r)
 		prev = prev + 1 + q * 2 ^ r + rest
-		if d.count and prev >= d.count then
-			return nil, "damaged"
-		end
 		positions[#positions + 1] = prev
 	end
-	d.positions = positions
-	return d
+	return { positions = positions }
 end
 
-ns.MACRO_TOY_CAP = MACRO_TOY_CAP
-ns.CheckNumbers = CheckNumbers
-ns.SameChecks = SameChecks
-ns.EncodeToys = EncodeToys
-ns.DecodeToys = DecodeToys
+ns.MACRO_ENTRY_CAP = MACRO_ENTRY_CAP
+ns.EncodePlaces = EncodePlaces
+ns.DecodePlaces = DecodePlaces

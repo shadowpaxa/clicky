@@ -1,84 +1,56 @@
--- Right-click menus: macro entries on the Toy Box's own toy menu, the same menu for toys in the
--- Clicky panel, the macro menu (Rename, Delete, Copy /click line), and the dialogs they open.
---   ns.OpenToyMenu(owner, itemID), ns.OpenMacroMenu(owner, m)
---   ns.ToyMenuEntries(itemID)   { macro, label } per macro the toy can be added to or removed
---                               from, as the toy menus list them; for tests
+-- Right-click menus: an entry's menu (a toy's, a spell's or an item's, in Clicky's grid and its
+-- panel), the macro menu (Rename, Delete, Copy /click line), and the dialogs they open.
+--   ns.OpenEntryMenu(owner, key), ns.OpenMacroMenu(owner, m)   key is an entry's key (Entries.lua);
+--                                 only a toy has the star: Favorites is the Toy Box's stars
 
 local _, ns = ...
 
-local COMBAT_ERROR = "Can't change macros in combat."
-
-local function EntryLabel(m, itemID)
-	return (ns.HasToy(m, itemID) and "Remove from %s" or "Add to %s"):format(m.name)
-end
-
-local function ShowNewMacroDialog(itemID)
+-- Shows a dialog, unless in combat: what it does to a macro is refused then.
+local function ShowDialog(which, text, data)
 	if InCombatLockdown() then
-		ns.ShowError(COMBAT_ERROR)
+		ns.ShowError(ns.COMBAT_ERROR)
 		return
 	end
-	StaticPopup_Show("CLICKY_NEW_MACRO", nil, nil, { itemID = itemID })
+	StaticPopup_Show(which, text, nil, data)
 end
 
--- One entry per macro whose toys can be changed ("Add to Illusion" / "Remove from Illusion").
-local function ToyMenuEntries(itemID)
-	local entries = {}
+-- Under a "Clicky macros" title, a checkbox per macro whose entries can be changed, ticked if the
+-- entry is in it, then "Add to new macro...". A checkbox keeps the menu open and re-reads whether
+-- the entry is in its macro (CreateCheckbox's response is MenuResponse.Refresh,
+-- Blizzard_Menu/MenuTemplates.lua), so an entry can be put in several macros in one go. A refused
+-- change (combat, a full macro) shows why and leaves the checkbox as it was.
+local function AddMacroEntries(rootDescription, key)
+	rootDescription:CreateDivider()
+	rootDescription:CreateTitle("Clicky macros")
 	for _, m in ipairs(ns.GetMacros()) do
 		if not m.builtin and not ns.Unreadable(m) then
-			entries[#entries + 1] = { macro = m, label = EntryLabel(m, itemID) }
+			rootDescription:CreateCheckbox(m.name, function()
+				return ns.HasEntry(m, key)
+			end, function()
+				local ok, err = ns.SetEntry(m, key, not ns.HasEntry(m, key))
+				if not ok then
+					ns.ShowError(err)
+				end
+			end)
 		end
 	end
-	return entries
-end
-ns.ToyMenuEntries = ToyMenuEntries
-
--- The macro entries, then "Add to new macro...". Choosing one keeps the menu open; the
--- initializer re-reads the label on refresh, so the entry flips in place and a toy can be put in
--- several macros in one go. A refused change (combat, a full macro) shows why and leaves the
--- entry as it was.
-local function AddMacroEntries(rootDescription, itemID)
-	rootDescription:CreateDivider()
-	for _, entry in ipairs(ToyMenuEntries(itemID)) do
-		local m = entry.macro
-		local button = rootDescription:CreateButton(entry.label, function()
-			local ok, err = ns.SetToy(m, itemID, not ns.HasToy(m, itemID))
-			if not ok then
-				ns.ShowError(err)
-			end
-			return MenuResponse.Refresh
-		end)
-		button:AddInitializer(function(frame)
-			frame.fontString:SetTextToFit(EntryLabel(m, itemID))
-		end)
-	end
 	rootDescription:CreateButton("Add to new macro...", function()
-		ShowNewMacroDialog(itemID)
+		ShowDialog("CLICKY_NEW_MACRO", nil, { key = key })
 	end)
 end
 
-Menu.ModifyMenu("MENU_TOYBOX_FAVORITE", function(owner, rootDescription)
-	---@diagnostic disable-next-line: undefined-field -- the owner is the Toy Box's toy button
-	local itemID = owner and owner.itemID
-	if itemID then
-		AddMacroEntries(rootDescription, itemID)
-	end
-end)
-
--- The same menu as the Toy Box's, for a toy listed in the panel.
-function ns.OpenToyMenu(owner, itemID)
+-- The Toy Box's own toy menu for a toy (Blizzard_ToyBox.lua, ToySpellButton_CreateContextMenu: the
+-- star), then the macros, for every kind of entry.
+function ns.OpenEntryMenu(owner, key)
 	MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
-		if C_ToyBox.GetIsFavorite(itemID) then
-			rootDescription:CreateButton(BATTLE_PET_UNFAVORITE, function()
-				C_ToyBox.SetIsFavorite(itemID, false)
-				ns.Changed()
-			end)
-		else
-			rootDescription:CreateButton(BATTLE_PET_FAVORITE, function()
-				C_ToyBox.SetIsFavorite(itemID, true)
+		if ns.EntryKind(key) == "toy" then
+			local favorite = C_ToyBox.GetIsFavorite(key)
+			rootDescription:CreateButton(favorite and BATTLE_PET_UNFAVORITE or BATTLE_PET_FAVORITE, function()
+				C_ToyBox.SetIsFavorite(key, not favorite)
 				ns.Changed()
 			end)
 		end
-		AddMacroEntries(rootDescription, itemID)
+		AddMacroEntries(rootDescription, key)
 	end)
 end
 
@@ -86,21 +58,13 @@ function ns.OpenMacroMenu(owner, m)
 	MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
 		rootDescription:CreateTitle(m.name)
 		rootDescription:CreateButton("Rename", function()
-			if InCombatLockdown() then
-				ns.ShowError(COMBAT_ERROR)
-				return
-			end
-			StaticPopup_Show("CLICKY_RENAME_MACRO", m.name, nil, { macro = m })
+			ShowDialog("CLICKY_RENAME_MACRO", m.name, { macro = m })
 		end)
 		rootDescription:CreateButton(DELETE, function()
-			if InCombatLockdown() then
-				ns.ShowError(COMBAT_ERROR)
-				return
-			end
-			StaticPopup_Show("CLICKY_DELETE_MACRO", m.name, nil, { macro = m })
+			ShowDialog("CLICKY_DELETE_MACRO", m.name, { macro = m })
 		end)
 		rootDescription:CreateButton("Copy /click line", function()
-			StaticPopup_Show("CLICKY_COPY_LINE", nil, nil, { line = "/click " .. m.buttonName })
+			StaticPopup_Show("CLICKY_COPY_LINE", nil, nil, { line = "/click " .. ns.ButtonName(m.id) })
 		end)
 	end)
 end
@@ -146,7 +110,7 @@ end
 
 StaticPopupDialogs.CLICKY_NEW_MACRO = NameDialog("Name the new macro:", "Create",
 	function() return "" end,
-	function(data, name) return ns.MakeMacro(name, data.itemID) end)
+	function(data, name) return ns.MakeMacro(name, data.key) end)
 
 StaticPopupDialogs.CLICKY_RENAME_MACRO = NameDialog("Rename %s to:", "Rename",
 	function(data) return data.macro.name end,
