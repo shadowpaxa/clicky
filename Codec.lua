@@ -4,7 +4,7 @@
 --   ns.EncodePlaces(positions)          -> data (format 6); the positions of a macro's entries
 --   ns.DecodePlaces(data)               -> { positions } | nil, "newer" | "damaged"
 --
--- A macro stores its entries (toys, spells, items) as positions (0-based) in Clicky's list
+-- A macro stores its entries (toys, spells, items, mounts, pets) as positions (0-based) in Clicky's list
 -- (ToyList.lua), which only grows at the end, so an entry's position never changes.
 --
 -- data = characters in base64's alphabet (no "|", WoW's escape character, and no spaces), each a

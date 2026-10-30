@@ -222,7 +222,7 @@ describe("README.md", function()
 	end)
 
 	it("Getting started, Renaming and deleting, Using a macro's items: the menus' labels", function()
-		local add = Says("choose %*%*([^*]+)%*%*, and name the", "the entry menu's new-macro label")
+		local add = Says("choose %*%*([^*]+)%*%*,%s+and%s+name%s+the", "the entry menu's new-macro label")
 		local rename = Says("choose %*%*([^*]+)%*%* or %*%*[^*]+%*%*%. Deleting", "the macro menu's rename label")
 		local copy = Says("choose %*%*([^*]+)%*%* and copy the line", "the macro menu's copy label")
 		local world = World()
@@ -241,7 +241,7 @@ describe("README.md", function()
 	end)
 
 	it("Adding and removing items: the menu's checkboxes", function()
-		local title = Says("Under%s+%*%*([^*]+)%*%*[^,]*,%s+each macro has a checkbox with its name, ticked if the%s+item is in it",
+		local title = Says("Under%s+%*%*([^*]+)%*%*[^,]*,[^,]*,%s+each%s+macro%s+has%s+a%s+checkbox%s+with%s+its%s+name,%s+ticked%s+if%s+the%s+item%s+is%s+in%s+it",
 			"the macros' checkboxes")
 		local world = World()
 		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
@@ -275,17 +275,18 @@ describe("README.md", function()
 
 	it("The grid: it starts with collected toys only", function()
 		Says("[Ii]t%s+starts%s+with%s+collected%s+toys%s+only", "the grid's starting filters")
-		local filters = World().ns.GRID_FILTERS
+		local filters = World().ns.DefaultGridFilters("toys")
 		eq(filters.collected, true, "collected toys shown")
 		eq(filters.uncollected, false, "toys not collected hidden")
 		eq(filters.usableOnly, false, "not only usable toys")
 	end)
 
-	it("The grid: a tab each for toys, spells and items with its count; the filters on Toys; Favorites stays toys only", function()
-		local toys, spells, items = Says("with a tab each for%s+%*%*([^*]+)%*%*, %*%*([^*]+)%*%* and%s+%*%*([^*]+)%*%*",
-			"the grid's tabs")
+	it("The grid: a tab each for toys, mounts, pets, spells and items with its count; the filters on Toys; Favorites stays toys only", function()
+		local toys, mounts, pets, spells, items = Says("with a tab each for%s+%*%*([^*]+)%*%*,%s+%*%*([^*]+)%*%*,%s+%*%*([^*]+)%*%*,%s+"
+			.. "%*%*([^*]+)%*%* and%s+%*%*([^*]+)%*%*", "the grid's tabs")
 		local example = Says("Each tab says how many it lists, as %*%*([^*]+)%*%*", "a tab's count")
-		Says("Spells%s+and%s+items%s+have%s+no%s+star,%s+so%s+Favorites%s+stays%s+toys%s+only", "Favorites stays toys only")
+		Says("Favorites%s+stays%s+toys%s+only", "Favorites stays toys only")
+		Says("Spells%s+and%s+items%s+have%s+no%s+Set%s+Favorite", "no star on spells and items")
 		Says("On%s+the%s+Toys%s+tab,%s+the%s+%*%*Filter%*%*%s+menu", "the filters on the Toys tab")
 		Says("Favorites'%s+toys%s+have%s+their%s+star%s+instead", "no check mark for Favorites")
 		Says("Not%s+Collected%s+lists%s+the%s+same%s+toys%s+as%s+the%s+Toy%s+Box's%s+own%s+Not%s+Collected", "Not Collected as in the Toy Box")
@@ -293,19 +294,23 @@ describe("README.md", function()
 			toys = { { id = PIRATE, name = "Pirate's Costume", favorite = true }, { id = ORB, name = "Orb", owned = false } },
 			spells = { { id = 500, name = "Path of the Fire" } },
 			items = { { id = 600, name = "Hearth Ring" } },
-			toyList = { PIRATE, ORB, "s500", "i600" },
+			mounts = { { id = 6, name = "Brown Horse" } },
+			pets = { { guid = "BattlePet-0-000000000001", species = 40, display = 300, name = "Cat" } },
+			toyList = { PIRATE, ORB, "s500", "i600", "m6", "p40:300" },
 			toyHidden = { [ORB] = true },
 		})
 		world:LoadCollections()
 		world:OpenToyBox()
 		local grid = world.env.ClickyGrid
 		eq(example:match("^(%a+) %(%d+%)$"), toys, "README's example is a tab's label")
-		assert.are.same({ toys .. " (1)", spells .. " (1)", items .. " (1)" },
-			{ grid.Tabs[1].text, grid.Tabs[2].text, grid.Tabs[3].text }, "the tabs, each with its count")
+		local labels = {}
+		for i, tab in ipairs(grid.Tabs) do labels[i] = tab.text end
+		assert.are.same({ toys .. " (1)", mounts .. " (1)", pets .. " (1)", spells .. " (1)", items .. " (1)" }, labels,
+			"the tabs, each with its count")
 		world:GridFilterMenu()[2].toggle()
 		eq(grid.Tabs[1].text, toys .. " (1)", "Not Collected: not a toy the Toy Box leaves out")
 		truthy(grid.filterButton:IsShown(), "the filters on the Toys tab")
-		grid.Tabs[2].scripts.OnClick(grid.Tabs[2])
+		grid.Tabs[4].scripts.OnClick(grid.Tabs[4])
 		truthy(not grid.filterButton:IsShown(), "and not on Spells")
 		local favorite
 		grid.Tabs[1].scripts.OnClick(grid.Tabs[1])
@@ -316,10 +321,66 @@ describe("README.md", function()
 		local ns = world.ns
 		local fav = ns.GetMacro(ns.FAVORITES_ID)
 		eq((ns.SetEntry(fav, "s500", true)), nil, "Favorites takes no spell")
+		eq((ns.SetEntry(fav, "m6", true)), nil, "nor a mount")
 		ns.OpenEntryMenu(world.env.UIParent, "s500")
 		for _, entry in ipairs(world.menu.entries) do
 			assert(entry.text ~= world.env.BATTLE_PET_FAVORITE, "a spell's menu has no star")
 		end
+	end)
+
+	it("Pets: a click doesn't pick the pet you already have out, and prefers a starred one", function()
+		Says("A%s+click%s+summons%s+one%s+that%s+isn't%s+out:%s+summoning%s+the%s+pet%s+you%s+already%s+have%s+out",
+			"the pet that's out isn't picked")
+		Says("A%s+click%s+summons%s+a%s+starred%s+one%s+first", "a starred pet first")
+		local cat1, cat2 = "BattlePet-0-000000000001", "BattlePet-0-000000000002"
+		local world = wow.New({
+			pets = { { guid = cat1, species = 40, display = 300 }, { guid = cat2, species = 40, display = 300, favorite = true } },
+			toyList = { "p40:300" },
+		})
+		local m = assert(world.ns.MakeMacro("Laser", "p40:300"))
+		eq(select(3, world.ns.EntryAction("p40:300")), "/summonpet " .. cat2, "the starred one")
+		world.summonedPet = cat2
+		eq(select(3, world.ns.EntryAction("p40:300")), "/summonpet " .. cat1, "not the one out")
+		world.summonedPet = cat1
+		world:Pet(cat2).summonable = false
+		assert.are.same(world.ns.GetCandidates(m, true), {}, "with only the pet that's out to summon, a click has nothing")
+	end)
+
+	it("Installation: the WoW it's for, Midnight being the .toc's Interface 12", function()
+		Says("Clicky%s+is%s+for%s+World%s+of%s+Warcraft%s+Retail%s+%(Midnight%)", "Retail (Midnight)")
+		local toc = assert(io.open("Clicky.toc", "r"))
+		local interface = toc:read("*a"):match("## Interface: (%d+)")
+		toc:close()
+		eq(interface and interface:sub(1, 2), "12", "the .toc's Interface is Midnight's (12.x)")
+	end)
+
+	it("Slash commands: /clicky debug's Trace box", function()
+		local label = Says("Tick%s+%*%*([^*]+)%*%*%s+in%s+it", "the debug window's Trace box")
+		local world = World()
+		world:Slash("/clicky debug")
+		local text = world.env.ClickyDebug.trace.Text:GetText()
+		eq(text:sub(1, #label + 1), label .. ":", "the box's label starts with README's")
+	end)
+
+	it("Getting started: the panel's title", function()
+		local title = Says("the%s+Clicky%s+panel,%s+titled%s+%*%*([^*]+)%*%*", "the panel's title")
+		local world = World()
+		world:LoadCollections()
+		eq(world.env.ClickyPanel.TitleContainer.TitleText:GetText(), title, "README's title")
+	end)
+
+	it("The grid: the search finds tooltip words, which Blizzard's searches don't", function()
+		local word = Says('or any words in the tooltip: "(%a+)" finds', "the tooltip search")
+		local world = wow.New({ toys = { { id = PIRATE, name = "Pirate's Costume" }, { id = ORB, name = "Orb" } } })
+		world.toys[PIRATE].tooltip = "Use: " .. word:upper() .. " experience is gained faster."
+		world:LoadCollections()
+		world:OpenToyBox()
+		world.env.ClickyGridSearch:SetText(word)
+		local shown = {}
+		for _, button in ipairs(world.env.ClickyGrid.buttons) do
+			if button:IsShown() then shown[#shown + 1] = button.entry end
+		end
+		assert.are.same({ PIRATE }, shown, "README's example word finds it in the tooltip")
 	end)
 
 	it("Favorites: always at the top of the panel", function()
@@ -329,5 +390,23 @@ describe("README.md", function()
 		local first = world.ns.PanelRows()[1]
 		eq(first.kind, "macro", "the panel's first row")
 		eq(first.macro.name, name, "the panel's first macro")
+	end)
+
+	it("Pictures: each one's file exists and its alt text says what it shows", function()
+		local n = 0
+		for alt, path in README:gmatch("!%[([^%]]*)%]%(([^)]+)%)") do
+			n = n + 1
+			truthy(alt:match("%S"), ("%s has alt text"):format(path))
+			local file = io.open(path, "rb")
+			truthy(file, ("%s exists"):format(path))
+			if file then file:close() end
+		end
+		truthy(n > 0, "README has pictures")
+	end)
+
+	it("Troubleshooting ends with where to get help: Wago's comments", function()
+		local troubleshooting = Section("Troubleshooting")
+		truthy(troubleshooting:match("Leave a comment on %[Clicky's Wago page%]%(https://addons%.wago%.io/addons/clicky%)%.%s*$"),
+			"the last entry")
 	end)
 end)

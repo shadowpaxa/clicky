@@ -1,7 +1,7 @@
 -- ToyList.lua only grows at the end (tests/check_toylist.py, which tests/run.sh also runs against
 -- every tag the commit contains), and tools/update_toys.py keeps it that way. Both are Python, so these tests run
--- them on small lists written to temporary files. An entry is a toy's item ID, or "s<spell ID>" or
--- "i<item ID>".
+-- them on small lists written to temporary files. An entry is a toy's item ID, or "s<spell ID>",
+-- "i<item ID>", "m<mount ID>" or "p<species ID>:<display ID>".
 
 local function Write(text)
 	local path = os.tmpname()
@@ -70,7 +70,9 @@ describe("ToyList.lua", function()
 		local file = assert(io.open("ToyList.lua"))
 		local text = file:read("*a")
 		file:close()
-		local _, lines = text:gsub('\n\t"?[si]?%d+"?,', "")
+		local _, lines = text:gsub('\n\t"?[sim]?%d+"?,', "")
+		local _, pets = text:gsub('\n\t"p%d+:%d+",', "")
+		lines = lines + pets
 		assert.are.equal(#ns.TOY_IDS, lines, "every entry line is read")
 		local seen = {}
 		for _, id in ipairs(ns.TOY_IDS) do
@@ -118,6 +120,19 @@ describe("ToyList.lua", function()
 		assert.is_truthy(out:find("item 8 is listed twice", 1, true), out)
 	end)
 
+	it("only grows at the end: mounts and pets' looks appended pass; one moved or a look changed is refused", function()
+		assert.is_true((Check({ 5, "s7", "i8" }, { 5, "s7", "i8", "m3", "p2:20", "p2:21" })), "mounts and looks after the rest")
+		local passed, out = Check({ 5, "m3", "p2:20" }, { 5, "m3", "p2:21" })
+		assert.is_false(passed)
+		assert.is_truthy(out:find("place 2 held pet 2:20 and now holds pet 2:21", 1, true), out)
+		passed, out = Check({ 5, "m3" }, { 5, "s3" })
+		assert.is_false(passed)
+		assert.is_truthy(out:find("place 1 held mount 3 and now holds spell 3", 1, true), out)
+		passed, out = Check({ 5 }, { 5, "p2:20", "p2:20" })
+		assert.is_false(passed)
+		assert.is_truthy(out:find("pet 2:20 is listed twice", 1, true), out)
+	end)
+
 	it("the update script appends toys, then spells, then items, each sorted, and keeps what the game dropped", function()
 		local function Merge(listed, inGame)
 			local code = ("import sys; sys.path.insert(0, 'tools'); import update_toys as u; "
@@ -138,7 +153,7 @@ describe("ToyList.lua", function()
 			Merge("[]", "{('i', 4), ('s', 4), ('', 9), ('', 5)}"), "the first list: the same ID as a toy, spell and item")
 	end)
 
-	it("the update script reads the game's tables, lists the spells skill lines, specializations, talents and PvP talents teach, keeps the items with a Use: effect less the toys, and a second run changes nothing", function()
+	it("the update script reads the game's tables, lists the spells skill lines, specializations, talents and PvP talents teach, keeps the items with a Use: effect less the toys, lists every mount and each look of each pet species, and a second run changes nothing", function()
 		local script = Write([==[
 import sys
 sys.path.insert(0, "tools")
@@ -152,6 +167,12 @@ CSV = {
     "ItemXItemEffect": "ID,ItemEffectID,ItemID\n1,1,5\n2,2,900\n3,3,0\n4,4,700\n5,5,900\n6,6,9\n7,7,800\n8,8,600\n",
     "ItemEffect": "ID,LegacySlotIndex,TriggerType,SpellID\n1,0,0,1\n2,0,0,2\n3,0,0,3\n4,0,0,4\n5,0,1,5\n6,0,0,6\n7,0,1,7\n8,0,0,8\n",
     "Spell": 'ID,NameSubtext_lang,Description_lang,AuraDescription_lang\n2,,"Returns you home, [fast].",\n8,,"$?s436341[Restores health.\nMust remain seated.][]",\n',
+    "Mount": 'Name_lang,SourceText_lang,ID,Flags,SourceSpellID,MountTypeID\n"Horse, brown",Vendor,6,0,458,230\nRam,Vendor,3,68,6777,424\n',
+    "MountType": "ID,Type,Capability_0\n230,0,202\n424,5,203\n",
+    "BattlePetSpecies": "Description_lang,ID,CreatureID,Flags,SourceTypeEnum\n,40,9001,0,2\n,7,9002,32,-1\n,8,9999,16388,4\n,9,9001,2048,0\n",
+    "Creature": "ID,Name_lang,DisplayID_0,DisplayID_1,DisplayID_2,DisplayID_3\n9001,Cat,300,301,0,0\n9002,Dog,200,0,0,0\n",
+    "CreatureXDisplayInfo": "ID,CreatureDisplayInfoID,Probability,OrderIndex,CreatureID\n1,300,1,0,9001\n2,305,1,4,9001\n3,0,1,0,9002\n4,500,1,0,9999\n",
+    "BattlePetDisplayOverride": "ID,PlayerConditionID,CreatureDisplayInfoID,PriorityCategory,BattlePetSpeciesID\n1,5,700,0,7\n",
 }
 def get(url):
     assert url.endswith("?build=1.2.3"), url
@@ -164,12 +185,23 @@ text = open(u.LIST_PATH).read()
 u.main()
 assert open(u.LIST_PATH).read() == text
 print(u.read_entries(text))
-print("hidden", sorted(u.read_hidden(text)))
+sets = u.read_hidden(text)
+print("hidden", sorted(sets["TOY_HIDDEN"]), sorted(sets["MOUNT_HIDDEN"]), sorted(sets["PET_HIDDEN"]),
+      "random", sorted(sets["PET_RANDOM_LOOK"]))
+print("sources", sorted(sets["TOY_SOURCE"].items()), sorted(sets["PET_SOURCE"].items()),
+      "mount types", sorted(sets["MOUNT_TYPE"].items()))
 ]==])
 		-- 9 and s77 have left the game; 9 is still an item with a use, and stays listed as a toy only.
-		-- 40's Flags have the 2 bit (6 is 2 and 4): it is in TOY_HIDDEN; 5's are 4 alone: it isn't.
+		-- 40's Flags have the 2 bit (6 is 2 and 4): it is in TOY_HIDDEN; 5's are 4 alone: it isn't. Mount 3's
+		-- have 0x40 (68 is 64 and 4): MOUNT_HIDDEN. Species 7 is HideFromJournal (32), 8 HideUntilLearned
+		-- (16388 is 16384 and 4): PET_HIDDEN; 9 is neither (RandomDisplay, 2048).
 		-- s200 is a specialization's own spell, s400 a talent, s500 the spell a talent shows as, s600 a
 		-- PvP talent; the spell IDs of 0 are empty columns, not spells.
+		-- Mounts 3 and 6 by ID. Species 40's creature has two looks in the Creature table (displays 300
+		-- and 301) and a fifth in CreatureXDisplayInfo (305); 7's has one; 8's creature is only in
+		-- CreatureXDisplayInfo (500); species 7 has a look a player condition gives (700). Each species
+		-- also has 0, its looks the list doesn't have; species 9 takes a random look each summon
+		-- (Flags 2048), so 0 is its only one.
 		-- 800's only effect is an "Equip:" one (TriggerType 1): nothing to use, so it isn't listed. 600's
 		-- use is shown only to a character who knows spell 436341 (the Earthen's gem eating): not listed.
 		local list = ListFile({ 9, 5, "s77" })
@@ -177,11 +209,14 @@ print("hidden", sorted(u.read_hidden(text)))
 		os.remove(script)
 		os.remove(list)
 		assert.is_true(passed, out)
-		assert.is_truthy(out:find("2 toys (1 listed only when owned), 7 spells, 2 items in the game; 13 listed", 1, true), out)
-		assert.is_truthy(out:find("hidden [40]", 1, true), out)
-		assert.is_truthy(out:find("added 1 toys, 7 spells, 2 items: 40, s100, s200, s300, s400, s410, s500, s600, i700, i900", 1, true), out)
-		assert.is_truthy(out:find("kept: 1 toys, 1 spells, 0 items: 9, s77", 1, true), out)
-		assert.is_truthy(out:find("[('', 9), ('', 5), ('s', 77), ('', 40), ('s', 100), ('s', 200), ('s', 300), ('s', 400), ('s', 410), ('s', 500), ('s', 600), ('i', 700), ('i', 900)]", 1, true), out)
+		assert.is_truthy(out:find("2 toys (1 listed only when owned), 7 spells, 2 items, 2 mounts (1 listed only when collected), 10 pet looks (2 species listed only when owned) in the game; 25 listed", 1, true), out)
+		assert.is_truthy(out:find("hidden [40] [3] [7, 8] random [9]", 1, true), out)
+		-- Toys 5 and 40 come from a vendor (1); species 7 has no source (-1); mount type 230 has no
+		-- flags (a ground mount), 424 has 5 (flying and dragonriding).
+		assert.is_truthy(out:find("sources [(5, 1), (40, 1)] [(8, 4), (9, 0), (40, 2)] mount types [(424, 5)]", 1, true), out)
+		assert.is_truthy(out:find("added 1 toys, 7 spells, 2 items, 2 mounts, 10 pet looks: 40, s100, s200, s300, s400, s410, s500, s600, i700, i900, m3, m6, p7:0, p7:200, p7:700, p8:0, p8:500, p9:0, p40:0, p40:300, p40:301, p40:305", 1, true), out)
+		assert.is_truthy(out:find("kept: 1 toys, 1 spells, 0 items, 0 mounts, 0 pet looks: 9, s77", 1, true), out)
+		assert.is_truthy(out:find("[('', 9), ('', 5), ('s', 77), ('', 40), ('s', 100), ('s', 200), ('s', 300), ('s', 400), ('s', 410), ('s', 500), ('s', 600), ('i', 700), ('i', 900), ('m', 3), ('m', 6), ('p', (7, 0)), ('p', (7, 200)), ('p', (7, 700)), ('p', (8, 0)), ('p', (8, 500)), ('p', (9, 0)), ('p', (40, 0)), ('p', (40, 300)), ('p', (40, 301)), ('p', (40, 305))]", 1, true), out)
 	end)
 
 	it("the update script stops, writing nothing, when a table comes back empty", function()
@@ -198,6 +233,12 @@ CSV = {
     "ItemXItemEffect": "ID,ItemEffectID,ItemID\n1,1,900\n",
     "ItemEffect": "ID,LegacySlotIndex,TriggerType,SpellID\n1,0,0,1\n",
     "Spell": "ID,NameSubtext_lang,Description_lang,AuraDescription_lang\n1,,Hi,\n",
+    "Mount": "ID,Flags,SourceSpellID,MountTypeID\n6,0,458,230\n",
+    "MountType": "ID,Type\n230,0\n",
+    "BattlePetSpecies": "ID,CreatureID,Flags,SourceTypeEnum\n40,9001,0,0\n",
+    "Creature": "ID,DisplayID_0,DisplayID_1,DisplayID_2,DisplayID_3\n9001,300,0,0,0\n",
+    "CreatureXDisplayInfo": "ID,CreatureDisplayInfoID,CreatureID\n1,300,9001\n",
+    "BattlePetDisplayOverride": "ID,CreatureDisplayInfoID,BattlePetSpeciesID\n1,700,40\n",
 }
 CSV[sys.argv[2]] = CSV[sys.argv[2]].split("\n")[0] + "\n"
 u.get = lambda url: CSV[url.split("/db2/")[1].split("/")[0]]
@@ -209,7 +250,14 @@ u.main()
 			SpecializationSpells = "SpecializationSpells table for build 1.2.3 has no spells",
 			TraitDefinition = "TraitDefinition table for build 1.2.3 has no spells",
 			PvpTalent = "PvpTalent table for build 1.2.3 has no spells",
-			ItemXItemEffect = "has no items", ItemEffect = "has no items" }) do
+			ItemXItemEffect = "has no items", ItemEffect = "has no items",
+			Spell = "the Spell table for build 1.2.3 is empty",
+			Mount = "Mount table for build 1.2.3 has no mounts",
+			MountType = "the MountType table for build 1.2.3 is empty",
+			BattlePetSpecies = "build 1.2.3 has no pets: the BattlePetSpecies table is empty",
+			BattlePetDisplayOverride = "build 1.2.3 has no pets: the BattlePetDisplayOverride table is empty",
+			Creature = "build 1.2.3 has no pets: the Creature table is empty",
+			CreatureXDisplayInfo = "build 1.2.3 has no pets: the CreatureXDisplayInfo table is empty" }) do
 			local list = ListFile({ 5 })
 			local before = io.open(list):read("*a")
 			local passed, out = Run(("python3 -I %s %s %s"):format(script, list, tableName))

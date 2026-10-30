@@ -1,7 +1,8 @@
--- Right-click menus: an entry's menu (a toy's, a spell's or an item's, in Clicky's grid and its
--- panel), the macro menu (Rename, Delete, Copy /click line), and the dialogs they open.
+-- Right-click menus: an entry's menu (a toy's, mount's, pet's, spell's or item's, in Clicky's grid
+-- and its panel), the macro menu (Rename, Delete, Copy /click line), and the dialogs they open.
 --   ns.OpenEntryMenu(owner, key), ns.OpenMacroMenu(owner, m)   key is an entry's key (Entries.lua);
---                                 only a toy has the star: Favorites is the Toy Box's stars
+--                                 only toys, mounts and pets have the star (Entries.lua), and
+--                                 Favorites is the Toy Box's stars
 
 local _, ns = ...
 
@@ -39,15 +40,15 @@ local function AddMacroEntries(rootDescription, key)
 	end)
 end
 
--- The Toy Box's own toy menu for a toy (Blizzard_ToyBox.lua, ToySpellButton_CreateContextMenu: the
--- star), then the macros, for every kind of entry.
+-- The star, as the Toy Box's and the Mount Journal's own menus have it (Blizzard_ToyBox.lua,
+-- ToySpellButton_CreateContextMenu; Blizzard_MountCollection.lua), then the macros, for every kind
+-- of entry.
 function ns.OpenEntryMenu(owner, key)
 	MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
-		if ns.EntryKind(key) == "toy" then
-			local favorite = C_ToyBox.GetIsFavorite(key)
+		if ns.CanFavoriteEntry(key) then
+			local favorite = ns.IsEntryFavorite(key)
 			rootDescription:CreateButton(favorite and BATTLE_PET_UNFAVORITE or BATTLE_PET_FAVORITE, function()
-				C_ToyBox.SetIsFavorite(key, not favorite)
-				ns.Changed()
+				ns.SetEntryFavorite(key, not favorite)
 			end)
 		end
 		AddMacroEntries(rootDescription, key)

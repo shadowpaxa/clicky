@@ -1,8 +1,8 @@
--- Clicky: "Summon Random Favorite Mount", but for toys, and for any macro of toys, spells and
--- items you make.
+-- Clicky: "Summon Random Favorite Mount", but for toys, and for any macro of toys, mounts, pets,
+-- spells and items you make.
 --
--- UseToy() is protected (warcraft.wiki.gg API UseToy), so each macro's entry (a toy, spell or
--- item, Entries.lua) is used by a hidden SecureActionButton with the entry's secure action.
+-- UseToy() is protected (warcraft.wiki.gg API UseToy), so each macro's entry (a toy, mount, pet,
+-- spell or item, Entries.lua) is used by a hidden SecureActionButton with the entry's secure action.
 -- The macro runs it with /click. The button gets a random entry from the macro before each click
 -- (PreClick out of combat, a secure snippet in combat); a right-click opens the macro's drawer.
 --
@@ -37,7 +37,7 @@ ns.DRAWER_BUTTON_PREFIX = "ClickyP" -- followed by the id: right-click opens the
 -- only to show them as damaged (MacroStore.lua).
 ns.SET_BUTTON_PREFIX = "ClickySet"
 
-local tracing = false -- /clicky trace: print every pick, click and change
+local tracing = false -- the debug window's Trace box: record every pick, click and change (Debug.lua)
 
 function ns.Print(msg)
 	print("|cff33ff99Clicky|r: " .. msg)
@@ -48,8 +48,8 @@ function ns.ShowError(msg)
 end
 
 ------------------------------------------------------------------------------------------
--- Tracing, when /clicky trace is on. tostringall makes nil safe with %s. Callers with costly
--- arguments check ns.IsTracing() first.
+-- Tracing, while the debug window's Trace box is ticked (Debug.lua). tostringall makes nil safe
+-- with %s. Callers with costly arguments check ns.IsTracing() first.
 
 function ns.IsTracing()
 	return tracing
@@ -63,7 +63,8 @@ function ns.Trace(format, ...)
 	if not tracing then
 		return
 	end
-	ns.Print(format:format(tostringall(...)))
+	-- To the debug window only (Debug.lua): a trace has lines for every change, which would flood chat.
+	ns.AddTraceLine(format:format(tostringall(...)))
 end
 
 ------------------------------------------------------------------------------------------

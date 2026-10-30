@@ -66,8 +66,11 @@ local V040_PIRATE_HAT = "/click [btn:2]ClickyP1;ClickySet1\n"
 	.. "#clicky gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c"
 
 -- The toys the grid lists.
+-- filters: those to change from the Toys tab's defaults (GridFilters.lua).
 local function GridToys(ns, filters, text)
-	return ns.GridSections(filters, text)[1].keys
+	local toyFilters = ns.DefaultGridFilters("toys")
+	for name, value in pairs(filters) do toyFilters[name] = value end
+	return ns.GridSections({ toys = toyFilters }, text)[1].keys
 end
 
 local ALL_TOYS = { PIRATE, ORB, GNOME, HAT, WINGS, CHEST }
@@ -75,6 +78,12 @@ local function With(ids, extra)
 	local out = { unpack(ids) }
 	out[#out + 1] = extra
 	return out
+end
+
+-- What /clicky debug shows: the debug window's text, as the player reads it (Debug.lua).
+local function Debug(world)
+	world:Slash("/clicky debug")
+	return world.env.ClickyDebug.text:GetEditBox():GetText()
 end
 
 -- Clicky's macro called name.
@@ -263,8 +272,10 @@ end
 describe("journeys", function()
 	it("1. Discover macros: the panel lists Favorites, collapsed, and the hint", function()
 		local world = World()
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, spell or item to make one." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
 		eq(PanelRow(world, "Favorites").count, 2, "Favorites' count")
+		world:LoadCollections()
+		eq(world.env.ClickyPanel.TitleContainer.TitleText:GetText(), "Macros", "the panel's title, in its top bar")
 	end)
 
 	it("2. Dress up: each bar button uses a random toy from its own macro", function()
@@ -414,7 +425,7 @@ describe("journeys", function()
 		world.prints = {}
 		MakeMacro(world, HAT, "Hats")
 		local second = Code(world, "Hats")
-		for _, line in ipairs(world.prints) do
+		for _, line in ipairs(world.ns.GetTraceLines()) do
 			-- A taken code written to the new macro would be found out and separated by the sync.
 			ok(not line:find("copy of", 1, true), "the new macro was made a copy: " .. line)
 		end
@@ -658,7 +669,7 @@ describe("journeys", function()
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
 		world.env.C_ToyBox.SetIsFavorite(PIRATE, true)
 		list(PanelTexts(world), { "Favorites", "  Fairy Wings", "  Pirate's Costume", "  Treasure Chest",
-			"Right-click a toy, spell or item to make one." })
+			"Right-click a toy, mount, pet, spell or item to make one." })
 	end)
 
 	it("5. See a macro: an open macro with no toys says how to add them", function()
@@ -669,7 +680,7 @@ describe("journeys", function()
 		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
 		list(PanelTexts(world), { "Favorites", "Star toys to add them.", "Illusion",
-			"Right-click a toy, spell or item to add it." })
+			"Right-click a toy, mount, pet, spell or item to add it." })
 	end)
 
 	it("6. Remove a toy: other macros keep it", function()
@@ -723,7 +734,7 @@ describe("journeys", function()
 		world:PressBar(1)
 		world:PressBar(2)
 		list(world:TakeErrors(), { "Favorites has no toys. Star toys in the Toy Box to add them.",
-			"Illusion has no items. Right-click a toy, spell or item in the Toy Box to add it." })
+			"Illusion has no items. Right-click a toy, mount, pet, spell or item in the Toy Box to add it." })
 	end)
 
 	it("7. Put a macro on a bar: Favorites uses its existing macro, whatever it's called", function()
@@ -780,7 +791,7 @@ describe("journeys", function()
 		local code = Code(world, "Illusion")
 		eq(DrawerCount(world, code), 1)
 		assert(world.ns.DeleteMacro(Macro(world, "Illusion")))
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, spell or item to make one." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
 		eq(#world.macros, 0, "the macro is gone")
 		eq(world.env["Clicky" .. code]:GetAttribute("type"), nil, "its button is emptied")
 		world.env["ClickyP" .. code]:Click("LeftButton", false) -- a copy left in character macros
@@ -809,7 +820,7 @@ describe("journeys", function()
 		ok(world.macros[1].body:find("^#showtooltip\n/click"), "the player's own lines are kept")
 		eq(#UsedToys(world, 1), 2, "and it still works")
 		world.env.DeleteMacro(1)
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, spell or item to make one." })
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
 	end)
 
 	it("8. Upkeep: every macro change is refused in combat", function()
@@ -970,21 +981,20 @@ describe("journeys", function()
 		AddTo(world, HAT, "Illusion")
 		PutOnBar(world, "Illusion", 1)
 		local before = world.macros[1].body
-		local filters = { collected = true, uncollected = true }
-		local grid = { world.ns.GridSections(filters, "") }
+		local filters = world.ns.DefaultGridFilters("toys")
+		filters.uncollected = true
+		local grid = { world.ns.GridSections({ toys = filters }, "") }
 		local later = NextLogin(world, { toyList = ENTRIES })
 		eq(later.macros[1].body, before, "the macro isn't rewritten")
 		list(UsedToys(later, 1), { PIRATE, HAT }, "and reads the same toys")
 		list(later.ns.GetMacroEntries(Favorites(later), true), world.ns.GetMacroEntries(Favorites(world), true), "Favorites' toys")
-		list({ later.ns.GridSections(filters, "") }, grid, "the grid's toys")
+		list({ later.ns.GridSections({ toys = filters }, "") }, grid, "the grid's toys")
 		list(later.ns.GetToyList().ids, ALL_TOYS, "the toys, without the spell and the item")
 		eq(later.ns.CountOwnedToys(), 6)
 		later.prints = {}
 		later:Slash("/clicky status")
 		eq(later.prints[1]:gsub("^|cff33ff99Clicky|r: ", ""), "6 toys owned.")
-		later.prints = {}
-		later:Slash("/clicky debug")
-		local debug = table.concat(later.prints, "\n")
+		local debug = Debug(later)
 		ok(debug:find("toy list: 6 toys from build test", 1, true), debug)
 		-- A toy listed after a spell is stored by its place in the whole list.
 		local mixed = World({ toyList = { PIRATE, "s500", ORB, "i600", GNOME } })
@@ -1136,8 +1146,7 @@ describe("journeys", function()
 		table.insert(world.account.macros, { name = "Illusion 2", body = before })
 		local later = NextLogin(world, { combat = true })
 		later.bars[2] = later.macros[2]
-		later:Slash("/clicky debug")
-		has(later.prints, "|cff33ff99Clicky|r: waiting: buttons to make: 2, copies to separate: 1")
+		ok(Debug(later):find("\nwaiting: buttons to make: 2, copies to separate: 1\n", 1, true))
 		eq(later.macros[1].body, before, "nothing written in combat")
 		eq(later.macros[2].body, before)
 		later:LeaveCombat()
@@ -1147,9 +1156,7 @@ describe("journeys", function()
 		eq(later:PressBar(1) and later:LastUsed(), PIRATE)
 		eq(later:PressBar(2) and later:LastUsed(), PIRATE)
 		eq(#later.used, 2)
-		later.prints = {}
-		later:Slash("/clicky debug")
-		has(later.prints, "|cff33ff99Clicky|r: waiting: nothing")
+		ok(Debug(later):find("\nwaiting: nothing\n", 1, true))
 	end)
 
 	-- The format Clicky writes into players' macros, exactly as written. Macros live in players'
@@ -1320,13 +1327,11 @@ describe("journeys", function()
 		world.toys[GNOME].cooldown = 300
 		world:CreateMacroInUI("Broken", "/click ClickyBCDF\n#clicky broken")
 		world:Advance(1)
-		world.prints = {}
-		world:Slash("/clicky debug")
+		local debug = Debug(world)
 		local illusion = Macro(world, "Illusion")
 		-- A line is checked for each of its facts, so one line wrong doesn't hide in another's text.
 		local function Printed(start)
-			for _, line in ipairs(world.prints) do
-				local text = line:gsub("^|cff33ff99Clicky|r: ", "")
+			for text in debug:gmatch("[^\n]+") do
 				if text:sub(1, #start) == start then return text end
 			end
 			error("no line starts with " .. start, 2)
@@ -1375,22 +1380,79 @@ describe("journeys", function()
 		ns.RegisterView("test", function() return shown end, function() end, 5)
 		ns.Changed()
 		world:EnterCombat()
-		world.prints = {}
-		world:Slash("/clicky debug")
-		local all = table.concat(world.prints, "\n")
+		local all = Debug(world)
 		ok(all:find("views: panel hidden; grid hidden; test shown, refresh pending\n", 1, true), all)
 		ok(all:find("Illusion %(Clicky%u+%): 2 items %(.-%), ready for combat 2, drawer 2 items, open, macro: "), all)
 		ok(all:find("Favorites %(ClickyFVRT%): 2 items %(.-%), ready for combat 2, drawer 2 items, macro: "), all)
 	end)
 
-	it("Debugging: a trace line prints nil, a number in a string and a boolean for any format", function()
+	-- Chat can't be copied from, so the state and the trace are in a window whose text can be, made
+	-- as Blizzard's script errors window is.
+	it("Debugging: /clicky debug opens a window of the state, in chat nothing; a click on its text selects it all", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		world.prints = {}
+		world:Slash("/clicky debug")
+		local window = world.env.ClickyDebug
+		ok(window and window:IsShown(), "the window is open")
+		eq(window.TitleContainer.TitleText:GetText(), "Clicky debug")
+		local editBox = window.text:GetEditBox()
+		local text = editBox:GetText()
+		ok(text:find("^Clicky ") and text:find("\nIllusion %(Clicky%u+%): 1 items"), text)
+		ok(text:find("\n\nTrace:\nTick Trace to record each pick and change here.$"), text)
+		list(world.prints, {}, "nothing in chat")
+		ok(not editBox:HasFocus(), "opening it leaves the keyboard alone: keys still reach the game")
+		editBox:SetFocus() -- the player clicks the text
+		eq(editBox.selected, text, "all of it selected, for Ctrl+C")
+		editBox:ClearFocus() -- Escape
+		has(world.env.UISpecialFrames, "ClickyDebug", "then Escape closes it")
+	end)
+
+	it("Debugging: the debug window's Trace box records each change under the state, in combat too, the newest 1000", function()
+		local world = World()
+		world:EnterCombat()
+		Debug(world)
+		local window = world.env.ClickyDebug
+		local editBox = window.text:GetEditBox()
+		eq(window.trace:GetChecked(), false, "off as each session starts")
+		window.trace:Click()
+		ok(world.ns.IsTracing(), "ticking it traces")
+		world.ns.Trace("[test] one")
+		world.ns.Trace("[test] two")
+		ok(not editBox:GetText():find("[test] two", 1, true), "drawn on the next frame")
+		world:Advance(0)
+		local text = editBox:GetText()
+		ok(text:find("\n\nTrace:\n[debug] trace on\n", 1, true), text)
+		eq(text:sub(-#"[test] one\n[test] two"), "[test] one\n[test] two", text)
+		editBox:SetFocus()
+		world.ns.Trace("[test] three")
+		world:Advance(0)
+		eq(editBox.selected, editBox:GetText(), "a new line keeps it all selected while the text is clicked")
+		window:Hide()
+		Debug(world)
+		eq(window.trace:GetChecked(), true, "still ticked when opened again")
+		window.trace:Click()
+		ok(not world.ns.IsTracing(), "unticking it stops")
+		world.ns.SetTracing(true)
+		for i = 1, 1005 do
+			world.ns.Trace("line %d", i)
+		end
+		local lines = world.ns.GetTraceLines()
+		eq(#lines, 1000)
+		eq(lines[1], "line 6", "the oldest are dropped")
+		eq(lines[1000], "line 1005")
+	end)
+
+	it("Debugging: a trace line, in the debug window only, shows nil, a number in a string and a boolean for any format", function()
 		local world = World()
 		world.ns.SetTracing(true)
 		world.ns.Trace("[test] %s %d %s", nil, "5", true)
-		eq(world.prints[#world.prints], "|cff33ff99Clicky|r: [test] nil 5 true")
+		local traced = world.ns.GetTraceLines()
+		eq(traced[#traced], "[test] nil 5 true")
+		eq(#world.prints, 0, "not in chat: a trace would flood it")
 		world.ns.SetTracing(false)
 		world.ns.Trace("[test] %s", nil)
-		eq(#world.prints, 1, "nothing is printed with tracing off")
+		eq(#world.ns.GetTraceLines(), 1, "nothing is traced with tracing off")
 	end)
 
 	-- The Toy Box filters are the player's own saved settings: changing them outlives the addon.
@@ -1398,7 +1460,12 @@ describe("journeys", function()
 		local forbidden = { "SetCollectedShown", "SetUncollectedShown", "SetUnusableShown",
 			"SetSourceTypeFilter", "SetExpansionTypeFilter", "SetAllSourceTypeFilters",
 			"SetAllExpansionTypeFilters", "SetFilterString", "ForceToyRefilter", "SetDefaultFilters",
-			"SetCVar", "ConsoleExec", "SaveBindings", "SetBinding(" }
+			"SetCVar", "ConsoleExec", "SaveBindings", "SetBinding(",
+			-- The Mount and Pet Journals' filters, search, sort, names and battle team
+			-- (MountJournalDocumentation.lua, PetJournalInfoDocumentation.lua, Blizzard_PetCollection.lua and .xml).
+			"SetCollectedFilterSetting", "SetTypeFilter", "SetSourceFilter", "SetAllSourceFilters",
+			"SetAllTypeFilters", "SetSearch", "SetFilterChecked", "SetAllPetTypesChecked",
+			"SetAllPetSourcesChecked", "SetPetSortParameter", "SetCustomName", "SetPetLoadOutInfo" }
 		local toc = assert(io.open("Clicky.toc"))
 		local files = {}
 		for line in toc:lines() do
@@ -1567,8 +1634,8 @@ describe("journeys", function()
 		local world = World({ toys = toys })
 		local ns = world.ns
 		local filters = { collected = true, uncollected = false, usableOnly = false }
-		for name, value in pairs(ns.GRID_FILTERS) do
-			eq(filters[name], value, "starts with " .. name .. " " .. tostring(value))
+		for name, value in pairs(filters) do
+			eq(ns.DefaultGridFilters("toys")[name], value, "starts with " .. name .. " " .. tostring(value))
 		end
 		list(GridToys(ns, filters, ""), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }, "the stars, then the rest owned")
 		filters.uncollected = true
@@ -2188,7 +2255,7 @@ describe("journeys", function()
 		world.ns.Sync("test")
 		ok(fired, "the event came during the sync")
 		local passes = 0
-		for _, line in ipairs(world.prints) do
+		for _, line in ipairs(world.ns.GetTraceLines()) do
 			passes = tonumber(line:match("%[sync test%] (%d+) pass")) or passes
 		end
 		ok(passes >= 2, "a second pass ran: " .. passes)
@@ -2243,6 +2310,29 @@ describe("journeys", function()
 		ok(filter.isDefaultCallback(), "reset")
 	end)
 
+	it("1. the arrow beside the Filter button hides the panel and brings it back, in combat too", function()
+		local world = World()
+		world:LoadCollections()
+		world:OpenToyBox()
+		local toggle, panel = world.env.ClickyPanelToggle, world.env.ClickyPanel
+		ok(panel:IsVisible(), "shown as each session starts")
+		ok(toggle.CloseButton:IsShown() and not toggle.OpenButton:IsShown(), "the arrow that hides it")
+		world:EnterCombat()
+		toggle.CloseButton:GetScript("OnClick")(toggle.CloseButton, "LeftButton")
+		ok(not panel:IsShown(), "hidden")
+		ok(toggle.OpenButton:IsShown() and not toggle.CloseButton:IsShown(), "the arrow that brings it back")
+		ok(Debug(world):find("\npanel: made, hidden,", 1, true), "/clicky debug says so")
+		local journal = world.env.CollectionsJournal
+		ok(journal:GetAttribute("UIPanelLayout-extraWidth"), "the window keeps the panel's room in the fight")
+		world:LeaveCombat()
+		eq(journal:GetAttribute("UIPanelLayout-extraWidth"), nil, "and gives it up when the fight ends")
+		list(world:TakeErrors(), {})
+		toggle.OpenButton:GetScript("OnClick")(toggle.OpenButton, "LeftButton")
+		ok(panel:IsVisible(), "back")
+		ok(toggle.CloseButton:IsShown())
+		eq(journal:GetAttribute("UIPanelLayout-extraWidth"), panel:GetWidth() + 2, "with its room")
+	end)
+
 	it("Debugging: the panel is in /clicky debug, and opening or closing a macro in the panel is traced", function()
 		local world = World()
 		eq(world.ns.GetPanelState(), "not made")
@@ -2258,7 +2348,7 @@ describe("journeys", function()
 			if shown:IsShown() and shown.name:GetText() == "Illusion" then rowFrame = shown end
 		end
 		local function Traced(text)
-			for _, line in ipairs(world.prints) do
+			for _, line in ipairs(world.ns.GetTraceLines()) do
 				if line:find("[panel] " .. row.macro.id .. text, 1, true) then return true end
 			end
 		end
@@ -2270,8 +2360,7 @@ describe("journeys", function()
 		eq(world.ns.GetPanelState(), "made, shown, next refresh scrolls to " .. row.macro.id)
 		world:Advance(1)
 		eq(world.ns.GetPanelState(), "made, shown, next refresh scrolls to nothing")
-		world:Slash("/clicky debug")
-		ok(table.concat(world.prints, "\n"):find("panel: made, shown", 1, true), "in the debug output")
+		ok(Debug(world):find("panel: made, shown", 1, true), "in the debug output")
 	end)
 
 	describe("Views", function()
@@ -2699,9 +2788,9 @@ describe("journeys", function()
 			return ids
 		end
 
-		-- What the 9 rows of 12 from row top show.
+		-- What the 8 rows of 12 from row top show.
 		local function From(ids, top)
-			return Slice(ids, (top - 1) * 12 + 1, (top - 1 + 9) * 12)
+			return Slice(ids, (top - 1) * 12 + 1, (top - 1 + 8) * 12)
 		end
 
 		-- A world with the Collections window loaded and the Toy Box open: with count toys the
@@ -2766,7 +2855,7 @@ describe("journeys", function()
 		-- How many times a view redrew, from the trace (with tracing on).
 		local function Refreshes(world, view)
 			local n = 0
-			for _, line in ipairs(world.prints) do
+			for _, line in ipairs(world.ns.GetTraceLines()) do
 				if line:find("[" .. view .. "] refresh,", 1, true) then n = n + 1 end
 			end
 			return n
@@ -2780,12 +2869,12 @@ describe("journeys", function()
 			world:LoadCollections()
 			local grid, bar = world.env.ClickyGrid, world.env.ClickyGridScrollBar
 			-- The Collections window is 703 x 606 and the grid's room is what Blizzard's layout leaves.
-			eq(#grid.buttons, 12 * 9)
+			eq(#grid.buttons, 12 * 8)
 			for _, button in ipairs(grid.buttons) do
 				ok(button:IsProtected(), "a secure button")
 			end
 			ok(ns.GetGridState():find("made, showing toys, top row 1 of 17", 1, true), "drawn when made, shown or not: " .. ns.GetGridState())
-			eq(#Shown(world), 108, "the first screen")
+			eq(#Shown(world), 96, "the first screen")
 			ok(not grid:IsVisible(), "though the Toy Box isn't open")
 			eq(world.env.ToyBox.mouseWheel, false, "the Toy Box's own wheel is off, so it can't turn its hidden pages")
 			eq(world.env.ClickyGridFilter.resizeToText, false, "the filter button keeps its width")
@@ -2794,8 +2883,8 @@ describe("journeys", function()
 			end
 			ok(not grid.BGCornerTopLeft:IsShown() and not grid.BGCornerTopRight:IsShown(), "the top corners, under the tabs")
 			world:OpenToyBox()
-			eq(bar:GetVisibleExtentPercentage(), 1 / 9, "the thumb is the share of the 9 first rows it can scroll to")
-			eq(bar:GetPanExtentPercentage(), 3 / 8, "a wheel step goes three rows")
+			eq(bar:GetVisibleExtentPercentage(), 1 / 10, "the thumb is the share of the 10 first rows it can scroll to")
+			eq(bar:GetPanExtentPercentage(), 3 / 9, "a wheel step goes three rows")
 			list(world:TakeErrors(), {})
 		end)
 
@@ -2823,7 +2912,7 @@ describe("journeys", function()
 			list(world:TakeErrors(), {})
 		end)
 
-		it("the rows in view: nine rows from the top row, clamped", function()
+		it("the rows in view: eight rows from the top row, clamped", function()
 			local ns = World().ns
 			local rows = {}
 			for i = 1, 14 do rows[i] = { keys = { i } } end
@@ -2833,17 +2922,18 @@ describe("journeys", function()
 				for i, entry in ipairs(view) do out[i] = entry.index .. "@" .. entry.offset end
 				return out, used, highest
 			end
-			-- A toy row is 48 high (42 and a gap of 6); nine end at 426, the grid's height.
-			list(Offsets(1), { "1@0", "2@48", "3@96", "4@144", "5@192", "6@240", "7@288", "8@336", "9@384" })
-			ok(384 + 42 <= 426, "the last row ends inside the grid")
-			list(Offsets(4), { "4@0", "5@48", "6@96", "7@144", "8@192", "9@240", "10@288", "11@336", "12@384" })
+			-- A toy row is 56 high (42 and a gap of 14, which a star's 13 above its icon clears); eight end at
+			-- 434, the grid's height.
+			list(Offsets(1), { "1@0", "2@56", "3@112", "4@168", "5@224", "6@280", "7@336", "8@392" })
+			ok(392 + 42 <= 434, "the last row ends inside the grid")
+			list(Offsets(4), { "4@0", "5@56", "6@112", "7@168", "8@224", "9@280", "10@336", "11@392" })
 			local _, used, highest = Offsets(99)
-			eq(used, 6, "past the end is the highest first row")
-			eq(highest, 6, "the last row ends the view: rows 6 to 14")
+			eq(used, 7, "past the end is the highest first row")
+			eq(highest, 7, "the last row ends the view: rows 7 to 14")
 			eq(select(2, Offsets(0)), 1, "before the start is the first")
 			eq(select(2, Offsets(-3)), 1)
 			rows = { rows[1], rows[2], rows[3] }
-			list(Offsets(2), { "1@0", "2@48", "3@96" }, "few rows: nothing to scroll")
+			list(Offsets(2), { "1@0", "2@56", "3@112" }, "few rows: nothing to scroll")
 			eq(select(3, Offsets(2)), 1)
 			rows = {}
 			list(Offsets(1), {}, "no rows")
@@ -2921,31 +3011,31 @@ describe("journeys", function()
 		it("the scroll bar snaps to the row it is moved to, for every row", function()
 			local world = GridWorld(200)
 			local bar = world.env.ClickyGridScrollBar
-			for row = 9, 1, -1 do
-				bar:SetScrollPercentage((row - 1) / 8)
+			for row = 10, 1, -1 do
+				bar:SetScrollPercentage((row - 1) / 9)
 				eq(TopRow(world), row, "row " .. row)
-				eq(bar:GetScrollPercentage(), (row - 1) / 8)
+				eq(bar:GetScrollPercentage(), (row - 1) / 9)
 			end
 			bar:SetScrollPercentage(0.05)
 			eq(TopRow(world), 1, "a position between rows goes to the nearest")
-			bar:SetScrollPercentage(0.4)
+			bar:SetScrollPercentage(0.3)
 			eq(TopRow(world), 4)
-			eq(bar:GetScrollPercentage(), 3 / 8, "and the bar is on it")
-			bar:SetScrollPercentage(0.45)
+			eq(bar:GetScrollPercentage(), 3 / 9, "and the bar is on it")
+			bar:SetScrollPercentage(0.4)
 			eq(TopRow(world), 5)
 		end)
 
 		it("a click on a button uses the toy it shows, wherever the grid is scrolled to", function()
 			local world = GridWorld(200)
 			local listed = Listed(200)
-			-- The three favorites, then the rest: 9 rows of 12.
+			-- The three favorites, then the rest: 8 rows of 12.
 			list(ShownToys(world), From(listed, 1), "from the top")
 			local buttons = Shown(world)
-			eq(#buttons, 108)
+			eq(#buttons, 96)
 			local board = world.env.ClickyGridBoard
 			list({ buttons[3]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 2 * 48, 0 }, "the third favorite")
 			list({ buttons[4]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 3 * 48, 0 }, "and the first of the rest after it")
-			list({ buttons[13]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 0, -48 }, "the second row")
+			list({ buttons[13]:GetPoint() }, { "TOPLEFT", board, "TOPLEFT", 0, -56 }, "the second row")
 			ClickAll(world, "top")
 
 			-- The wheel scrolls three rows a notch, down to the last row and back.
@@ -2958,20 +3048,20 @@ describe("journeys", function()
 			list(ShownToys(world), From(listed, 7))
 			ClickAll(world, "row 7")
 			Wheel(world, -1)
-			eq(TopRow(world), 9, "the last row ends the view")
-			list(ShownToys(world), From(listed, 9), "the last toys, in the last 9 rows")
+			eq(TopRow(world), 10, "the last row ends the view")
+			list(ShownToys(world), From(listed, 10), "the last toys, in the last 8 rows")
 			ClickAll(world, "bottom")
 			Wheel(world, -1, 5)
-			eq(TopRow(world), 9, "no further")
+			eq(TopRow(world), 10, "no further")
 			Wheel(world, 1)
-			eq(TopRow(world), 6)
-			list(ShownToys(world), From(listed, 6))
-			ClickAll(world, "row 6")
+			eq(TopRow(world), 7)
+			list(ShownToys(world), From(listed, 7))
+			ClickAll(world, "row 7, going up")
 			Wheel(world, 1, 5)
 			eq(TopRow(world), 1)
 			list(ShownToys(world), From(listed, 1), "back at the top")
 
-			world.env.ClickyGridScrollBar:SetScrollPercentage(1 / 8)
+			world.env.ClickyGridScrollBar:SetScrollPercentage(1 / 9)
 			eq(TopRow(world), 2)
 			list(ShownToys(world), From(listed, 2))
 			ClickAll(world, "row 2")
@@ -2988,12 +3078,12 @@ describe("journeys", function()
 			list(ShownToys(world), From(Listed(200), 7))
 
 			Wheel(world, -1)
-			eq(TopRow(world), 9)
+			eq(TopRow(world), 10)
 			for id = 1176, 1200 do world.toys[id].owned = false end
 			world:Fire("TOYS_UPDATED")
 			world:Advance(1)
-			eq(TopRow(world), 7, "fewer rows: the place is clamped to the last full view")
-			list(ShownToys(world), From(Listed(175), 7), "ending with the last toy")
+			eq(TopRow(world), 8, "fewer rows: the place is clamped to the last full view")
+			list(ShownToys(world), From(Listed(175), 8), "ending with the last toy")
 
 			world.env.ClickyGridSearch:SetText("Toy 12")
 			world:Advance(1)
@@ -3202,30 +3292,6 @@ describe("journeys", function()
 			list(world:TakeErrors(), {})
 		end)
 
-		it("names not loaded yet: the first draw waits for them, up to 5 seconds, so nothing moves; later redraws don't wait", function()
-			local toys = ManyToys(20)
-			toys[3].loading = true -- after a reload, a name the game hasn't loaded
-			toys[21].loading = true -- the Wand, not owned
-			local world = GridWorld(toys)
-			list(ShownToys(world), {}, "nothing drawn while a name loads")
-			ok(world.ns.GetGridState():find(", waiting for names", 1, true), world.ns.GetGridState())
-			world.toys[1003].loading = false
-			world:Fire("GET_ITEM_INFO_RECEIVED", 1003, true)
-			world:Advance(1)
-			list(ShownToys(world), Listed(20), "drawn once the name is in, in its place")
-			eq(world.ns.GetGridState():find("waiting for names", 1, true), nil)
-			world:GridFilterMenu()[2].toggle() -- Not Collected: the Wand's name is still loading
-			list(ShownToys(world), With(Listed(20), WAND), "a later change draws at once")
-
-			world = GridWorld(toys) -- 1003's name never arrives
-			world:Advance(4.9)
-			list(ShownToys(world), {}, "still waiting")
-			world:Advance(0.2)
-			eq(#ShownToys(world), 20, "after 5 seconds the grid draws without it")
-			eq(world.ns.GetGridState():find("waiting for names", 1, true), nil)
-			list(world:TakeErrors(), {})
-		end)
-
 		it("a button moved from a toy on cooldown to a toy not owned has no cooldown swipe", function()
 			local toys = ManyToys(20)
 			toys[20].cooldown = 30
@@ -3310,7 +3376,7 @@ describe("journeys", function()
 			ok(ns.GetGridState():find('search "Toy"', 1, true), "and the search")
 			eq(TopRow(world), 1, "the search goes to the top")
 			-- 1002 is a favorite now, and the toy learned in combat is in the list.
-			list(ShownToys(world), { 1002, 1007, 1050, 1120, unpack(Slice(Rest(200, { 1002, 1007, 1050, 1120 }), 1, 104)) })
+			list(ShownToys(world), { 1002, 1007, 1050, 1120, unpack(Slice(Rest(200, { 1002, 1007, 1050, 1120 }), 1, 92)) })
 			ok(not ns.IsNewToy(1020), "and 1020 is no longer NEW")
 			ClickAll(world, "after combat")
 			Wheel(world, -1)
@@ -3325,7 +3391,7 @@ describe("journeys", function()
 			world:EnterCombat()
 			world.env.ClickyGridSearch:SetText("Toy 12")
 			world:Advance(1)
-			eq(#ShownToys(world), 108, "not yet")
+			eq(#ShownToys(world), 96, "not yet")
 			ns.Sync = function() end -- the macros' own call to ns.Changed, after combat
 			world:LeaveCombat()
 			world:Advance(1)
@@ -3450,14 +3516,14 @@ describe("journeys", function()
 			ok(not world.ns.IsNewToy(target))
 		end)
 
-		it("the bar put on each row's position turns the grid to that row, for each of 26 first rows", function()
-			-- 403 toys: 34 rows of 12, less 8 more in view, are 26 first rows. A row's position times 25 isn't
+		it("the bar put on each row's position turns the grid to that row, for each of 27 first rows", function()
+			-- 403 toys: 34 rows of 12, less 7 more in view, are 27 first rows. A row's position times 26 isn't
 			-- always a whole number in floating point, so the bar's position has to be rounded to a row.
 			local toys = ManyToys(403)
 			local world = GridWorld(toys)
 			local bar = world.env.ClickyGridScrollBar
-			for row = 1, 26 do
-				bar:SetScrollPercentage((row - 1) / 25)
+			for row = 1, 27 do
+				bar:SetScrollPercentage((row - 1) / 26)
 				eq(TopRow(world), row, "row " .. row)
 			end
 		end)
@@ -3563,8 +3629,8 @@ describe("journeys", function()
 			error("not in the grid: " .. tostring(key), 2)
 		end
 
-		-- The player clicking a tab: 1 Toys, 2 Spells, 3 Items.
-		local TOYS_TAB, SPELLS_TAB, ITEMS_TAB = 1, 2, 3
+		-- The player clicking a tab: 1 Toys, 2 Mounts, 3 Pets, 4 Spells, 5 Items.
+		local TOYS_TAB, SPELLS_TAB, ITEMS_TAB = 1, 4, 5
 		local function ClickTab(world, index)
 			local tab = world.env.ClickyGrid.Tabs[index]
 			tab.scripts.OnClick(tab, "LeftButton", false)
@@ -3578,18 +3644,18 @@ describe("journeys", function()
 
 		it("the spells the character knows that Clicky has, flyouts included, then the items carried or worn, each by name", function()
 			local world = GridWorld()
-			local sections = world.ns.GridSections({ collected = true, uncollected = false, usableOnly = false }, "")
+			local sections = world.ns.GridSections({}, "")
 			list(sections[1].keys, { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }, "the toys as before")
-			list(sections[2].keys, { OVER, FIRE, STORM, HOME },
+			list(sections[4].keys, { OVER, FIRE, STORM, HOME },
 				"known spells in the list, and an overriding one by the ID the list has: not a passive, a spell not known yet, one off the spellbook's active page or one the list lacks")
-			list(sections[3].keys, { SHADOWS, CLOAK, RING, SPARE },
+			list(sections[5].keys, { SHADOWS, CLOAK, RING, SPARE },
 				"items in a bag or worn and in the list: not one that is gone or the list lacks")
 			list(ShownKeys(world), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }, "the Toys tab shows the toys")
 			ClickTab(world, SPELLS_TAB)
 			list(ShownKeys(world), { OVER, FIRE, STORM, HOME }, "the Spells tab, the spells")
 			ClickTab(world, ITEMS_TAB)
 			list(ShownKeys(world), { SHADOWS, CLOAK, RING, SPARE }, "the Items tab, the items")
-			ok(world.ns.GetGridState():find("showing items, top row 1 of 1 (6 toys, 4 spells, 4 items)", 1, true),
+			ok(world.ns.GetGridState():find("showing items, top row 1 of 1 (6 toys, 0 mounts, 0 pets, 4 spells, 4 items)", 1, true),
 				"/clicky debug: " .. world.ns.GetGridState())
 			eq(#world:TakeErrors(), 0)
 		end)
@@ -3597,16 +3663,16 @@ describe("journeys", function()
 		it("a tab for the toys, the spells and the items, each with its count; a click shows its own from the top", function()
 			local world = GridWorld()
 			local grid = world.env.ClickyGrid
-			list(TabTexts(world), { "Toys (6)", "Spells (4)", "Items (4)" })
+			list(TabTexts(world), { "Toys (6)", "Mounts (0)", "Pets (0)", "Spells (4)", "Items (4)" })
 			eq(world.env.PanelTemplates_GetSelectedTab(grid), TOYS_TAB, "the toys first")
 			ClickTab(world, SPELLS_TAB)
 			eq(world.env.PanelTemplates_GetSelectedTab(grid), SPELLS_TAB)
 			list(ShownKeys(world), { OVER, FIRE, STORM, HOME })
 			world.env.ClickyGridSearch:SetText("portal")
-			list(TabTexts(world), { "Toys (0)", "Spells (1)", "Items (0)" }, "the counts follow the search, which looks at every tab")
+			list(TabTexts(world), { "Toys (0)", "Mounts (0)", "Pets (0)", "Spells (1)", "Items (0)" }, "the counts follow the search, which looks at every tab")
 			list(ShownKeys(world), { STORM }, "and the tab stays")
 			world.env.ClickyGridSearch:SetText("ring")
-			list(TabTexts(world), { "Toys (0)", "Spells (0)", "Items (2)" })
+			list(TabTexts(world), { "Toys (0)", "Mounts (0)", "Pets (0)", "Spells (0)", "Items (2)" })
 			list(ShownKeys(world), {}, "nothing on this tab")
 			ClickTab(world, ITEMS_TAB)
 			list(ShownKeys(world), { RING, SPARE })
@@ -3640,7 +3706,7 @@ describe("journeys", function()
 			ok(world.ns.GetGridState():find("showing toys, top row 1 of 17", 1, true), "and back: " .. world.ns.GetGridState())
 		end)
 
-		it("the filter button is on the Toys tab only, and its filters change the toys only", function()
+		it("the filter button is on the Toys, Mounts and Pets tabs, not Spells or Items; the toys' filters change the toys only", function()
 			local world = GridWorld()
 			local filterButton = world.env.ClickyGridFilter
 			ok(filterButton:IsShown(), "on the Toys tab")
@@ -3649,14 +3715,18 @@ describe("journeys", function()
 			world.items[600].usable = false
 			world.toys[GNOME].usable = false
 			menu[3].toggle() -- Usable Only
-			list(TabTexts(world), { "Toys (5)", "Spells (4)", "Items (4)" }, "Usable Only leaves the spells and items")
+			list(TabTexts(world), { "Toys (5)", "Mounts (0)", "Pets (0)", "Spells (4)", "Items (4)" }, "Usable Only leaves the spells and items")
 			menu[1].toggle() -- Collected off
-			list(TabTexts(world), { "Toys (0)", "Spells (4)", "Items (4)" }, "and so does Collected off")
+			list(TabTexts(world), { "Toys (0)", "Mounts (0)", "Pets (0)", "Spells (4)", "Items (4)" }, "and so does Collected off")
 			ClickTab(world, SPELLS_TAB)
 			ok(not filterButton:IsShown(), "not on the Spells tab")
 			list(ShownKeys(world), { OVER, FIRE, STORM, HOME })
 			ClickTab(world, ITEMS_TAB)
 			ok(not filterButton:IsShown(), "nor the Items tab")
+			ClickTab(world, 2)
+			ok(filterButton:IsShown(), "on the Mounts tab")
+			ClickTab(world, 3)
+			ok(filterButton:IsShown(), "and the Pets tab")
 			ClickTab(world, TOYS_TAB)
 			ok(filterButton:IsShown())
 			list(world:TakeErrors(), {})
@@ -3692,11 +3762,11 @@ describe("journeys", function()
 			world:Advance(1)
 			eq(#Shown(world), before, "the grid keeps what it had in combat")
 			ok(ButtonFor(world, "i604"))
-			list(TabTexts(world), { "Toys (6)", "Spells (5)", "Items (5)" }, "and so do the counts")
+			list(TabTexts(world), { "Toys (6)", "Mounts (0)", "Pets (0)", "Spells (5)", "Items (5)" }, "and so do the counts")
 			world:LeaveCombat()
 			world:Advance(1)
 			list(ShownKeys(world), { SHADOWS, CLOAK, RING, SPARE }, "and redraws when it ends")
-			list(TabTexts(world), { "Toys (6)", "Spells (4)", "Items (4)" })
+			list(TabTexts(world), { "Toys (6)", "Mounts (0)", "Pets (0)", "Spells (4)", "Items (4)" })
 			eq(#world:TakeErrors(), 0)
 		end)
 
@@ -3757,7 +3827,7 @@ describe("journeys", function()
 			world.keys.shift = true
 			world:MouseClick(ring)
 			world.keys.shift = false
-			list(world.chat, { world.env.C_Spell.GetSpellLink(500), select(2, world.env.C_Item.GetItemInfo(600)) },
+			list(world.chat, { world.env.C_Spell.GetSpellLink(500), (select(2, world.env.C_Item.GetItemInfo(600))) },
 				"a spell's and an item's link")
 			list(world.used, {}, "a shift-click uses nothing")
 			world:Drag(ring)
@@ -3896,6 +3966,690 @@ describe("journeys", function()
 			local later = NextLogin(world, { toyList = LIST })
 			list(PanelToys(later, "Portal"), PanelToys(world, "Portal"), "on another computer")
 			ok(m.state == "ready")
+		end)
+	end)
+
+	-- Mounts and pets (journeys 15, 4, 2, 14, 13 and 17): the grid's Mounts and Pets tabs list what
+	-- the player has collected, starred first; a mount is used by casting its spell, a pet by
+	-- /summonpet with the GUID of one of the player's pets of that species and look.
+	describe("Mounts and pets", function()
+		local HORSE, RAM, RAPTOR, ELEKK, KODO = "m6", "m3", "m9", "m12", "m15"
+		-- Cat in two looks (blue, white), and Dog.
+		local BLUE_CAT, WHITE_CAT, DOG = "p40:300", "p40:301", "p7:200"
+		local CAT1, CAT2, CAT3, DOG1 = "BattlePet-0-000000000A01", "BattlePet-0-000000000A02",
+			"BattlePet-0-000000000A03", "BattlePet-0-000000000D01"
+		local OTHER_CAT = "p40:0" -- the Cat's looks Clicky's list doesn't have
+		local LIST = { PIRATE, ORB, HORSE, RAM, RAPTOR, ELEKK, KODO, BLUE_CAT, WHITE_CAT, DOG, OTHER_CAT }
+
+		local function PetWorld(options)
+			options = options or {}
+			options.toyList = options.toyList or LIST
+			options.mounts = options.mounts or {
+				{ id = 6, name = "Brown Horse", spell = 458, icon = 7006 },
+				{ id = 3, name = "Black Ram", spell = 6777, icon = 7003, favorite = true },
+				{ id = 9, name = "Raptor", spell = 8395, icon = 7009, collected = false },
+				{ id = 12, name = "Elekk", spell = 34406, icon = 7012, hidden = true }, -- the game hides it on this character
+				{ id = 15, name = "Kodo", spell = 18990, icon = 7015, shown = false }, -- the journal's filters hide it
+			}
+			options.pets = options.pets or {
+				{ guid = CAT1, species = 40, display = 300, name = "Cat", icon = 8040 },
+				{ guid = CAT2, species = 40, display = 300, name = "Cat", icon = 8040 },
+				{ guid = CAT3, species = 40, display = 301, name = "Cat", icon = 8040 },
+				{ guid = DOG1, species = 7, display = 200, name = "Dog", icon = 8007 },
+			}
+			local world = World(options)
+			world:LoadCollections()
+			world:OpenToyBox()
+			return world
+		end
+
+		local TOYS_TAB, MOUNTS_TAB, PETS_TAB = 1, 2, 3
+		local function ClickTab(world, index)
+			local tab = world.env.ClickyGrid.Tabs[index]
+			tab.scripts.OnClick(tab, "LeftButton", false)
+		end
+
+		local function Shown(world)
+			local keys = {}
+			for _, button in ipairs(world.env.ClickyGrid.buttons) do
+				if button:IsShown() then keys[#keys + 1] = button.entry end
+			end
+			return keys
+		end
+
+		local function ButtonFor(world, key)
+			for _, button in ipairs(world.env.ClickyGrid.buttons) do
+				if button:IsShown() and button.entry == key then return button end
+			end
+			error("not in the grid: " .. tostring(key), 2)
+		end
+
+		local function Starred(world)
+			local keys = {}
+			for _, button in ipairs(world.env.ClickyGrid.buttons) do
+				if button:IsShown() and button.star:IsShown() then keys[#keys + 1] = button.entry end
+			end
+			return keys
+		end
+
+		local function MenuTexts(world, key)
+			world.ns.OpenEntryMenu(world.env.UIParent, key)
+			local texts = {}
+			for _, entry in ipairs(world.menu.entries) do
+				if entry.kind == "CreateButton" then texts[#texts + 1] = entry.text end
+			end
+			return texts
+		end
+
+		it("15. the Mounts tab lists the mounts collected, starred first, then by name; the Pets tab one entry per look", function()
+			local world = PetWorld()
+			local tabs = {}
+			for i, tab in ipairs(world.env.ClickyGrid.Tabs) do tabs[i] = tab.text end
+			list(tabs, { "Toys (2)", "Mounts (3)", "Pets (3)", "Spells (0)", "Items (0)" }, "no pet in a look the list lacks yet")
+			ClickTab(world, MOUNTS_TAB)
+			list(Shown(world), { RAM, HORSE, KODO },
+				"the Ram starred first; not the Raptor (not collected) or the Elekk (hidden on this character); "
+				.. "the Kodo though the Mount Journal's filters hide it")
+			list(Starred(world), { RAM }, "with the Mount Journal's star")
+			ClickTab(world, PETS_TAB)
+			list(Shown(world), { BLUE_CAT, WHITE_CAT, DOG }, "two blue Cats are one entry; the white Cat another")
+			world.env.ClickyGridSearch:SetText("dog")
+			list(Shown(world), { DOG }, "the search looks at pets too")
+			world.env.ClickyGridSearch:SetText("")
+			world:LearnPet({ guid = "BattlePet-0-000000000A04", species = 40, display = 302, name = "Cat" })
+			world:Advance(1)
+			list(Shown(world), { OTHER_CAT, BLUE_CAT, WHITE_CAT, DOG },
+				"a look Clicky's list doesn't have is listed as the species' other looks")
+			world:MouseClick(ButtonFor(world, OTHER_CAT))
+			eq(world.summonedPet, "BattlePet-0-000000000A04", "and summons that pet")
+			world.summonedPet = nil
+			local debug = Debug(world)
+			ok(debug:find("pets: 5 pets owned in 4 looks, 1 of them with a look Clicky's list doesn't have, under their species' other looks (p40:302); the Pet Journal lists 0 with its own filters", 1, true),
+				"/clicky debug says so: " .. debug)
+			world.pets[3].favorite = true -- the white Cat starred in the Pet Journal
+			world:Fire("PET_JOURNAL_LIST_UPDATE")
+			world:Advance(1)
+			list(Shown(world), { WHITE_CAT, OTHER_CAT, BLUE_CAT, DOG }, "a starred look first")
+			list(Starred(world), { WHITE_CAT })
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("15. the tabs never reach the search box: past it, the selected tab keeps its label and the rest share what's left", function()
+			local world = PetWorld()
+			local grid = world.env.ClickyGrid
+			local function Widths()
+				local total, cut = 3 * (#grid.Tabs - 1), {}
+				for i, tab in ipairs(grid.Tabs) do
+					total = total + tab:GetWidth()
+					cut[i] = tab.truncated
+				end
+				return total, cut
+			end
+			-- The room: from the first tab, 58 in, to the search box, 12 + 115 from the 703-wide window's right.
+			local room = 703 - 12 - 115 - 58
+			local total, cut = Widths()
+			ok(total <= room, "the labels fit as they are: " .. total)
+			list(cut, { false, false, false, false, false }, "none cut")
+			eq(grid.Tabs[2]:GetWidth(), #"Mounts (3)" * world.charWidth + 20 + 16, "each with its own padding")
+			world.charWidth = 14 -- a wider font, or longer counts
+			world:Fire("PET_JOURNAL_LIST_UPDATE")
+			world:Advance(1)
+			total, cut = Widths()
+			ok(total <= room + 0.001, "fitted to the room: " .. total)
+			list(cut, { false, true, true, true, true }, "the selected Toys tab keeps its label")
+			-- Reopened, each tab resizes itself to its full label as it shows: the fit follows.
+			world:CloseToyBox()
+			world:OpenToyBox()
+			world:Advance(1)
+			total, cut = Widths()
+			ok(total <= room + 0.001, "still fitted after the window is reopened: " .. total)
+			list(cut, { false, true, true, true, true })
+		end)
+
+		it("15. Not Collected on Mounts and Pets lists what the journals would, each tab keeping its own filters", function()
+			local toyList = { unpack(LIST) }
+			for _, key in ipairs({ "m18", "p55:0", "p55:900", "p66:0", "p77:0", "p88:0" }) do toyList[#toyList + 1] = key end
+			local world = PetWorld({
+				toyList = toyList,
+				mountHidden = { [18] = true, [6] = true }, -- the Gray Wolf, not collected; the Horse, collected
+				-- The Owl and the Frog aren't owned; species 66 is a tamer's pet, hidden from the journal;
+				-- the game has no data for 77 on this computer.
+				petSpecies = { [55] = { name = "Owl", icon = 8055 }, [66] = { name = "Tamer's Pet", icon = 8066 },
+					[88] = { name = "Frog", icon = 8088 } },
+				petLooks = { [55] = { 900, 901 }, [88] = { 950 } },
+				petHidden = { [66] = true },
+			})
+			world:AddMount({ id = 18, name = "Gray Wolf", collected = false })
+			local filterButton = world.env.ClickyGridFilter
+			ClickTab(world, MOUNTS_TAB)
+			world:GridFilterMenu()[2].toggle() -- Not Collected
+			list(Shown(world), { RAM, HORSE, KODO, RAPTOR },
+				"then the Raptor, not collected; not the Gray Wolf, which the journal shows only once collected, or the Elekk")
+			eq(ButtonFor(world, RAPTOR).icon.alpha, 0.5, "greyed out")
+			eq(filterButton.resetShown, true, "the reset button, for the Mounts tab's filters")
+			ClickTab(world, TOYS_TAB)
+			eq(filterButton.resetShown, false, "the Toys tab's are their own")
+			eq(world:GridFilterMenu()[2].isSelected(), false, "and Not Collected is off there")
+			ClickTab(world, PETS_TAB)
+			world:GridFilterMenu()[2].toggle()
+			list(Shown(world), { BLUE_CAT, WHITE_CAT, DOG, "p88:0", "p55:900" },
+				"one entry per species not owned: its first look the game lists, or its 0 if the list lacks it")
+			eq(ButtonFor(world, "p55:900").icon.alpha, 0.5)
+			world:MouseClick(ButtonFor(world, "p55:900"))
+			eq(world.summonedPet, nil, "a pet not owned summons nothing")
+			world:GridFilterMenu()[2].toggle()
+			-- The Pet Journal's other filters: families, and battle pets or not.
+			world.account.species[7].family = 2
+			world:GridFilterMenu().find("Pet Families > Family 2").toggle()
+			list(Shown(world), { BLUE_CAT, WHITE_CAT }, "the Dog's family unticked")
+			world:GridFilterMenu().find("Pet Families > Check All").toggle()
+			list(Shown(world), { BLUE_CAT, WHITE_CAT, DOG }, "Check All ticks it again")
+			world.account.species[40].canBattle = false
+			world:GridFilterMenu().find("Non-Combat Pets").toggle()
+			list(Shown(world), { DOG }, "Non-Combat Pets unticked: not the Cats, which can't battle")
+			world:GridFilterMenu().find("Non-Combat Pets").toggle()
+			local debug = Debug(world)
+			ok(debug:find("mounts: the Mount Journal lists 5 with its own filters", 1, true), debug)
+			ok(debug:find("the Pet Journal lists 0 with its own filters", 1, true), debug)
+			list(world:TakeErrors(), {})
+		end)
+
+		-- The menu's entries as a player sees them, top level only: "title:" before a title.
+		local function MenuTop(world)
+			local out = {}
+			for _, entry in ipairs(world:GridFilterMenu().all) do
+				if not entry.path:find(" > ", 1, true) then
+					out[#out + 1] = (entry.kind == "title" and "title:" or "") .. entry.text
+				end
+			end
+			return out
+		end
+
+		it("15. each tab's Filter menu is its Blizzard window's: the same entries, in the same order", function()
+			local world = PetWorld()
+			list(MenuTop(world), { "Collected", "Not Collected", "Usable Only", "Sources", "Expansion" },
+				"the Toy Box's (Blizzard_ToyBox.lua:109-138)")
+			local menu = world:GridFilterMenu()
+			eq(menu.find("Sources > Check All").kind, "button")
+			eq(menu.find("Sources > Source 12").kind, "checkbox", "each source the game says the Toy Box offers")
+			eq(menu.find("Expansion > Expansion 0").kind, "checkbox", "the expansions, named from 0")
+			ClickTab(world, MOUNTS_TAB)
+			list(MenuTop(world), { "Collected", "Not Collected", "Unusable", "title:Type", "Ground", "Flying", "Aquatic",
+				"Skyriding", "Ride Along", "Sources" }, "the Mount Journal's (Blizzard_MountCollection.lua:221-258)")
+			ClickTab(world, PETS_TAB)
+			list(MenuTop(world), { "Collected", "Not Collected", "title:Pet Types", "Battle Pets", "Non-Combat Pets",
+				"Pet Families", "Sources", "Sort By" }, "the Pet Journal's (Blizzard_PetCollection.lua:172-212)")
+			menu = world:GridFilterMenu()
+			eq(menu.find("Pet Families > Family 10").kind, "checkbox")
+			eq(menu.find("Sort By > Level").kind, "radio")
+		end)
+
+		it("15. Toys: a source or an expansion unticked hides its toys; one without a source, or not loaded, stays", function()
+			local toys = {
+				{ id = 101, name = "Drop Toy", expansion = 2 },
+				{ id = 102, name = "Vendor Toy", expansion = 5 },
+				{ id = 103, name = "Plain Toy", expansion = 5 }, -- no source
+				{ id = 104, name = "Slow Toy", expansion = 5 },
+			}
+			local world = World({ toys = toys, toyList = { 101, 102, 103, 104 }, toySource = { [101] = 0, [102] = 2 } })
+			world:LoadCollections()
+			world:OpenToyBox()
+			world:GridFilterMenu().find("Sources > Source 1").toggle() -- Enum.BattlePetSources.Drop is 0
+			list(Shown(world), { 103, 104, 102 }, "not the toy that drops; the one without a source stays")
+			eq(world.env.ClickyGridFilter.resetShown, true)
+			world:GridFilterMenu().find("Sources > Check All").toggle()
+			world:GridFilterMenu().find("Expansion > Expansion 5").toggle()
+			world.toys[104].loading = true -- its item data hasn't arrived: no expansion yet
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			list(Shown(world), { 104, 101 }, "not the toys of expansion 5, but the one not loaded yet (its name either: first)")
+			world:GridFilterMenu().find("Expansion > Uncheck All").toggle()
+			world.toys[104].loading = false
+			world:Fire("TOYS_UPDATED")
+			world:Advance(1)
+			list(Shown(world), {}, "every expansion unticked")
+			world.env.ClickyGridFilter.defaultCallback()
+			world:Advance(1)
+			eq(#Shown(world), 4, "the reset puts it all back")
+		end)
+
+		it("15. Mounts: Unusable, the types and the sources, as the Mount Journal's", function()
+			local world = PetWorld({ mountType = { [424] = 5, [231] = 2 } })
+			world.mounts[6].mountTypeID = 424 -- the Horse flies and skyrides
+			world.mounts[3].mountTypeID = 231 -- the Ram swims
+			world.mounts[15].source = 3 -- the Kodo: Vendor, the third of the Sources (sourceType counts from 1)
+			ClickTab(world, MOUNTS_TAB)
+			list(Shown(world), { RAM, HORSE, KODO })
+			world:GridFilterMenu().find("Flying").toggle()
+			list(Shown(world), { RAM, HORSE, KODO }, "the Horse also skyrides, which is still ticked")
+			world:GridFilterMenu().find("Skyriding").toggle()
+			list(Shown(world), { RAM, KODO }, "neither of its types ticked")
+			world:GridFilterMenu().find("Ground").toggle()
+			list(Shown(world), { RAM }, "the Kodo is a ground mount: no type flags")
+			local state = world.ns.GetGridState()
+			ok(state:find("collected true, not collected false, unusable true, types off 1 2 4, sources off none,", 1, true)
+				and not state:find("usable only", 1, true), "/clicky debug shows the Mounts tab's own filters: " .. state)
+			world.env.ClickyGridFilter.defaultCallback()
+			world:GridFilterMenu().find("Sources > Source 3").toggle()
+			list(Shown(world), { RAM, HORSE }, "the Kodo's source unticked")
+			world.env.ClickyGridFilter.defaultCallback()
+			world.mounts[6].usable = false
+			world:GridFilterMenu().find("Unusable").toggle()
+			list(Shown(world), { RAM, KODO }, "Unusable unticked: not a collected mount that can't be used here")
+		end)
+
+		it("15. Pets: sources, and Sort by level, rarity and family", function()
+			local world = PetWorld({ petSource = { [40] = 4 } }) -- the Cat: Enum.BattlePetSources.WildPet
+			world.account.species[7].family = 8
+			world:Pet(CAT3).level, world:Pet(DOG1).level = 25, 10
+			world:Pet(CAT1).rarity, world:Pet(DOG1).rarity = 4, 3
+			ClickTab(world, PETS_TAB)
+			world:GridFilterMenu().find("Sources > Source 5").toggle()
+			list(Shown(world), { DOG }, "the Cat's source unticked")
+			world.env.ClickyGridFilter.defaultCallback()
+			world:GridFilterMenu().find("Sort By > Level").toggle()
+			list(Shown(world), { WHITE_CAT, DOG, BLUE_CAT }, "highest level first")
+			eq(world:GridFilterMenu().find("Sort By > Level").isSelected(), true)
+			world:GridFilterMenu().find("Sort By > Rarity").toggle()
+			list(Shown(world), { BLUE_CAT, DOG, WHITE_CAT }, "rarest first")
+			world:GridFilterMenu().find("Sort By > Type").toggle()
+			list(Shown(world), { BLUE_CAT, WHITE_CAT, DOG }, "by family: the Cats' 1, the Dog's 8")
+			eq(world.env.ClickyGridFilter.resetShown, true, "a sort other than by name isn't the default")
+			ok(Debug(world):find("toys: the Toy Box lists 0 with its own filters", 1, true))
+		end)
+
+		it("15. the search finds by name, by source, expansion, mount type or pet family, and by tooltip text", function()
+			local world = PetWorld({ toySource = { [ORB] = 2 }, mountType = { [424] = 5 } })
+			world.toys[PIRATE].tooltip = "Use: Rested experience is gained 10% faster."
+			world.toys[ORB].tooltip, world.toys[ORB].loading = "Shows you the way home.", true -- its data hasn't arrived
+			world.toys[PIRATE].expansion = 5
+			world.mounts[6].mountTypeID = 424 -- the Horse flies and skyrides
+			world.account.species[7].family = 8
+			local search = world.env.ClickyGridSearch
+			local function Tabs()
+				local texts = {}
+				for i, tab in ipairs(world.env.ClickyGrid.Tabs) do texts[i] = tab.text end
+				return texts
+			end
+			search:SetText("RESTED")
+			list(Shown(world), { PIRATE }, "the tooltip's text, ignoring case")
+			search:SetText("source 3") -- BATTLE_PET_SOURCE_3: Enum.BattlePetSources.Vendor
+			list(Shown(world), { ORB }, "a toy's source")
+			search:SetText("expansion 5")
+			list(Shown(world), { PIRATE }, "a toy's expansion")
+			search:SetText("skyriding")
+			list(Tabs(), { "Toys (0)", "Mounts (1)", "Pets (0)", "Spells (0)", "Items (0)" }, "a mount's type, on the Mounts tab")
+			search:SetText("family 8")
+			list(Tabs(), { "Toys (0)", "Mounts (0)", "Pets (1)", "Spells (0)", "Items (0)" }, "a pet's family")
+			search:SetText("cat")
+			list(Tabs(), { "Toys (0)", "Mounts (0)", "Pets (2)", "Spells (0)", "Items (0)" }, "and names, as before")
+			-- A tooltip whose data hasn't arrived is read again once it has.
+			search:SetText("way home")
+			list(Shown(world), {}, "not loaded yet")
+			world.toys[ORB].loading = false
+			world:Fire("GET_ITEM_INFO_RECEIVED", ORB, true)
+			world:Advance(1)
+			list(Shown(world), { ORB }, "found once it has")
+			-- A tooltip first read without its description (its data still arriving) is read again
+			-- when the game says the data has arrived.
+			search:SetText("feathered")
+			list(Shown(world), {}, "the Pirate's tooltip, as first read, doesn't say it")
+			world.toys[PIRATE].tooltip = world.toys[PIRATE].tooltip .. " Feathered hat included."
+			world:Fire("GET_ITEM_INFO_RECEIVED", PIRATE, true)
+			world:Advance(1)
+			list(Shown(world), { PIRATE }, "read again once its data arrived")
+			ok(Debug(world):find("search: %d+ tooltips kept"), "/clicky debug says how many")
+		end)
+
+		it("/clicky debug checks each tab against its Blizzard window, with the window's own filters, entry by entry", function()
+			local world = PetWorld()
+			local ns, blizzard = world.ns, world.blizzard
+			-- The Mount Journal, collected and not, lists the mounts it shows here: not the Kodo, but the
+			-- Elekk, which the game hides on this character for Clicky.
+			blizzard.mounts.default = false
+			eq(ns.CheckAgainstBlizzard("mounts"), "Clicky lists 4, the Mount Journal 4 with its filters (collected true, "
+				.. "not collected true, unusable true, types off none, sources off none); "
+				.. "only Clicky: Kodo (15); only the Mount Journal: Elekk (12: not one the tab lists)",
+				"the window's filters, and the entries that differ, named, with why Clicky leaves one out")
+			world.mounts[15].shown, world.mounts[12].hidden = true, false
+			eq(ns.CheckAgainstBlizzard("mounts"), "matches the Mount Journal with its filters (5)")
+			-- One the window lists that Clicky's filter, set as the window's, leaves out: the filter is named.
+			world.mounts[6].usable, blizzard.mounts.unusable = false, false
+			eq(ns.CheckAgainstBlizzard("mounts"), "Clicky lists 4, the Mount Journal 5 with its filters (collected true, "
+				.. "not collected true, unusable false, types off none, sources off none); "
+				.. "only the Mount Journal: Brown Horse (6: Clicky's unusable filter)")
+			world.mounts[6].usable, blizzard.mounts.unusable = true, true
+			-- A mount's sourceType is its Sources checkbox: with the fifth unticked, the Mount Journal kept
+			-- the profession mounts, sourceType 4 (seen in play).
+			world.mounts[6].source, blizzard.mounts.sourcesOff = 4, { [5] = true }
+			eq(ns.CheckAgainstBlizzard("mounts"), "matches the Mount Journal with its filters (5)")
+			-- Left out by a source: the checkbox Clicky put it under is named, as that was inferred.
+			blizzard.mounts.sourcesOff = { [4] = true }
+			eq(ns.CheckAgainstBlizzard("mounts"), "Clicky lists 4, the Mount Journal 5 with its filters (collected true, "
+				.. "not collected true, unusable true, types off none, sources off 4); "
+				.. "only the Mount Journal: Brown Horse (6: Clicky's sources filter, Sources 4)")
+			world.mounts[6].source, blizzard.mounts.sourcesOff = nil, {}
+			-- Its filters are read as the window has them: Not Collected off there is off for the check.
+			blizzard.mounts.uncollected = false
+			world.mounts[9].shown = false -- the Raptor, not collected
+			eq(ns.CheckAgainstBlizzard("mounts"), "matches the Mount Journal with its filters (4)")
+			-- On its defaults, they're compared with Clicky's.
+			blizzard.mounts.default, blizzard.mounts.uncollected = true, true
+			world.mounts[9].shown = true
+			eq(ns.CheckAgainstBlizzard("mounts"), "matches the Mount Journal with its filters (5); its defaults differ "
+				.. "from Clicky's: uncollected: Blizzard's true, Clicky's false")
+			blizzard.mounts.uncollected, world.mounts[9].shown = false, false
+			eq(ns.CheckAgainstBlizzard("mounts"), "matches the Mount Journal with its filters (4); its defaults are Clicky's")
+			-- The Pet Journal lists species, and is compared by species.
+			blizzard.pets.default, blizzard.pets.uncollected = false, false
+			blizzard.pets.list = { 40, 40, 40, 7 }
+			eq(ns.CheckAgainstBlizzard("pets"), "matches the Pet Journal with its filters (2)")
+			-- A window with a search typed in lists only what matches it: not checked.
+			world.env.PetJournal = { searchBox = { GetText = function() return "cat" end } }
+			eq(ns.CheckAgainstBlizzard("pets"), 'not checked: the Pet Journal has a search ("cat")')
+			blizzard.toys.default, blizzard.toys.uncollected = false, false
+			-- The Toy Box lists toys this world's Clicky list doesn't have: they're named.
+			blizzard.toys.list = { WINGS, CHEST, GNOME, ORB, HAT, PIRATE }
+			eq(ns.CheckAgainstBlizzard("toys"), "Clicky lists 2, the Toy Box 6 with its filters (collected true, "
+				.. "not collected false, usable only false, sources off none, expansions off none); only the Toy Box: "
+				.. "Gnomish Gravity Well (103: not in Clicky's list), Pirate Hat (201: not in Clicky's list), "
+				.. "Fairy Wings (202: not in Clicky's list), Treasure Chest (300: not in Clicky's list)")
+			ok(Debug(world):find("check mounts: matches the Mount Journal", 1, true))
+		end)
+
+		-- Which Sources box a source number is under isn't in Blizzard's source: each mount's and species'
+		-- source text, which starts with its source's name, shows whether Clicky has it right.
+		it("/clicky debug checks every mount's and pet's source text against the Sources box Clicky puts it under", function()
+			local world = PetWorld({ petSource = { [40] = 3 } }) -- the Cat: Enum.BattlePetSources.WildPet, the fourth box
+			world.mounts[6].source, world.mounts[6].sourceText = 4, "|cFFFFD200Source 4: |rEngineering"
+			world.mounts[3].source, world.mounts[3].sourceText = 3, "Source 2: Quartermaster"
+			world.account.species[40].sourceText = "Source 4: Elwynn Forest"
+			world.mounts[9].source, world.mounts[9].sourceText = 2, "Legacy" -- no source named: agrees with none
+			world.mounts[15].source, world.mounts[15].sourceText = 0, "Drop: Coren Direbrew" -- no number: not checked
+			local debug = Debug(world)
+			ok(debug:find('\nmounts\' sources: 1 of 3 agree (numbered one lower 1, one higher 0); agree only when '
+				.. 'shifted: Black Ram (3: under Source 3, says "Source 2: Quartermaster")\n', 1, true), debug)
+			ok(debug:find("\npets' sources: 1 of 1 agree (numbered one lower 0, one higher 0)\n", 1, true), debug)
+			-- Most agreeing one lower is a numbering off by one, said so.
+			world.mounts[6].sourceText = "Source 3: Engineering"
+			ok(Debug(world):find("\nmounts' sources: 0 of 3 agree: ANOTHER NUMBERING AGREES MORE (numbered one lower 2,",
+				1, true))
+		end)
+
+		it("/clicky debug lists the looks the game gives a species that Clicky's list lacks, for pets not owned too", function()
+			-- Species 55, the Owl, isn't owned: the game still lists its looks.
+			-- Every species in the list has its 0 (tools/update_toys.py).
+			local world = PetWorld({ toyList = { PIRATE, "p40:0", BLUE_CAT, WHITE_CAT, "p7:0", DOG, "p55:0", "p55:900" },
+				petLooks = { [40] = { 300, 301, 302 }, [55] = { 900, 901 } } })
+			local debug = Debug(world)
+			ok(debug:find("pet looks: the game lists 6 looks for the list's 3 species, 2 of them not in the list (p40:302, p55:901)",
+				1, true), debug)
+			-- A species whose pets take a random look each summon has none of its looks listed, on purpose.
+			world = PetWorld({ toyList = { PIRATE, "p40:0", BLUE_CAT, WHITE_CAT, "p7:0", DOG, "p55:0" },
+				petLooks = { [40] = { 300, 301 }, [55] = { 900, 901 } }, petRandomLook = { [55] = true } })
+			eq(world.ns.GetPetLookAudit(), "the game lists 3 looks for the list's 3 species, 0 of them not in the list",
+				"the Owl's looks aren't checked")
+		end)
+
+		it("4. the menu stars a mount or a pet's look as the journals do; a mount the journal's filters hide has no star", function()
+			local world = PetWorld()
+			list(MenuTexts(world, HORSE), { "Favorite", "Add to new macro..." })
+			world:ChooseMenuEntry("Favorite")
+			ok(world.mounts[6].favorite, "the Horse is starred in the Mount Journal")
+			list(MenuTexts(world, RAM), { "Unfavorite", "Add to new macro..." })
+			world:ChooseMenuEntry("Unfavorite")
+			ok(not world.mounts[3].favorite)
+			list(MenuTexts(world, KODO), { "Add to new macro..." },
+				"the game stars a mount by its place in the journal's list, which its filters leave it out of")
+			list(MenuTexts(world, BLUE_CAT), { "Favorite", "Add to new macro..." })
+			world:ChooseMenuEntry("Favorite")
+			list({ world:Pet(CAT1).favorite, world:Pet(CAT2).favorite }, { true, false }, "one Cat of the look is starred")
+			world:Pet(CAT2).favorite = true
+			list(MenuTexts(world, BLUE_CAT), { "Unfavorite", "Add to new macro..." })
+			world:ChooseMenuEntry("Unfavorite")
+			list({ world:Pet(CAT1).favorite, world:Pet(CAT2).favorite }, { false, false }, "every Cat of the look loses its star")
+		end)
+
+		it("2. a click summons a mount that can be used here, by its spell; none usable says so", function()
+			local world = PetWorld()
+			MakeMacro(world, HORSE, "Ride")
+			AddTo(world, RAM, "Ride")
+			AddTo(world, RAPTOR, "Ride")
+			PutOnBar(world, "Ride", 1)
+			local cast = {}
+			for _ = 1, 40 do
+				world:PressBar(1)
+				cast[world:LastUsed()] = true
+			end
+			list(cast, { s458 = true, s6777 = true }, "the Horse and the Ram by their spells; never the Raptor, not collected")
+			world.mounts[6].usable, world.mounts[3].usable = false, false -- the game says neither can be used here
+			world:Fire("MOUNT_JOURNAL_USABILITY_CHANGED")
+			local before = #world.used
+			world:PressBar(1)
+			eq(#world.used, before, "nothing cast")
+			list(world:TakeErrors(), { "No usable items in Ride." })
+		end)
+
+		it("2, 14. a click summons a pet of the look that isn't out, a starred one first; the drawer puts the only one away", function()
+			local world = PetWorld()
+			MakeMacro(world, BLUE_CAT, "Pets")
+			AddTo(world, DOG, "Pets")
+			PutOnBar(world, "Pets", 1)
+			world.summonedPet = DOG1
+			local summoned = {}
+			for _ = 1, 20 do
+				local before = #world.used
+				world:PressBar(1)
+				eq(#world.used, before + 1, "every click summons a pet; none puts the Dog away")
+				summoned[world:LastUsed()] = true
+				world.summonedPet = DOG1 -- put the Dog back out
+			end
+			list(summoned, { [CAT1] = true }, "the first blue Cat; never the Dog, which is out and would be put away")
+			world:Pet(CAT2).favorite = true
+			for _ = 1, 5 do
+				world:PressBar(1)
+				eq(world:LastUsed(), CAT2, "the starred blue Cat")
+				world.summonedPet = DOG1
+			end
+			world.summonedPet = CAT2
+			for _ = 1, 10 do
+				world:PressBar(1)
+				ok(world:LastUsed() ~= CAT2, "the starred Cat is out: the other one, or the Dog")
+				world.summonedPet = CAT2
+			end
+			-- A look's pets all out or unsummonable: the drawer uses the one that's out, not the first.
+			world:Pet(CAT1).summonable = false
+			world.summonedPet = CAT2
+			world:Pet(CAT2).favorite = false
+			eq(select(3, world.ns.EntryAction(BLUE_CAT)), "/summonpet " .. CAT2, "the blue Cat that's out")
+			world:Pet(CAT1).summonable = true
+			-- The drawer: the Dog is the only one of its look; out, a click on it puts it away.
+			world.summonedPet = DOG1
+			world.bars[1].mouseButton = nil
+			world:PressBar(1, "RightButton")
+			ok(DrawerOpen(world, "Pets"))
+			ClickInDrawer(world, "Pets", DOG)
+			eq(world.summonedPet, nil, "the Dog is put away, as the Pet Journal's Summon button does")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("13. a look whose last pet is caged stays in its macros, greyed out, and isn't picked", function()
+			local world = PetWorld()
+			MakeMacro(world, DOG, "Pets")
+			AddTo(world, BLUE_CAT, "Pets")
+			PutOnBar(world, "Pets", 1)
+			world:CagePet(CAT1)
+			local summoned = {}
+			for _ = 1, 20 do
+				world:PressBar(1)
+				summoned[world:LastUsed()] = true
+				world.summonedPet = nil
+			end
+			list(summoned, { [CAT2] = true, [DOG1] = true }, "the other blue Cat still stands for the look")
+			world:CagePet(CAT2)
+			list(PanelToys(world, "Pets"), { "Cat", "Dog" }, "the Cat stays in the macro")
+			local greyed = {}
+			for _, row in ipairs(world.ns.PanelRows()) do
+				if row.kind == "entry" then greyed[row.key] = not row.owned end
+			end
+			list(greyed, { [BLUE_CAT] = true, [DOG] = false }, "greyed out")
+			for _ = 1, 5 do
+				world:PressBar(1)
+				eq(world:LastUsed(), DOG1, "only the Dog is picked")
+				world.summonedPet = nil
+			end
+		end)
+
+		it("15. in the grid a click casts the mount's spell or summons the pet; shift-click links; a drag picks it up", function()
+			local world = PetWorld()
+			ClickTab(world, MOUNTS_TAB)
+			world:MouseClick(ButtonFor(world, HORSE))
+			eq(world:LastUsed(), "s458")
+			world:Drag(ButtonFor(world, HORSE))
+			list(world.cursor, { mount = 6 }, "by its place in the Mount Journal's list")
+			world.cursor = nil
+			world:Drag(ButtonFor(world, KODO))
+			eq(world.cursor, nil, "a mount the journal's filters hide can't be picked up")
+			world.keys.shift = true
+			world:MouseClick(ButtonFor(world, RAM))
+			world.keys.shift = false
+			list(world.chat, { world.env.C_MountJournal.GetMountLink(6777) })
+			ButtonFor(world, HORSE):GetScript("OnEnter")(ButtonFor(world, HORSE))
+			eq(world.tooltip.mountSpell, 458, "the Mount Journal's tooltip")
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, WHITE_CAT))
+			eq(world.summonedPet, CAT3)
+			world:Drag(ButtonFor(world, WHITE_CAT))
+			list(world.cursor, { pet = CAT3 })
+			ButtonFor(world, DOG):GetScript("OnEnter")(ButtonFor(world, DOG))
+			eq(world.tooltip.pet, DOG1, "the Pet Journal's tooltip of the pet the entry uses")
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("15. in the grid a second click on a look summons its other pet, not the one it put out", function()
+			local world = PetWorld()
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			eq(world.summonedPet, CAT1)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			eq(world.summonedPet, CAT2, "at once, no wait: the other blue Cat; the first isn't put away")
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("15. a pet with a cooldown shows its swipe in the grid, as in the Pet Journal", function()
+			local world = PetWorld()
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			eq(world.summonedPet, CAT1)
+			world:Pet(CAT1).cooldown = 30
+			world:Fire("SPELL_UPDATE_COOLDOWN")
+			ok(ButtonFor(world, BLUE_CAT).cooldown.start, "the swipe")
+			world:Advance(1) -- the look moves on to its other pet, which isn't out
+			ok(ButtonFor(world, BLUE_CAT).cooldown.start, "still the swipe of the pet just summoned")
+			eq(ButtonFor(world, DOG).cooldown.start, nil, "no swipe on a pet without a cooldown")
+		end)
+
+		it("2, 17. a click skips a pet look on cooldown, as a toy; the global cooldown doesn't count", function()
+			local world = PetWorld()
+			MakeMacro(world, BLUE_CAT, "Pets")
+			AddTo(world, DOG, "Pets")
+			PutOnBar(world, "Pets", 1)
+			world:Pet(CAT1).cooldown, world:Pet(CAT2).cooldown = 30, 30
+			local summoned = {}
+			for _ = 1, 10 do
+				world:PressBar(1)
+				summoned[world:LastUsed()] = true
+				world.summonedPet = nil
+			end
+			list(summoned, { [DOG1] = true }, "only the Dog")
+			world:Pet(CAT1).cooldown, world:Pet(CAT2).cooldown = 0.5, 0.5
+			summoned = {}
+			for _ = 1, 20 do
+				world:PressBar(1)
+				summoned[world:LastUsed()] = true
+				world.summonedPet = nil
+			end
+			list(summoned, { [CAT1] = true, [DOG1] = true }, "the global cooldown isn't a cooldown")
+		end)
+
+		it("15, 17. the pet that's out and the mount ridden are marked at once, in the grid and the drawer, as in the journals", function()
+			local world = PetWorld()
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			ok(ButtonFor(world, BLUE_CAT).active:IsShown(), "a blue Cat is out, marked at once: no wait")
+			ok(not ButtonFor(world, DOG).active:IsShown(), "the Dog isn't")
+			MakeMacro(world, DOG, "Pets")
+			AddTo(world, BLUE_CAT, "Pets")
+			PutOnBar(world, "Pets", 1)
+			world:PressBar(1, "RightButton")
+			ok(DrawerOpen(world, "Pets"))
+			local marked = {}
+			local drawer = world.ns.GetDrawer(Macro(world, "Pets").id)
+			for _, button in ipairs(drawer.buttons) do
+				if button.entry then marked[button.entry] = button.active:IsShown() end
+			end
+			list(marked, { [BLUE_CAT] = true, [DOG] = false }, "in the drawer too")
+			ClickTab(world, MOUNTS_TAB)
+			world:MouseClick(ButtonFor(world, HORSE))
+			ok(ButtonFor(world, HORSE).active:IsShown(), "riding the Horse, marked at once")
+			ok(not ButtonFor(world, RAM).active:IsShown())
+		end)
+
+		it("2. in combat a macro picks from the mounts and pets ready when the fight started", function()
+			local world = PetWorld()
+			MakeMacro(world, HORSE, "Mix")
+			AddTo(world, BLUE_CAT, "Mix")
+			PutOnBar(world, "Mix", 1)
+			world:EnterCombat()
+			local button = world.env["Clicky" .. Code(world, "Mix")]
+			local ready = {}
+			for i = 1, button:GetAttribute("readycount") do
+				ready[button:GetAttribute("ready" .. i)] = { button:GetAttribute("readytype" .. i),
+					button:GetAttribute("readyattr" .. i), button:GetAttribute("readyvalue" .. i) }
+			end
+			list(ready, { [HORSE] = { "spell", "spell", "Brown Horse" }, [BLUE_CAT] = { "macro", "macrotext", "/summonpet " .. CAT1 } })
+			local used = {}
+			for _ = 1, 30 do
+				world:PressBar(1)
+				used[world:LastUsed()] = true
+				world.summonedPet = nil
+			end
+			list(used, { s458 = true, [CAT1] = true })
+			world:LeaveCombat()
+		end)
+
+		it("11. a macro with mounts and pets reads on a Clicky whose list has them, and as newer on one whose list doesn't", function()
+			local world = PetWorld()
+			MakeMacro(world, HORSE, "Mix")
+			AddTo(world, DOG, "Mix")
+			local m = Macro(world, "Mix")
+			list(world.ns.MacroEntries(m), { [HORSE] = true, [DOG] = true })
+			local older = NextLogin(world, { toyList = { PIRATE, ORB } })
+			eq(Macro(older, "Mix").state, "newer", "an older Clicky's list stops before them")
+			local later = NextLogin(world, { toyList = LIST })
+			list(later.ns.MacroEntries(Macro(later, "Mix")), { [HORSE] = true, [DOG] = true }, "another computer reads them")
+		end)
+
+		it("11. a pet under its species' other looks stays usable in its macro once a later list has its look", function()
+			local CAT4 = "BattlePet-0-000000000A04"
+			local function Pets()
+				return {
+					{ guid = CAT1, species = 40, display = 300, name = "Cat", icon = 8040 },
+					{ guid = CAT4, species = 40, display = 302, name = "Cat", icon = 8040 },
+				}
+			end
+			local world = PetWorld({ pets = Pets() })
+			MakeMacro(world, OTHER_CAT, "Odd")
+			eq(select(3, world.ns.EntryAction(OTHER_CAT)), "/summonpet " .. CAT4, "the Cat whose look the list lacks")
+			local newerList = { unpack(LIST) }
+			newerList[#newerList + 1] = "p40:302"
+			local later = PetWorld({ account = world.account, pets = Pets(), toyList = newerList })
+			list(later.ns.MacroEntries(Macro(later, "Odd")), { [OTHER_CAT] = true })
+			ok(later.ns.IsEntryOwned(OTHER_CAT), "not greyed out")
+			eq(select(3, later.ns.EntryAction(OTHER_CAT)), "/summonpet " .. CAT1, "any of the species' pets")
+			ClickTab(later, PETS_TAB)
+			list(Shown(later), { BLUE_CAT, "p40:302" }, "the grid lists the look; the 0 only while a pet's look is unlisted")
+			eq(#later:TakeErrors(), 0)
 		end)
 	end)
 

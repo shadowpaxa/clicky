@@ -83,6 +83,7 @@ ns.RegisterEntryKind("item", {
 	pickup = function(itemID) C_Item.PickupItem(itemID) end,
 	action = function(itemID) return "item", "item", "item:" .. itemID end,
 	drawerOnly = function(itemID) return C_Item.IsEquippableItem(itemID) end,
+	tooltipData = function(itemID) return C_TooltipInfo.GetItemByID(itemID) end,
 })
 
 -- A name that was loading has arrived. This fires for every item, so only the ones asked for count.

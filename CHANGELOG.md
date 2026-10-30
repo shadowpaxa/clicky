@@ -1,5 +1,24 @@
 # Clicky
 
+## 0.7.0 (alpha)
+
+- **Update Clicky on every computer you play on.** Clicky 0.6.0 can't use macros that hold mounts
+  or pets: it shows them as saved by a newer version.
+- **Mounts and pets can go in your macros too.** The grid's new Mounts and Pets tabs list the mounts
+  you've collected and your pets, one for each color you own. A click on the macro summons a random
+  one, not the pet you already have out. Try a Ride macro with a few favorite mounts.
+- **Right-click a mount or a pet to star it,** as in the Mount Journal and the Pet Journal.
+  Favorites still holds only toys.
+- **The Toys, Mounts and Pets tabs have the full Filter menus of the Toy Box, the Mount Journal and
+  the Pet Journal,** with sources, expansions, mount types, pet families and the pets' Sort By.
+  Your own filters in those windows aren't changed.
+- **The search finds more:** a source ("Vendor"), an expansion, a mount type, a pet family, or any
+  words in the tooltip.
+- **Hide the Macros panel** with the arrow beside the Filter button, and click it again to bring the
+  panel back.
+- **`/clicky debug` opens a window you can copy from,** for a bug report. `/clicky trace` is gone:
+  tick Trace in that window instead.
+
 ## 0.6.0 (alpha)
 
 - **Macros from Clicky 0.4.0 and 0.5.0 can't be read.** They're greyed out with "?" and use

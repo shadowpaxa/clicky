@@ -5,8 +5,9 @@ With no arguments, compares ToyList.lua with the one at every tag this commit co
 (`git tag --merged HEAD`): each of those lists must be a prefix of this one. Every tag, not just
 the newest, because the newest can be on this very commit (a release's own CI run, or
 tools/release.sh before its commit). Tags without a ToyList.lua are skipped. `--old FILE --new FILE` compares two
-files instead (tests/test_toylist.lua uses it). Compares the entries (toys are item IDs, spells and
-items are "s" and "i" with an ID; old tags have only toys), not the text.
+files instead (tests/test_toylist.lua uses it). Compares the entries (toys are item IDs; spells,
+items and mounts are "s", "i" and "m" with an ID; pets are "p", a species and a display ID; old
+tags have only toys, or toys, spells and items), not the text.
 """
 
 import argparse
@@ -19,11 +20,12 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from update_toys import read_entries  # noqa: E402
 
 
-KIND = {"": "toy", "s": "spell", "i": "item"}
+KIND = {"": "toy", "s": "spell", "i": "item", "m": "mount", "p": "pet"}
 
 
 def name(entry):
-    return "%s %d" % (KIND[entry[0]], entry[1])
+    kind, i = entry
+    return "%s %s" % (KIND[kind], "%d:%d" % i if kind == "p" else i)
 
 
 def problem(old, new):

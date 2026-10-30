@@ -101,6 +101,7 @@ ns.RegisterEntryKind("spell", {
 	pickup = function(spellID) C_Spell.PickupSpell(spellID) end,
 	action = function(spellID) return "spell", "spell", spellID end,
 	drawerOnly = function() return false end,
+	tooltipData = function(spellID) return C_TooltipInfo.GetSpellByID(spellID) end,
 })
 
 -- A name that was loading has arrived, and a spell learned or forgotten changes what is owned.

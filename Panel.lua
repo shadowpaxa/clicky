@@ -7,12 +7,20 @@
 --   ns.PanelRows()         the rows the panel lists (see Rows below); for tests
 --   ns.GetPanelState()     for /clicky debug: whether the panel is made and shown, and the macro the
 --                          next refresh scrolls to
+--   ns.CreatePanelToggle(parent)   the arrow that hides the panel and shows it again, as the world
+--                          map's arrow does its quest log (WorldMapSidePanelToggleMixin,
+--                          Blizzard_WorldMapTemplates.lua:644-659): the button showing is the one
+--                          that does what it shows. Its art is the Calendar's page arrows
+--                          (Blizzard_Calendar.xml:267-280): the world map's has a quest mark. The
+--                          grid places it beside its Filter button (Grid.lua). The panel starts
+--                          shown each session: Clicky saves nothing.
 --
 -- The panel is a view (ns.RegisterView, Core.lua): ns.Changed refreshes it next frame, if it's shown.
 
 local _, ns = ...
 
 local PANEL_WIDTH = 260
+local TITLE = "Macros" -- the panel's, in its top bar
 local MACRO_ROW_HEIGHT = 30
 local TOY_ROW_HEIGHT = 24
 local TOY_INDENT = 34
@@ -20,6 +28,7 @@ local HIGHLIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
 local WARNING = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
 local panel, list
+local toggle -- the arrow that hides and shows the panel (ns.CreatePanelToggle)
 local scrollTo -- the id of a macro just opened: the next refresh scrolls to show its entries
 
 local function IconTexture(icon)
@@ -54,7 +63,7 @@ end
 -- Rows. The list holds three kinds of element, all drawn by the same pooled button:
 --   { kind = "macro", macro = m, count = n,   a macro, with its expand arrow, drag icon and entry
 --     unreadable = why }                      count; why is ns.Unreadable(m), and the count "?"
---   { kind = "entry", key = key,              an entry (a toy, spell or item, Entries.lua) in an
+--   { kind = "entry", key = key,              an entry (any kind, Entries.lua) in an
 --     owned = bool }                          expanded macro, greyed if the player doesn't have it
 --   { kind = "note", text = text }            a line of help text
 
@@ -203,12 +212,12 @@ local function PanelRows()
 			end
 			if #entries == 0 then
 				data[#data + 1] = { kind = "note", text = m.builtin and "Star toys to add them."
-					or "Right-click a toy, spell or item to add it." }
+					or "Right-click a toy, mount, pet, spell or item to add it." }
 			end
 		end
 	end
 	if #macros == 1 then
-		data[#data + 1] = { kind = "note", text = "Right-click a toy, spell or item to make one." }
+		data[#data + 1] = { kind = "note", text = "Right-click a toy, mount, pet, spell or item to make one." }
 	end
 	return data
 end
@@ -246,11 +255,23 @@ local function SetExtraWidth(width)
 	end
 end
 
+-- The arrow showing is the one that does what it shows: hide the panel while it's shown.
+local function UpdateToggle()
+	if toggle then
+		local shown = panel == nil or panel:IsShown()
+		toggle.OpenButton:SetShown(not shown)
+		toggle.CloseButton:SetShown(shown)
+	end
+end
+
 local function CreatePanel()
 	panel = CreateFrame("Frame", "ClickyPanel", ToyBox, "ButtonFrameTemplate")
 	ButtonFrameTemplate_HidePortrait(panel)
 	ButtonFrameTemplate_HideButtonBar(panel)
-	-- No title: the window beside it says Clicky (Grid.lua). The list starts under the top edge.
+	-- What it lists, in its top bar, as the Event Trace window titles its own ButtonFrameTemplate
+	-- (Blizzard_EventTrace.lua:80, 111; TitledPanelMixin:SetTitle, PortraitFrame.lua:12). The window
+	-- beside it says Clicky (Grid.lua). The list starts under the top edge.
+	panel:SetTitle(TITLE)
 	ButtonFrameTemplate_HideAttic(panel)
 	panel.CloseButton:Hide()
 	panel:SetWidth(PANEL_WIDTH)
@@ -276,15 +297,49 @@ local function CreatePanel()
 	-- first: an error in the UI panel calls must not leave it empty.
 	panel:SetScript("OnShow", function()
 		Refresh()
+		UpdateToggle()
 		SetExtraWidth(panel:GetWidth() + 2)
 	end)
 	panel:SetScript("OnHide", function()
 		scrollTo = nil
+		UpdateToggle()
 		SetExtraWidth(nil)
 	end)
 	if panel:IsVisible() then
 		panel:GetScript("OnShow")()
 	end
+end
+
+-- The window's width, as the panel's OnShow and OnHide set it, once a fight ends: in it they can't
+-- (SetExtraWidth).
+ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
+	if panel then
+		SetExtraWidth(panel:IsVisible() and panel:GetWidth() + 2 or nil)
+	end
+end)
+
+-- The panel isn't protected, so the arrow works in combat; the window's width follows it once
+-- combat ends. The grid may make the arrow before the panel is made: until then it
+-- shows the arrow that hides it, as the panel starts shown.
+function ns.CreatePanelToggle(parent)
+	toggle = CreateFrame("Frame", "ClickyPanelToggle", parent)
+	toggle:SetSize(24, 24)
+	for key, art in pairs({ OpenButton = "NextPage", CloseButton = "PrevPage" }) do
+		local button = CreateFrame("Button", nil, toggle)
+		button:SetAllPoints()
+		button:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. art .. "-Up")
+		button:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. art .. "-Down")
+		button:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+		button:SetScript("OnClick", function()
+			if panel then
+				panel:SetShown(not panel:IsShown())
+				ns.Trace("[panel] %s by its arrow", panel:IsShown() and "shown" or "hidden")
+			end
+		end)
+		toggle[key] = button
+	end
+	UpdateToggle()
+	return toggle
 end
 
 -- The Collections window is load-on-demand.

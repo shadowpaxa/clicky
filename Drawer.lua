@@ -1,5 +1,5 @@
 -- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyPFVRT for
--- Favorites), which opens a grid of the macro's entries (toys, spells, items; Entries.lua) the
+-- Favorites), which opens a grid of the macro's entries (any kind; Entries.lua) the
 -- player has, at the mouse, in the panel's order. Clicking one uses it. The drawer closes when an entry is chosen, on Escape, on a second
 -- right-click, and when the mouse leaves it.
 --   ns.SetUpDrawer(m)   makes m's opener and drawer if they don't exist yet (out of combat only)

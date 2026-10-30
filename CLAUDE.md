@@ -1,8 +1,9 @@
 # Clicky
 
 A World of Warcraft retail addon (Interface 120105, Midnight 12.x): buttons for Toy Box favorites
-and for macros the player makes of toys, spells and items from the bags. A click uses a random one
-from the macro; a right-click opens a drawer of what it holds, and clicking one there uses it.
+and for macros the player makes of toys, mounts, pets, spells and items from the bags. A click uses
+a random one from the macro; a right-click opens a drawer of what it holds, and clicking one there
+uses it.
 
 - `docs/macros-user-journeys.md`: what players see and do. Check every change against it.
 - `README.md`: for players. `docs/architecture.md`: the design, for people reading the code.
@@ -11,33 +12,34 @@ from the macro; a right-click opens a drawer of what it holds, and clicking one 
   Keep those lists current; they're the code map.
 
 Players see only "macros", never "sets". Messages, panel counts and README call what a macro holds
-"items" (a toy, a spell or a thing from the bags); Favorites holds only toys, so its messages say
-"toys" (`ns.MacroNoun`).
+"items" (a toy, a mount, a pet, a spell or a thing from the bags); Favorites holds only toys, so its
+messages say "toys" (`ns.MacroNoun`).
 
 ## Rules
 
 **Never change the player's settings.** Clicky changes only its own macros, its own buttons, a
-toy's star when the player picks that from its menu, and a toy's gift wrap when the player clicks
-the toy to open it, as the Toy Box does. Never Toy Box filters,
-CVars or any other game setting: they're the player's, saved by WoW, and outlive the addon. An
-earlier Clicky "restored" the Toy Box filters and left a player's Toy Box empty. The test "Never
-changes the player's settings" fails on any such call.
+toy's, mount's or pet's star when the player picks that from its menu, and a toy's gift wrap when
+the player clicks the toy to open it, as the Toy Box does. Never Toy Box, Mount Journal or Pet
+Journal filters, CVars or any other game setting: they're the player's, saved by WoW, and outlive
+the addon. An earlier Clicky "restored" the Toy Box filters and left a player's Toy Box empty. The
+test "Never changes the player's settings" fails on any such call.
 
 **One code path per behavior.**
 - Every change the player asks for goes through `SetEntry`, `MakeMacro`, `RenameMacro` or
-  `DeleteMacro` (and `PickupMacro`, which makes Favorites' macro), and every automatic write (separating copies) through `ns.Sync`
-  (Macros.lua); every macro read or write through MacroStore.lua; every UI refresh through
-  `ns.Changed()` (a view registers its refresh with `ns.RegisterView`, Core.lua), except the grid's
-  own redraws (a search, a filter, the filter reset, a tab, scrolling, the redraw right after
-  opening a gift wrap, the retry after a held mouse button, and the end of the first draw's wait for
-  names), which don't go through `ns.Changed`: they redraw the grid by calling its refresh (Grid.lua
-  `ChangedList`, `ShowSection`, `ScrollBar_OnScroll`, `RefreshIfShown`, `Refresh`),
-  and the panel isn't refreshed.
-  The menu of an entry, in the grid and the panel, is `ns.OpenEntryMenu` (Menu.lua). An entry's (a toy's,
-  spell's or item's) name, sort order, icon, tooltip, cooldown, owned and usable test and secure
-  action are its kind's owner file's (Toys.lua, Spells.lua, Items.lua), reached through
-  Entries.lua, for the panel, the drawers, the macro buttons and the grid alike; which entries a
-  macro holds is `ns.MacroEntries` (Macros.lua).
+  `DeleteMacro` (and `PickupMacro`, which makes Favorites' macro), and every automatic write
+  (separating copies) through `ns.Sync` (Macros.lua); every macro read or write through
+  MacroStore.lua; every UI refresh through `ns.Changed()` (a view registers its refresh with
+  `ns.RegisterView`, Core.lua), except the grid's own redraws (a search, a filter, the filter reset,
+  a tab, scrolling, the redraw right after opening a gift wrap, the retry after a held mouse
+  button, and the mount ridden or the pet that's out changing), which don't go through
+  `ns.Changed`: they redraw the grid by calling its refresh (Grid.lua `ChangedList`,
+  `ShowSection`, `ScrollBar_OnScroll`, `RefreshIfShown`, `Refresh`), and the panel isn't
+  refreshed. The menu of an entry, in the grid and the panel, is `ns.OpenEntryMenu`
+  (Menu.lua). An entry's (a toy's, mount's, pet's, spell's or item's) name, sort order, icon,
+  tooltip, cooldown, owned and usable test, star and secure action are its kind's owner file's
+  (Toys.lua, Mounts.lua, Pets.lua, Spells.lua, Items.lua), reached through Entries.lua, for the
+  panel, the drawers, the macro buttons and the grid alike; which entries a macro holds is
+  `ns.MacroEntries` (Macros.lua).
 - Refusals return `nil, reason`; the caller shows the reason.
 - Extend the owning file's `ns` API rather than reaching into another file's locals. A new
   concern gets a new file, added to the `.toc`.
@@ -59,9 +61,9 @@ changes the player's settings" fails on any such call.
   2026-10-25): no migration, no reading of old formats, nothing for older Clicky versions; alpha
   releases may break macros, and players make them again. The format this work ships with is the
   first one later versions keep reading; from then on, full releases must not break macros.
-- An entry's number in a macro (a toy, spell or item: Entries.lua) is its place in `ToyList.lua`,
-  which only grows at the end (`tools/update_toys.py` appends; `tests/check_toylist.py` checks against
-  every tagged release). Never reorder it or remove from it.
+- An entry's number in a macro (a toy, mount, pet look, spell or item: Entries.lua) is its place in
+  `ToyList.lua`, which only grows at the end (`tools/update_toys.py` appends;
+  `tests/check_toylist.py` checks against every tagged release). Never reorder it or remove from it.
 - A macro Clicky can't read has no items and takes no changes. It must not read as other items.
 
 **Debuggability.** Log every state change with `ns.Trace(format, ...)` (guard costly arguments
@@ -83,17 +85,19 @@ Clicky uses checked against Blizzard's live UI source; `tests/fetch.sh` refreshe
 `tests/check_toylist.py` (ToyList.lua against every tag the commit contains, so CI fetches tags).
 
 - Tests are named after the journeys and call what the UI is built on: the Macros API,
-  `ns.PanelRows`, `ns.OpenEntryMenu`, `ns.GridSections`, `ns.GridRows`, `ns.GridView`, the grid's buttons (`world.env.ClickyGrid.buttons`),
-  the panel's rows (`world.scrollList.rows`) and the drawers' buttons, clicked through `World:MouseClick`
-  or by calling their scripts. `tests/wow.lua` stubs only the game state and the Blizzard frames and
-  widgets Clicky relies on, citing Blizzard's documentation or source; keep it one file. A second
-  computer on the same account is `wow.New({ account = world.account })`; `world:AddToy` adds a toy
-  to the game, `world:AddSpell` a spell (on a spellbook skill line or in a flyout) and
-  `world:AddItem` an item (in a bag or worn). Clicky's toy list (ToyList.lua) is `wow.New`'s `toyList` option: a toy's item ID,
-  `"s<id>"` for a spell, `"i<id>"` for an item; without it the list is the account's toys when the
-  world is made; its `TOY_HIDDEN` is the `toyHidden` option. A test that adds or removes game toys
-  passes it explicitly, so places don't move;
-  a shorter or longer `toyList` is an older or newer Clicky.
+  `ns.PanelRows`, `ns.OpenEntryMenu`, `ns.GridSections`, `ns.GridRows`, `ns.GridView`, the grid's
+  buttons (`world.env.ClickyGrid.buttons`), the panel's rows (`world.scrollList.rows`) and the
+  drawers' buttons, clicked through `World:MouseClick` or by calling their scripts. `tests/wow.lua`
+  stubs only the game state and the Blizzard frames and widgets Clicky relies on, citing Blizzard's
+  documentation or source; keep it one file. A second computer on the same account is `wow.New({
+  account = world.account })`; `world:AddToy` adds a toy to the game, `world:AddSpell` a spell (on a
+  spellbook skill line or in a flyout), `world:AddItem` an item (in a bag or worn), `world:AddMount`
+  a mount and `world:AddPet` (or `world:LearnPet`) a pet the player owns. Clicky's toy list
+  (ToyList.lua) is `wow.New`'s `toyList` option: a toy's item ID, `"s<id>"` for a spell, `"i<id>"`
+  for an item, `"m<id>"` for a mount, `"p<species>:<display>"` for a pet look; without it the list
+  is the account's toys when the world is made; its `TOY_HIDDEN` is the `toyHidden` option. A test
+  that adds or removes game toys passes it explicitly, so places don't move; a shorter or longer
+  `toyList` is an older or newer Clicky.
 - UI behavior is shown by tests (`tests/wow.lua` stubs the Blizzard frames and widgets Clicky relies
   on: the Toy Box's frames, `World:LoadCollections`, a scroll bar, a scroll list, a filter menu,
   frame sizes, anchors and visibility, and the combat lock on protected frames, each citing
@@ -130,8 +134,8 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
 README.md is for players. Review step 4 checks it against these rules:
 
 - **The first screen gets a player going.** It says what Clicky does in a few sentences and shows a
-  picture of it. Then it says how to install Clicky and gives the shortest path to a working button.
-  A player who reads only that far can use Clicky.
+  picture of it. Then it says which WoW it's for (Retail, the `.toc`'s Interface), how to install
+  Clicky and the shortest path to a working button. A player who reads only that far can use Clicky.
 - **Examples come from the journeys.** A "What you can do" section shows macros a player would
   make, taken from docs/macros-user-journeys.md (dressing up, hearthstones, portals). Each example
   says what goes in the macro, what a click does and what a right-click does. Every journey a
@@ -150,9 +154,14 @@ README.md is for players. Review step 4 checks it against these rules:
   limits need, with no internal terms.
 - **Guide first, reference after.** Steps and examples come before details: combat edge cases,
   slash commands, other versions. A detail that matters in only one case goes in the reference
-  part, not the first sections.
+  part ("Details"), not the first sections. The test, for each sentence above "In combat": would
+  every player who uses that feature miss it? If not (a mount the journal's filters hide, a pet
+  color Clicky's list lacks, how far a wheel notch scrolls, a missing animation), it moves.
+- **It says where to get help.** Troubleshooting ends with where to report a problem or ask: the
+  comments on Clicky's Wago page.
 - **Its facts are tested.** Each limit, message, command and label README gives needs a check in
-  tests/test_docs.lua; a review adds any that's missing.
+  tests/test_docs.lua; a review adds any that's missing. Each picture's file exists and has alt
+  text saying what it shows (tested); a release review checks the pictures show the current UI.
 
 ## Reviews
 
@@ -180,7 +189,8 @@ start again from step 1. Done means one full pass with no findings.
    (formats, function names, code) in player-facing text. A change in behavior says what it was
    and what it is now. Then read the whole section in one go: no two bullets seem to contradict,
    and each says where it applies (this computer, other computers, older versions). README.md
-   meets every rule under "README" above.
+   meets every rule under "README" above: write down each sentence above "In combat" that fails
+   the "Guide first" test, and move it.
 5. **Every claim.** For each sentence added to docs, comments and the changelog, name where it's
    confirmed: a line of code, a test, or a cited Blizzard source. Game behavior not seen in play
    and not in Blizzard's source comes out. Look hardest at absolutes, reasons and claims about
@@ -198,8 +208,12 @@ start again from step 1. Done means one full pass with no findings.
 - `UseToy()` is protected (warcraft.wiki.gg API UseToy), so each macro `/click`s a hidden
   `SecureActionButtonTemplate` button (`type` = `toy`, or `spell` / `item` for those entries, with
   the attribute of the same name: SECURE_ACTIONS in SecureTemplates.lua; an item's value is
-  `"item:"` and its ID because a bare number there is an inventory slot, `SecureCmdItemParse`). `useOnKeyDown` is false because `/click`
-  sends an up click (SlashCommands.lua).
+  `"item:"` and its ID because a bare number there is an inventory slot, `SecureCmdItemParse`).
+  There's no secure action for mounts or pets: a mount is `spell` with its spell's name, cast as
+  `/cast` does (by ID it wasn't summoned, seen in play), a pet `macro` with `macrotext` `/summonpet
+  <GUID>`, which calls `C_PetJournal.SummonPetByGUID` (SlashCommands.lua); summoning the pet that's
+  out puts it away (`/dismisspet`, SlashCommands.lua), so a click never picks it (Pets.lua).
+  `useOnKeyDown` is false because `/click` sends an up click (SlashCommands.lua).
 - Macro bodies hold 255 characters (MacroFrameText `letters="255"`; EditMacro saves only the first
   255, warcraft.wiki.gg API EditMacro), names 16 (the name box has `letters="16"`); 120 general
   macros per account and 30 per character (MacroConstantsDocumentation.lua). General macros are
@@ -225,23 +239,43 @@ start again from step 1. Done means one full pass with no findings.
   secret arguments only from untainted code, FrameAPICooldownDocumentation.lua), but `isActive` is
   never secret (SpellSharedDocumentation.lua). So a spell whose cooldown is active and whose duration is secret
   counts as on cooldown and shows no swipe (Spells.lua).
-- The grid lists, on tabs after the toys', the spells and items a player can add (Grid.lua), only
-  those in ToyList.lua, since a macro can't hold any other. Spells are the spellbook's: its skill
-  lines' active spells and the known spells in its flyouts (`C_SpellBook.GetSpellBookSkillLineInfo`
-  and `GetSpellBookItemInfo`; `GetFlyoutInfo` and `GetFlyoutSlotInfo`, which Blizzard's own spell
-  search calls on flyouts, Blizzard_SpellSearchTextFilter.lua), not passive and not off-spec. Items
-  are those in the bags (the backpack, the equipped bags and the reagent bag: `0` to
-  `NUM_TOTAL_EQUIPPED_BAG_SLOTS`, Constants.lua) and the worn ones (`INVSLOT_FIRST_EQUIPPED` to
-  `INVSLOT_LAST_EQUIPPED`); the bank isn't looked at. Spells and items change with `SPELLS_CHANGED`,
-  `BAG_UPDATE_DELAYED` and `PLAYER_EQUIPMENT_CHANGED` (through `ns.Changed`, so in combat the grid
-  waits), and their cooldowns with `SPELL_UPDATE_COOLDOWN` and `BAG_UPDATE_COOLDOWN`
-  (ContainerDocumentation.lua). Only a toy has a star, a gift wrap and a NEW label; Favorites is the
-  Toy Box's stars, so it takes toys only.
+- The grid lists, on tabs after the toys', the mounts, pets, spells and items a player can add
+  (Grid.lua), only those in ToyList.lua, since a macro can't hold any other. Spells are the
+  spellbook's: its skill lines' active spells and the known spells in its flyouts
+  (`C_SpellBook.GetSpellBookSkillLineInfo` and `GetSpellBookItemInfo`; `GetFlyoutInfo` and
+  `GetFlyoutSlotInfo`, which Blizzard's own spell search calls on flyouts,
+  Blizzard_SpellSearchTextFilter.lua), not passive and not off-spec. Items are those in the bags
+  (the backpack, the equipped bags and the reagent bag: `0` to `NUM_TOTAL_EQUIPPED_BAG_SLOTS`,
+  Constants.lua) and the worn ones (`INVSLOT_FIRST_EQUIPPED` to `INVSLOT_LAST_EQUIPPED`); the bank
+  isn't looked at. Spells and items change with `SPELLS_CHANGED`, `BAG_UPDATE_DELAYED` and
+  `PLAYER_EQUIPMENT_CHANGED` (through `ns.Changed`, so in combat the grid waits), and their
+  cooldowns with `SPELL_UPDATE_COOLDOWN` and `BAG_UPDATE_COOLDOWN` (ContainerDocumentation.lua).
+  Mounts are `C_MountJournal.GetMountIDs`' collected ones, less those hidden on this character; pets
+  one entry per species and look (`displayID`) the player owns (`C_PetJournal.GetOwnedPetIDs`); both
+  lists ignore the journals' filters. They change with `NEW_MOUNT_ADDED`,
+  `MOUNT_JOURNAL_USABILITY_CHANGED` and `PET_JOURNAL_LIST_UPDATE`, and the mount ridden and the pet
+  that's out with `COMPANION_UPDATE` (Grid.lua: only the buttons in view are redrawn, at once),
+  which the drawers and the grid mark as the journals do (`ActiveTexture`). A pet shows its cooldown
+  (`GetPetCooldownByGUID`) as the Pet Journal does, which after a summon the game gives some pets
+  and not others, in the Pet Journal too (seen in play); a mount none, as in the Mount Journal. The
+  game stars and picks up a mount only by its place in the Mount Journal's filtered list
+  (`SetIsFavorite`, `Pickup`: displayIndex), so a mount the filters hide can't be starred or dragged
+  from Clicky. Toys, Mounts and Pets each have their own Filter menu, built as the Toy Box's and the
+  journals' (GridFilters.lua), with the game's API for each entry's data where it has it; Not
+  Collected leaves out `MOUNT_HIDDEN` and `PET_HIDDEN` (ToyList.lua, from the tables' Flags) as the
+  toys' leaves out `TOY_HIDDEN`. `/clicky debug` checks each tab against its Blizzard window, with
+  that window's own filters, entry by entry, and its defaults when it's on them, and which Sources
+  box a source number is under against every mount's and species' source text (BlizzardCheck.lua): a
+  mount's `sourceType` counts from 1, as the boxes do, where `Enum.BattlePetSources` (the toys' and
+  pets') counts from 0 (seen in play). Toys, mounts and pets have a star; only a toy a gift wrap and
+  a NEW label; Favorites is the Toy Box's stars, so it takes toys only.
 - If macros aren't readable at `ADDON_LOADED`, nothing is read or written until `UPDATE_MACROS`.
 - Clicky's toy list is shipped (ToyList.lua), written from the game's Toy, SkillLineAbility,
-  SpecializationSpells, TraitDefinition, PvpTalent, ItemXItemEffect, ItemEffect and Spell tables for the live build via wago.tools (`tools/update_toys.py`), not read from
-  the game at login. The grid lists its `TOY_HIDDEN` (the Toy table's Flags 2 bit) only when owned,
-  which matches the Toy Box: with Not Collected on, both were seen in play to list the same 1076.
+  SpecializationSpells, TraitDefinition, PvpTalent, ItemXItemEffect, ItemEffect, Spell, Mount,
+  MountType, BattlePetSpecies, Creature, CreatureXDisplayInfo and BattlePetDisplayOverride tables for the live
+  build via wago.tools (`tools/update_toys.py`), not read from the game at login. The grid lists its
+  `TOY_HIDDEN` (the Toy table's Flags 2 bit) only when owned, which matches the Toy Box: with Not
+  Collected on, both were seen in play to list the same 1076.
 - `Blizzard_Collections` (the Toy Box) is load-on-demand: Panel.lua and Grid.lua wait for it with
   `EventUtil.ContinueOnAddOnLoaded` (Blizzard_SharedXML/EventUtil.lua); `/clicky` opens it with `SetCollectionsJournalShown(true,
   COLLECTIONS_JOURNAL_TAB_INDEX_TOYS)`.

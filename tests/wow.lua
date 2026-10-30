@@ -7,13 +7,14 @@
 -- Clicky.toc as the game does (each file gets ("Clicky", ns)) and fires the login events.
 --
 -- Clicky's toy list (ToyList.lua) is shipped with Clicky, not read from the game, so a world has
--- its own: options.toyList, a list of entries (item IDs, "s<id>", "i<id>"), stands in for
+-- its own: options.toyList, a list of entries (item IDs, "s<id>", "i<id>", "m<id>",
+-- "p<species>:<display>"), stands in for
 -- ToyList.lua's ns.TOY_IDS. Without it the list is the account's toys (account.toyOrder) as they
 -- are when the world is made. A test that adds a toy to the game or takes one out passes the list
 -- explicitly, so the toys' places don't move. A computer with an older or newer Clicky gets a
 -- shorter or longer toyList.
 --
--- Only game state is stubbed: toys, spells, items, macros, action bars running /click lines (with macro
+-- Only game state is stubbed: toys, spells, items, mounts, pets, macros, action bars running /click lines (with macro
 -- conditionals and the mouse button), secure buttons and their modified attributes, secure
 -- snippets in a restricted-like environment, modifier keys, auto-hiding frames, timers, combat
 -- lockdown and events, each following Blizzard's documentation or UI source (cited where it
@@ -135,6 +136,43 @@ local function NewFrame(world, name, parent, template)
 		frame.rows, frame.elements, world.scrollList = {}, {}, frame
 	elseif template == "ButtonFrameTemplate" then
 		ButtonFrame(world, frame)
+	elseif template == "PanelTopTabButtonTemplate" then
+		-- A tab resizes itself to its label with its parent's padding when shown
+		-- (PanelTabButtonMixin:OnShow, SharedUIPanelTemplates.lua:256-258).
+		frame.scripts.OnShow = function(tab)
+			world.env.PanelTemplates_TabResize(tab, tab.parent.tabPadding, nil, tab.parent.minTabWidth, tab.parent.maxTabWidth)
+		end
+	elseif template == "ScrollingEditBoxTemplate" then
+		-- Its ScrollBox and the multi-line EditBox in it, which doesn't take the keyboard when shown
+		-- (autoFocus="false", ScrollTemplates.xml:21-44); SetText puts the text in the edit box
+		-- (ScrollingEditBoxMixin:SetText, ScrollTemplates.lua:165-170). A click on it gives it the
+		-- keyboard and runs OnEditFocusGained (warcraft.wiki.gg UIHANDLER OnEditFocusGained);
+		-- HighlightText(0) selects from the start to the end (warcraft.wiki.gg API
+		-- EditBox:HighlightText: end defaults to the end), kept as the text selected.
+		frame.ScrollBox = NewFrame(world, nil, frame)
+		frame.ScrollBox.EditBox = NewFrame(world, nil, frame.ScrollBox)
+		local editBox = frame.ScrollBox.EditBox
+		function editBox:SetFocus()
+			self.focused = true
+			for _, fn in ipairs(self.hooks.OnEditFocusGained or {}) do fn(self) end
+		end
+		function editBox:HasFocus() return self.focused == true end
+		function editBox:ClearFocus() self.focused = false end
+		function editBox:HighlightText(start) self.selected = (self.text or ""):sub((start or 0) + 1) end
+		function frame:GetScrollBox() return self.ScrollBox end
+		function frame:GetEditBox() return self.ScrollBox.EditBox end
+		function frame:SetText(text) self.ScrollBox.EditBox:SetText(text) end
+		function frame:GetText() return self.ScrollBox.EditBox:GetText() end
+	elseif template == "UICheckButtonTemplate" then
+		-- Its label, parentKey Text (CheckButtonTemplates.xml:50-64). A click ticks or unticks it,
+		-- then runs OnClick (warcraft.wiki.gg Widget API CheckButton).
+		frame.Text = NewFrame(world, nil, frame)
+		function frame:SetChecked(checked) self.checked = checked == true end
+		function frame:GetChecked() return self.checked == true end
+		function frame:Click()
+			self.checked = not self.checked
+			if self.scripts.OnClick then self.scripts.OnClick(self, "LeftButton", false) end
+		end
 	elseif template == "CollectionsBackgroundTemplate" then
 		-- Its top corners (SharedCollectionTemplates.xml:177-186), shown.
 		frame.BGCornerTopLeft, frame.BGCornerTopRight = frame:CreateTexture(), frame:CreateTexture()
@@ -608,18 +646,37 @@ end
 -- ScrollBar.lua:296-299: a drag or a held track is an OnUpdate script.
 function ScrollBar:UnregisterUpdate() self.scripts.OnUpdate = nil end
 
--- A dropdown button (Blizzard_Menu/MenuTemplates.lua). Its menu is built when it opens; the world
+-- A dropdown button (Blizzard_Menu/MenuTemplates.lua). Its menu is built when it opens, and when set up
+-- while shown (SetupMenu below); the world
 -- opens it for a test (World:GridFilterMenu).
+local MenuDescription -- a menu as its generator builds it, below World:GridFilterMenu
 FilterDropdown = {}
-function FilterDropdown:SetupMenu(generator) self.menuGenerator = generator end
+-- A shown button builds its menu at once, asking each checkbox whether it's ticked, then checks its
+-- reset state (DropdownButton.lua:240-247, 284-307; MenuTemplates.lua:924-927).
+function FilterDropdown:SetupMenu(generator)
+	self.menuGenerator = generator
+	if self:IsShown() then
+		local all = {}
+		generator(self, MenuDescription(self, all))
+		for _, entry in ipairs(all) do
+			if entry.isSelected then entry.isSelected() end
+		end
+		self:ValidateResetState()
+	end
+end
 function FilterDropdown:SetDefaultCallback(callback) self.defaultCallback = callback end -- MenuTemplates.lua:876
 function FilterDropdown:SetIsDefaultCallback(callback) self.isDefaultCallback = callback end -- MenuTemplates.lua:881
+-- The reset button shows when the filters aren't the defaults (MenuTemplates.lua:900-904).
+function FilterDropdown:ValidateResetState() self.resetShown = not self.isDefaultCallback() end
 
 -- ButtonFrameTemplate's children that the panel uses: parentKeys CloseButton and Inset
--- (Blizzard_SharedXML/SharedUIPanelTemplates.xml).
+-- (Blizzard_SharedXML/SharedUIPanelTemplates.xml); and its title, which SetTitle puts in its top
+-- bar's TitleText (TitledPanelMixin, PortraitFrame.lua:4-14).
 ButtonFrame = function(world, frame)
 	frame.CloseButton = NewFrame(world, nil, frame)
 	frame.Inset = NewFrame(world, nil, frame)
+	frame.TitleContainer = { TitleText = NewFrame(world, nil, frame) }
+	function frame:SetTitle(title) self.TitleContainer.TitleText:SetText(title) end
 end
 
 ------------------------------------------------------------------------------------------
@@ -628,7 +685,8 @@ end
 local World = {}
 World.__index = World
 
--- options.toys: list of { id, name, icon, owned = true, usable = true, favorite, cooldown, loading }
+-- options.toys: list of { id, name, icon, owned = true, usable = true, favorite, cooldown, loading,
+--   expansion }
 -- options.spells: list of { id, name, icon, known = true, usable = true, cooldown, loading, line = 1,
 --   flyout, passive, offSpec, base }: line is its spellbook skill line; flyout (a flyout ID) puts it in that
 --   flyout instead of on the line's own page; offSpec puts the line in a specialization the player
@@ -637,10 +695,24 @@ World.__index = World
 --   on the line (SpellBookItemType).
 -- options.items: list of { id, name, icon, count = 1, usable = true, cooldown, equippable, equipped,
 --   loading, bag = 0, worn }: count in the bag bag (0 is the backpack), or worn in inventory slot worn
+-- options.mounts: list of { id, name, spell = id * 100, icon, collected = true, usable = true,
+--   favorite, hidden, shown = true }: hidden is shouldHideOnChar (the game hides it on this character); shown is
+--   whether the Mount Journal's filters list it
+-- options.pets: list of { guid, species, display = species * 10, name, icon, favorite,
+--   summonable = true }: one owned pet each; name and icon are its species'
+-- options.petSpecies: species ID -> { name, icon }, a species the game has that the player may own
+--   none of (AddPet adds its pet's)
+-- options.petLooks: species ID -> the display IDs the game lists for it (GetDisplayIDByIndex), owned
+--   or not; a species with a pet and none given lists its pets' looks
 -- options.macros: list of { name, icon, body }
 -- options.account: another world's account, instead of toys and macros
 -- options.toyList: entries, Clicky's toy list on this computer (see the top of this file)
 -- options.toyHidden: item ID -> true, the toys its grid lists only when owned (ToyList.lua's TOY_HIDDEN)
+-- options.toySource, options.petSource: item or species ID -> Enum.BattlePetSources, and
+--   options.mountType: mountTypeID -> Enum.MountTypeFlag, ToyList.lua's TOY_SOURCE, PET_SOURCE and
+--   MOUNT_TYPE
+-- options.mountHidden, options.petHidden: mount ID or species ID -> true, ToyList.lua's MOUNT_HIDDEN
+--   and PET_HIDDEN; options.petRandomLook: species ID -> true, its PET_RANDOM_LOOK
 -- options.toysLoading: the player's toys haven't arrived yet (see World:LoadToys)
 -- options.combat: logging in (or reloading) in combat
 function wow.New(options)
@@ -668,7 +740,8 @@ function wow.New(options)
 	}, World)
 	local account = options.account
 	if not account then
-		account = { toys = {}, toyOrder = {}, spells = {}, items = {}, macros = {}, characterMacros = {}, bars = {} }
+		account = { toys = {}, toyOrder = {}, spells = {}, items = {}, mounts = {}, mountOrder = {}, pets = {},
+			species = {}, macros = {}, characterMacros = {}, bars = {} }
 		world.account = account
 		for _, toy in ipairs(options.toys or {}) do
 			world:AddToy(toy)
@@ -679,6 +752,16 @@ function wow.New(options)
 		for _, item in ipairs(options.items or {}) do
 			world:AddItem(item)
 		end
+		for _, mount in ipairs(options.mounts or {}) do
+			world:AddMount(mount)
+		end
+		for _, pet in ipairs(options.pets or {}) do
+			world:AddPet(pet)
+		end
+		account.petLooks = options.petLooks or {}
+		for id, species in pairs(options.petSpecies or {}) do
+			account.species[id] = species
+		end
 		for _, macro in ipairs(options.macros or {}) do
 			table.insert(account.macros, { name = macro.name, icon = macro.icon, body = macro.body })
 		end
@@ -686,9 +769,25 @@ function wow.New(options)
 	world.account = account
 	world.toys, world.toyOrder, world.macros, world.bars = account.toys, account.toyOrder, account.macros, account.bars
 	world.spells, world.items = account.spells, account.items
+	world.mounts, world.pets = account.mounts, account.pets
 	world.characterMacros = account.characterMacros
 	world.toyList = options.toyList or { unpack(account.toyOrder) }
 	world.toyHidden = options.toyHidden or {}
+	world.mountHidden = options.mountHidden or {}
+	world.petHidden = options.petHidden or {}
+	world.petRandomLook = options.petRandomLook or {}
+	world.toySource, world.petSource = options.toySource or {}, options.petSource or {}
+	world.mountType = options.mountType or {}
+	-- The Toy Box's and the Pet Journal's filters as the player left them, and what they list (the
+	-- Mount Journal's list is its mounts that are shown); set by a test. A window's sourcesOff and
+	-- the like hold the filter indexes unticked.
+	world.blizzard = {
+		toys = { collected = true, uncollected = true, unusable = true, sourcesOff = {}, expansionsOff = {}, list = {},
+			default = true },
+		mounts = { collected = true, uncollected = true, unusable = true, typesOff = {}, sourcesOff = {}, default = true },
+		pets = { collected = true, uncollected = true, battlePets = true, nonCombatPets = true, familiesOff = {},
+			sourcesOff = {}, sortBy = 1, list = {}, default = true },
+	}
 	world:BuildEnv()
 	world:LoadAddon()
 	world:Fire("ADDON_LOADED", ADDON)
@@ -729,6 +828,7 @@ function World:AddToy(toy)
 		cooldown = toy.cooldown or 0,
 		loading = toy.loading or false,
 		fanfare = toy.fanfare or false,
+		expansion = toy.expansion,
 	}
 	self.account.toys[t.id] = t
 	table.insert(self.account.toyOrder, t.id)
@@ -765,6 +865,68 @@ function World:AddItem(item)
 		bag = item.bag or 0,
 		worn = item.worn,
 	}
+end
+
+function World:AddMount(mount)
+	self.account.mounts[mount.id] = {
+		id = mount.id,
+		name = mount.name or ("Mount " .. mount.id),
+		spell = mount.spell or mount.id * 100,
+		icon = mount.icon or (mount.id * 10 + 3),
+		collected = mount.collected ~= false,
+		usable = mount.usable ~= false,
+		favorite = mount.favorite or false,
+		hidden = mount.hidden or false,
+		shown = mount.shown ~= false,
+	}
+	table.insert(self.account.mountOrder, mount.id)
+end
+
+-- A pet the player owns. Its species' name and icon are the species', kept once per species.
+function World:AddPet(pet)
+	self.account.species[pet.species] = self.account.species[pet.species]
+		or { name = pet.name or ("Pet " .. pet.species), icon = pet.icon or (pet.species * 10 + 4) }
+	table.insert(self.account.pets, {
+		guid = pet.guid,
+		species = pet.species,
+		display = pet.display or pet.species * 10,
+		favorite = pet.favorite or false,
+		summonable = pet.summonable ~= false,
+	})
+end
+
+-- The looks the game lists for a species: options.petLooks', else its pets' looks.
+function World:SpeciesLooks(id)
+	if self.account.petLooks and self.account.petLooks[id] then return self.account.petLooks[id] end
+	local looks, seen = {}, {}
+	for _, pet in ipairs(self.pets) do
+		if pet.species == id and not seen[pet.display] then
+			seen[pet.display] = true
+			looks[#looks + 1] = pet.display
+		end
+	end
+	return looks
+end
+
+function World:Pet(guid)
+	for _, pet in ipairs(self.pets) do
+		if pet.guid == guid then return pet end
+	end
+end
+
+-- Learning a pet, or caging one: the Pet Journal's list changes, PET_JOURNAL_LIST_UPDATE
+-- (PetJournalInfoDocumentation.lua; Blizzard_PetCollection.lua redraws its list on it).
+function World:LearnPet(pet)
+	self:AddPet(pet)
+	self:Fire("PET_JOURNAL_LIST_UPDATE")
+end
+
+function World:CagePet(guid)
+	for i, pet in ipairs(self.pets) do
+		if pet.guid == guid then table.remove(self.pets, i) break end
+	end
+	if self.summonedPet == guid then self.summonedPet = nil end
+	self:Fire("PET_JOURNAL_LIST_UPDATE")
 end
 
 -- A spell's or item's data arriving after Clicky asked for it: SPELL_DATA_LOAD_RESULT
@@ -845,14 +1007,52 @@ function World:ChooseMenuEntry(text)
 end
 
 -- The grid's filter menu as it opens: { text, isSelected(), toggle() } per checkbox.
+-- A menu description as the generator builds it (Blizzard_Menu/MenuUtil.lua, MenuTemplates.lua):
+-- checkboxes, radios, buttons (each one a submenu its entries are added to), titles, spacers and
+-- dividers. Every entry goes in all, with its path ("Sources > Source 1"); a choice checks the
+-- reset button again (WowDropdownFilterBehaviorMixin:OnMenuResponse, MenuTemplates.lua:906-909).
+function MenuDescription(dropdown, all, path)
+	local description = {}
+	local function Add(entry)
+		entry.path = path and (path .. " > " .. tostring(entry.text)) or tostring(entry.text)
+		all[#all + 1] = entry
+		return entry
+	end
+	function description.CreateCheckbox(_, text, isSelected, setSelected, data)
+		Add({ kind = "checkbox", text = text, isSelected = function() return isSelected(data) end,
+			toggle = function() setSelected(data) dropdown:ValidateResetState() end })
+	end
+	function description.CreateRadio(_, text, isSelected, setSelected, data)
+		Add({ kind = "radio", text = text, isSelected = function() return isSelected(data) end,
+			toggle = function() setSelected(data) dropdown:ValidateResetState() end })
+	end
+	function description.CreateButton(_, text, callback, data)
+		local entry = Add({ kind = "button", text = text,
+			toggle = function() if callback then callback(data) end dropdown:ValidateResetState() end })
+		return MenuDescription(dropdown, all, entry.path)
+	end
+	function description.CreateTitle(_, text) Add({ kind = "title", text = text }) end
+	function description.CreateSpacer() end
+	function description.CreateDivider() end
+	return description
+end
+
+-- The grid's filter menu as it opens: its top-level checkboxes in order, { text, isSelected(),
+-- toggle() } each; all its entries in .all, and .find(path) for one by its path.
 function World:GridFilterMenu()
 	local dropdown = self.env.ClickyGridFilter
-	local entries = {}
-	local root = {}
-	function root.CreateCheckbox(_, text, isSelected, setSelected)
-		entries[#entries + 1] = { text = text, isSelected = isSelected, toggle = function() setSelected() end }
+	local all = {}
+	dropdown.menuGenerator(dropdown, MenuDescription(dropdown, all))
+	local entries = { all = all }
+	for _, entry in ipairs(all) do
+		if entry.kind == "checkbox" and not entry.path:find(" > ", 1, true) then entries[#entries + 1] = entry end
 	end
-	dropdown.menuGenerator(dropdown, root)
+	function entries.find(path)
+		for _, entry in ipairs(all) do
+			if entry.path == path then return entry end
+		end
+		error("no filter menu entry " .. path, 2)
+	end
 	return entries
 end
 
@@ -942,7 +1142,50 @@ function World:SecureAction(frame, button)
 		if toy then self:UseToy(tonumber(toy) or toy) end
 	elseif action == "spell" then
 		local spell = ModifiedAttribute(frame, "spell", button)
-		if tonumber(spell) then table.insert(self.used, "s" .. tonumber(spell)) end
+		-- A mount's spell cast by its ID doesn't summon it (seen in play); by its name, as /cast
+		-- does, CastSpellByName finds it.
+		local id = tonumber(spell)
+		if not id and spell then
+			for _, t in pairs(self.spells) do
+				if t.name == spell then id = t.id end
+			end
+			local mounted
+			for _, m in pairs(self.mounts) do
+				if m.name == spell then id, mounted = m.spell, m end
+			end
+			-- The player is on it: GetMountInfoByID's isActive (MountJournalDocumentation.lua). The
+			-- Mount Journal redraws its list on COMPANION_UPDATE without reading its argument
+			-- (Blizzard_MountCollection.lua:140, 414).
+			if mounted then
+				for _, m in pairs(self.mounts) do m.active = false end
+				mounted.active = true
+				self:Fire("COMPANION_UPDATE")
+			end
+		elseif id then
+			for _, m in pairs(self.mounts) do
+				if m.spell == id then id = nil break end
+			end
+		end
+		if id then table.insert(self.used, "s" .. id) end
+	elseif action == "macro" then
+		-- Only /summonpet: it calls SummonPetByGUID with the GUID (SlashCommands.lua:1620-1634), which
+		-- puts away the pet that's out when given it (/dismisspet, SlashCommands.lua:1659-1669). A pet
+		-- that can't be summoned isn't (the Pet Journal's Summon button is off for it,
+		-- Blizzard_PetCollection.lua:320). The pet that's out changing fires COMPANION_UPDATE with
+		-- "CRITTER", on which the Pet Journal redraws its list and Summon button
+		-- (Blizzard_PetCollection.lua:98, 271-275).
+		local text = ModifiedAttribute(frame, "macrotext", button)
+		if text then
+			local guid = assert(text:match("^/summonpet (%S+)$"), "macro text the stubs don't run: " .. text)
+			if self.summonedPet == guid then
+				self.summonedPet = nil
+				self:Fire("COMPANION_UPDATE", "CRITTER")
+			elseif self:Pet(guid) and self:Pet(guid).summonable then
+				self.summonedPet = guid
+				table.insert(self.used, guid)
+				self:Fire("COMPANION_UPDATE", "CRITTER")
+			end
+		end
 	elseif action == "item" then
 		local item = ModifiedAttribute(frame, "item", button)
 		if item then
@@ -1204,6 +1447,8 @@ function World:BuildEnv()
 		table.insert(world.prints, table.concat(parts, " "))
 	end
 	env.InCombatLockdown = function() return world.combat end
+	-- Milliseconds, for timing (warcraft.wiki.gg API debugprofilestop): the test's own clock.
+	env.debugprofilestop = function() return os.clock() * 1000 end
 	env.SlashCmdList = {}
 	env.UIParent = NewFrame(world)
 	env.UIErrorsFrame = { AddExternalErrorMessage = function(_, msg) table.insert(world.errors, msg) end }
@@ -1289,6 +1534,9 @@ function World:BuildEnv()
 	-- Blizzard_ToyBox.lua clears it when the wrapped toy is clicked).
 	env.C_ToyBoxInfo = {
 		-- Both take a toy's item ID, a number (ToyBoxInfoDocumentation.lua: itemID, Type number).
+		-- Which sources the Toy Box's menu offers: here, every one.
+		IsToySourceValid = function() return true end,
+		IsUsingDefaultFilters = function() return world.blizzard.toys.default end,
 		NeedsFanfare = function(id)
 			assert(type(id) == "number", "NeedsFanfare takes an item ID")
 			return world.toys[id] and world.toys[id].fanfare or false
@@ -1309,6 +1557,15 @@ function World:BuildEnv()
 			if t then return id end
 		end,
 		GetNumToys = function() return #world.toyOrder end,
+		-- The Toy Box's list as its filters have it (world.blizzard.toys.list).
+		GetNumFilteredToys = function() return #world.blizzard.toys.list end,
+		GetToyFromIndex = function(i) return world.blizzard.toys.list[i] end,
+		-- The Toy Box's filter settings, as Blizzard_ToyBox.lua:56-138 reads them.
+		GetCollectedShown = function() return world.blizzard.toys.collected end,
+		GetUncollectedShown = function() return world.blizzard.toys.uncollected end,
+		GetUnusableShown = function() return world.blizzard.toys.unusable end,
+		IsSourceTypeFilterChecked = function(i) return not world.blizzard.toys.sourcesOff[i] end,
+		IsExpansionTypeFilterChecked = function(i) return not world.blizzard.toys.expansionsOff[i] end,
 		-- The star calls take a toy's item ID (warcraft.wiki.gg API C_ToyBox.GetIsFavorite, SetIsFavorite).
 		GetIsFavorite = function(id)
 			assert(type(id) == "number", "GetIsFavorite takes an item ID")
@@ -1361,9 +1618,13 @@ function World:BuildEnv()
 		-- ItemDocumentation.lua: PickupItem takes an item ID; GetItemInfo's second return is the
 		-- link, nothing until the item's data has loaded.
 		PickupItem = function(id) world.cursor = { item = id } end,
+		-- Its 15th return is the expansion ID (ItemDocumentation.lua:604-630); toys are items too.
 		GetItemInfo = function(id)
-			local t = world.items[id]
-			if t and not t.loading then return t.name, "|cffffffff|Hitem:" .. id .. "::::::::::::|h[" .. t.name .. "]|h|r" end
+			local t = world.items[id] or world.toys[id]
+			if t and not t.loading then
+				return t.name, "|cffffffff|Hitem:" .. id .. "::::::::::::|h[" .. t.name .. "]|h|r", 1, 1, 1, "", "", 1, "",
+					t.icon, 0, 0, 0, 0, t.expansion or 0
+			end
 		end,
 		IsUsableItem = function(id)
 			local t = world.items[id]
@@ -1410,6 +1671,10 @@ function World:BuildEnv()
 	env.Enum = {
 		SpellBookSpellBank = { Player = 0, Pet = 1 },
 		SpellBookItemType = { None = 0, Spell = 1, FutureSpell = 2, PetAction = 3, Flyout = 4 },
+		-- MountConstantsDocumentation.lua; MountTypeMeta.NumValues is the count of MountType's values.
+		MountType = { Ground = 0, Flying = 1, Aquatic = 2, Dragonriding = 3, RideAlong = 4 },
+		MountTypeFlag = { IsFlyingMount = 1, IsAquaticMount = 2, IsDragonRidingMount = 4, IsRideAlongMount = 8 },
+		MountTypeMeta = { NumValues = 5 },
 	}
 	-- A flyout's number of slots and a slot's spell ID, name and whether it's known: the returns
 	-- Blizzard_SpellSearchTextFilter.lua:230-237 reads (GetFlyoutInfo's third, GetFlyoutSlotInfo's
@@ -1427,6 +1692,10 @@ function World:BuildEnv()
 		GetSpellName = function(id)
 			local t = world.spells[id]
 			if t and not t.loading then return t.name end
+			-- A mount's spell is called as the mount (its stub data has one name for both).
+			for _, m in pairs(world.mounts) do
+				if m.spell == id then return m.name end
+			end
 		end,
 		GetSpellTexture = function(id)
 			local t = world.spells[id]
@@ -1453,6 +1722,163 @@ function World:BuildEnv()
 				duration = active and (world.secretCooldowns and world.SECRET or t.cooldown + 1) or 0,
 				isEnabled = true, isActive = active, modRate = 1,
 			}
+		end,
+	}
+
+	-- Mounts (MountJournalDocumentation.lua): GetMountIDs lists every mount, GetMountInfoByID answers
+	-- for any of them whatever the journal's filters; the "displayed" calls take a place in the Mount
+	-- Journal's list as its filters have it (mount.shown), as do the star and pickup calls.
+	local function Displayed()
+		local ids = {}
+		for _, id in ipairs(world.account.mountOrder) do
+			if world.mounts[id].shown then ids[#ids + 1] = id end
+		end
+		return ids
+	end
+	env.C_MountJournal = {
+		GetMountIDs = function() return { unpack(world.account.mountOrder) } end,
+		-- name, spellID, icon, isActive, isUsable, sourceType, isFavorite, isFactionSpecific, faction,
+		-- shouldHideOnChar, isCollected, mountID. sourceType counts from 1, as the Sources checkboxes do
+		-- (seen in play: Mounts.lua, ns.MountSource).
+		GetMountInfoByID = function(id)
+			local m = world.mounts[id]
+			if m then
+				return m.name, m.spell, m.icon, m.active == true, m.collected and m.usable, m.source or 0, m.favorite, false, nil,
+					m.hidden, m.collected, id
+			end
+		end,
+		-- The mount a spell summons, or nothing (MountJournalDocumentation.lua: mountID Nilable).
+		GetMountFromSpell = function(spellID)
+			for id, m in pairs(world.mounts) do
+				if m.spell == spellID then return id end
+			end
+		end,
+		-- creatureDisplayInfoID, description, source, isSelfMount, mountTypeID, ...
+		GetMountInfoExtraByID = function(id)
+			local m = world.mounts[id]
+			if m then return nil, "", m.sourceText or "", false, m.mountTypeID or 230 end
+		end,
+		-- Which sources and types the Mount Journal's menu offers: here, every one.
+		IsValidSourceFilter = function() return true end,
+		IsValidTypeFilter = function() return true end,
+		-- The Mount Journal's filter settings, as Blizzard_MountCollection.lua:221-258, 964-986 reads them.
+		GetCollectedFilterSetting = function(setting)
+			local f = world.blizzard.mounts
+			return ({ f.collected, f.uncollected, f.unusable })[setting]
+		end,
+		IsTypeChecked = function(i) return not world.blizzard.mounts.typesOff[i] end,
+		IsSourceChecked = function(i) return not world.blizzard.mounts.sourcesOff[i] end,
+		IsUsingDefaultFilters = function() return world.blizzard.mounts.default end,
+		GetNumDisplayedMounts = function() return #Displayed() end,
+		GetDisplayedMountID = function(index) return Displayed()[index] end,
+		-- isFavorite, canSetFavorite: the Mount Journal offers the star on collected mounts
+		-- (Blizzard_MountCollection.lua:293-305, its menu is only for collected ones, 919-923).
+		GetIsFavorite = function(index)
+			local m = world.mounts[Displayed()[index]]
+			return m.favorite, m.collected
+		end,
+		SetIsFavorite = function(index, favorite)
+			assert(type(favorite) == "boolean", "SetIsFavorite takes a boolean")
+			world.mounts[Displayed()[index]].favorite = favorite
+		end,
+		Pickup = function(index) world.cursor = { mount = Displayed()[index] } end,
+		GetMountLink = function(spellID)
+			for id, m in pairs(world.mounts) do
+				if m.spell == spellID then return "|cff71d5ff|Hmount:" .. id .. "|h[" .. m.name .. "]|h|r" end
+			end
+		end,
+	}
+	-- Pets (PetJournalInfoDocumentation.lua; the rest as Blizzard_PetCollection.lua calls them):
+	-- GetOwnedPetIDs lists every pet owned, whatever the journal's filters; GetPetInfoByPetID returns
+	-- speciesID, customName, level, xp, maxXp, displayID, isFavorite, name, icon (:409);
+	-- GetPetInfoBySpeciesID its name and icon first; SetFavorite takes 1 or 0 (:930-934).
+	env.C_PetJournal = {
+		GetOwnedPetIDs = function()
+			local ids = {}
+			for i, pet in ipairs(world.pets) do ids[i] = pet.guid end
+			return ids
+		end,
+		GetPetInfoByPetID = function(guid)
+			local pet = world:Pet(guid)
+			if pet then
+				local species = world.account.species[pet.species]
+				return pet.species, nil, pet.level or 1, 0, 100, pet.display, pet.favorite, species.name, species.icon
+			end
+		end,
+		-- A species' looks, owned or not (PetJournalInfoDocumentation.lua: GetNumDisplays,
+		-- GetDisplayIDByIndex, both Nilable).
+		GetNumDisplays = function(id)
+			local looks = world:SpeciesLooks(id)
+			return #looks > 0 and #looks or nil
+		end,
+		GetDisplayIDByIndex = function(id, index) return world:SpeciesLooks(id)[index] end,
+		-- speciesName, speciesIcon, petType (1 is Humanoid, PET_TYPE_SUFFIX, Constants.lua), companionID,
+		-- tooltipSource, tooltipDescription, isWild, canBattle (warcraft.wiki.gg).
+		GetPetInfoBySpeciesID = function(id)
+			local species = world.account.species[id]
+			if species then
+				return species.name, species.icon, species.family or 1, 0, species.sourceText or "", "", false,
+					species.canBattle ~= false
+			end
+		end,
+		-- health, maxHealth, power, speed, rarity (warcraft.wiki.gg API C_PetJournal.GetPetStats).
+		GetPetStats = function(guid) return 100, 100, 10, 10, world:Pet(guid).rarity or 1 end,
+		-- Blizzard_PetCollection.lua:192-206 numbers the families and sources from 1.
+		GetNumPetTypes = function() return 10 end,
+		GetNumPetSources = function() return 12 end,
+		PetIsFavorite = function(guid) return world:Pet(guid).favorite end,
+		SetFavorite = function(guid, value)
+			assert(value == 0 or value == 1, "SetFavorite takes 1 or 0")
+			world:Pet(guid).favorite = value == 1
+		end,
+		PetIsSummonable = function(guid) return world:Pet(guid).summonable end,
+		GetSummonedPetGUID = function() return world.summonedPet end,
+		-- start, duration, isEnabled (warcraft.wiki.gg API C_PetJournal.GetPetCooldownByGUID), which the
+		-- Pet Journal draws on a pet's button (Blizzard_PetCollection.lua:866-870). pet.cooldown is
+		-- the seconds left, as a toy's.
+		GetPetCooldownByGUID = function(guid)
+			local cd = world:Pet(guid) and world:Pet(guid).cooldown or 0
+			if cd > 0 then return world.time - 1, cd + 1, 1 end
+			return 0, 0, 1
+		end,
+		GetBattlePetLink = function(guid) return "|cff0070dd|Hbattlepet:" .. guid .. "|h[Pet]|h|r" end,
+		PickupPet = function(guid) world.cursor = { pet = guid } end,
+		-- numPets, numOwned: the Pet Journal's list as its filters have it (world.blizzard.pets.list).
+		GetNumPets = function() return #world.blizzard.pets.list, #world.pets end,
+		-- petID, speciesID: the Pet Journal's list (Blizzard_PetCollection.lua:876-877).
+		GetPetInfoByIndex = function(i) return nil, world.blizzard.pets.list[i] end,
+		-- The Pet Journal's filter settings, as Blizzard_PetCollection.lua:172-212, 1481-1510 reads them.
+		IsFilterChecked = function(setting)
+			local f = world.blizzard.pets
+			return ({ f.collected, f.uncollected, f.battlePets, f.nonCombatPets })[setting]
+		end,
+		IsPetTypeChecked = function(i) return not world.blizzard.pets.familiesOff[i] end,
+		IsPetSourceChecked = function(i) return not world.blizzard.pets.sourcesOff[i] end,
+		GetPetSortParameter = function() return world.blizzard.pets.sortBy end,
+		IsUsingDefaultFilters = function() return world.blizzard.pets.default end,
+	}
+
+	-- Tooltips as data (TooltipInfoDocumentation.lua; a TooltipData's lines, each with leftText and
+	-- rightText, Structure.lua in Ketho's annotations, as TooltipUtil.lua:55 reads them): the entry's
+	-- name, then its own tooltip text (a toy's, spell's, item's, mount's or pet's species' tooltip
+	-- field); nothing while its data is loading.
+	local function Tooltip(t, name)
+		if t and not t.loading then
+			return { lines = { { leftText = name or t.name, rightText = "" }, { leftText = t.tooltip or "", rightText = "" } } }
+		end
+	end
+	env.C_TooltipInfo = {
+		GetToyByItemID = function(id) return Tooltip(world.toys[id]) end,
+		GetSpellByID = function(id) return Tooltip(world.spells[id]) end,
+		GetItemByID = function(id) return Tooltip(world.items[id]) end,
+		GetMountBySpellID = function(spellID)
+			for _, m in pairs(world.mounts) do
+				if m.spell == spellID then return Tooltip(m) end
+			end
+		end,
+		GetCompanionPet = function(guid)
+			local pet = world:Pet(guid)
+			return pet and Tooltip(world.account.species[pet.species])
 		end,
 	}
 
@@ -1492,6 +1918,10 @@ function World:BuildEnv()
 			world.tooltip.item = id
 			return world.items[id] ~= nil
 		end,
+		-- The Mount Journal's and Pet Journal's (Blizzard_MountCollection.lua:703,
+		-- Blizzard_PetCollection.lua:1016).
+		SetMountBySpellID = function(_, id) world.tooltip.mountSpell = id end,
+		SetCompanionPet = function(_, guid) world.tooltip.pet = guid end,
 		Show = function() end,
 	}
 	env.GameTooltip_Hide = function() world.tooltip = nil end
@@ -1507,6 +1937,26 @@ function World:BuildEnv()
 	-- wow-ui-source): the English texts of the filter names, which a test picks a filter by, and the
 	-- gold of the Toy Box's toy names.
 	env.COLLECTED, env.NOT_COLLECTED, env.PET_JOURNAL_FILTER_USABLE_ONLY = "Collected", "Not Collected", "Usable Only"
+	-- The filter menus' other texts, which tests find entries by: any distinct texts do.
+	env.SOURCES, env.CHECK_ALL, env.UNCHECK_ALL, env.EXPANSION_FILTER_TEXT = "Sources", "Check All", "Uncheck All", "Expansion"
+	env.MOUNT_JOURNAL_FILTER_UNUSABLE, env.MOUNT_JOURNAL_FILTER_TYPE = "Unusable", "Type"
+	env.MOUNT_JOURNAL_FILTER_GROUND, env.MOUNT_JOURNAL_FILTER_FLYING = "Ground", "Flying"
+	env.MOUNT_JOURNAL_FILTER_AQUATIC, env.MOUNT_JOURNAL_FILTER_DRAGONRIDING = "Aquatic", "Skyriding"
+	env.MOUNT_JOURNAL_FILTER_RIDEALONG = "Ride Along"
+	env.PET_FILTER_TYPES, env.PET_FILTER_BATTLE_PETS, env.PET_FILTER_NON_COMBAT_PETS = "Pet Types", "Battle Pets", "Non-Combat Pets"
+	env.PET_FAMILIES, env.RAID_FRAME_SORT_LABEL = "Pet Families", "Sort By"
+	env.NAME, env.LEVEL, env.RARITY, env.TYPE = "Name", "Level", "Rarity", "Type"
+	env.LE_SORT_BY_NAME, env.LE_SORT_BY_LEVEL, env.LE_SORT_BY_RARITY, env.LE_SORT_BY_PETTYPE = 1, 2, 3, 4
+	-- The game's filter setting numbers: any distinct ones do (the stubs above index by them).
+	env.LE_MOUNT_JOURNAL_FILTER_COLLECTED, env.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED = 1, 2
+	env.LE_MOUNT_JOURNAL_FILTER_UNUSABLE = 3
+	env.LE_PET_JOURNAL_FILTER_COLLECTED, env.LE_PET_JOURNAL_FILTER_NOT_COLLECTED = 1, 2
+	env.LE_PET_JOURNAL_FILTER_TYPE_BATTLE_PETS, env.LE_PET_JOURNAL_FILTER_TYPE_NON_COMBAT_PETS = 3, 4
+	env.GetNumExpansions = function() return 12 end
+	for i = 1, 12 do env["BATTLE_PET_SOURCE_" .. i] = "Source " .. i end
+	for i = 1, 10 do env["BATTLE_PET_NAME_" .. i] = "Family " .. i end
+	for i = 0, 11 do env["EXPANSION_NAME" .. i] = "Expansion " .. i end
+	env.bit = bit
 	env.NEW_CAPS = "NEW"
 	env.DELETE = "Delete" -- the menu's entry is found by it
 	-- The toy menu's star entries are found by these; any two different texts do.
@@ -1538,12 +1988,43 @@ function World:BuildEnv()
 	env.PanelTemplates_SetNumTabs = function(frame, numTabs) frame.numTabs = numTabs end
 	env.PanelTemplates_SetTab = function(frame, id) frame.selectedTab = id end
 	env.PanelTemplates_GetSelectedTab = function(frame) return frame.selectedTab end
-	env.PanelTemplates_TabResize = function() end
+	-- A tab's width (SharedUIPanelTemplates.lua:403-437): its text's, plus 20, plus the padding, or
+	-- absoluteSize, which cuts the text short if it's narrower. The font isn't here: a character is
+	-- world.charWidth wide (6 by default), a stand-in for Friz Quadrata at 10.
+	local TAB_SIDES_PADDING = 20
+	world.charWidth = 6
+	env.PanelTemplates_TabResize = function(tab, padding, absoluteSize)
+		local natural = #(tab.text or "") * world.charWidth
+		local width = absoluteSize or natural + TAB_SIDES_PADDING + (padding or 0)
+		tab.truncated = width - TAB_SIDES_PADDING - (padding or 0) < natural
+		tab:SetWidth(width)
+	end
+	-- SharedUIPanelTemplates.lua:439-468, as Blizzard writes it.
+	env.PanelTemplates_ResizeTabsToFit = function(frame, maxWidthForAllTabs)
+		local selectedIndex = frame.selectedTab
+		if not selectedIndex then return end
+		local currentWidth, truncatedText = 0, false
+		for i = 1, frame.numTabs do
+			currentWidth = currentWidth + frame.Tabs[i]:GetWidth()
+			truncatedText = truncatedText or frame.Tabs[i].truncated
+		end
+		if not truncatedText and currentWidth <= maxWidthForAllTabs then return end
+		local currentTab = frame.Tabs[selectedIndex]
+		env.PanelTemplates_TabResize(currentTab, 0)
+		local widthPerTab = (maxWidthForAllTabs - currentTab:GetWidth()) / (frame.numTabs - 1)
+		for i = 1, frame.numTabs do
+			if i ~= selectedIndex then env.PanelTemplates_TabResize(frame.Tabs[i], 0, widthPerTab) end
+		end
+	end
 	-- The window manager doesn't take addon calls in combat (UIParentPanelManager.lua:840-864).
 	local function PanelBlocked(what)
 		if world.combat then error("ADDON_ACTION_BLOCKED: " .. what .. " by addon code in combat", 3) end
 	end
-	env.SetUIPanelAttribute = function() PanelBlocked("SetUIPanelAttribute") end
+	-- The value is kept as the frame's "UIPanelLayout-<name>" attribute (UIParentPanelManager.lua:111-122).
+	env.SetUIPanelAttribute = function(frame, name, value)
+		PanelBlocked("SetUIPanelAttribute")
+		frame:SetAttribute("UIPanelLayout-" .. name, value)
+	end
 	env.UpdateUIPanelPositions = function() PanelBlocked("UpdateUIPanelPositions") end
 	-- SetCollectionsJournalShown shows the window with ShowUIPanel, which refuses addon code in combat
 	-- (Blizzard_Collections_Bootstrap.lua:22-28, UIParentPanelManager.lua:844-870); it then selects
@@ -1559,7 +2040,11 @@ function World:BuildEnv()
 		return { SetElementExtentCalculator = function() end,
 			SetElementInitializer = function(view, frameType, initializer) view.frameType, view.initializer = frameType, initializer end }
 	end
-	env.ScrollUtil = { InitScrollBoxListWithScrollBar = function(list, _, view) list.view = view end }
+	env.ScrollUtil = { InitScrollBoxListWithScrollBar = function(list, _, view) list.view = view end,
+		-- Binds a scroll box to its bar (ScrollUtil.lua:149-151).
+		RegisterScrollBoxWithScrollBar = function(scrollBox, scrollBar) scrollBox.scrollBar = scrollBar end }
+	-- Windows Escape closes, by name (UIParentPanelManager.lua:21).
+	env.UISpecialFrames = {}
 	-- ScrollBox.lua:2-18.
 	env.ScrollBoxConstants = { NoScrollInterpolation = true, RetainScrollPosition = true }
 	env.BaseScrollBoxEvents = { OnScroll = "OnScroll", OnAllowScrollChanged = "OnAllowScrollChanged" }
@@ -1629,6 +2114,8 @@ function World:LoadAddon()
 			self.toc[field] = value
 		elseif line == "ToyList.lua" then
 			ns.TOY_IDS, ns.TOY_LIST_BUILD, ns.TOY_HIDDEN = self.toyList, "test", self.toyHidden
+			ns.MOUNT_HIDDEN, ns.PET_HIDDEN, ns.PET_RANDOM_LOOK = self.mountHidden, self.petHidden, self.petRandomLook
+			ns.TOY_SOURCE, ns.PET_SOURCE, ns.MOUNT_TYPE = self.toySource, self.petSource, self.mountType
 		elseif line ~= "" and not line:find("^#") then
 			local chunk = assert(loadfile(ROOT .. "/" .. line))
 			setfenv(chunk, self.env)

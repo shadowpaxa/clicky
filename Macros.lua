@@ -2,7 +2,7 @@
 -- servers (warcraft.wiki.gg Macro), so a macro is the only copy of its entries that every computer
 -- sees: they're read from it (ns.Sync) and written back to it on every change. Each macro has a hidden secure button its /click line clicks, and a
 -- drawer its right-click opens (Drawer.lua). A click uses a random entry from the macro; the drawer
--- uses the entry clicked in it. An entry is a toy, a spell or an item, named by its key
+-- uses the entry clicked in it. An entry is a toy, a mount, a pet, a spell or an item, named by its key
 -- (Entries.lua), and what uses it is the kind's secure action.
 --   ns.expanded
 --   ns.GetMacros(), ns.GetMacro(id)
@@ -40,7 +40,7 @@ ns.COMBAT_ERROR = "Can't change macros in combat."
 local NEWER_MESSAGE = "This macro was saved by a newer version of Clicky. Update Clicky to use it."
 local UNREADABLE_MESSAGE = "Clicky can't read this macro's items. Delete it and make it again."
 local UNKNOWN_ENTRY_MESSAGE = "Clicky doesn't know this item yet. Update Clicky."
-local EMPTY_MESSAGE = "%s has no items. Right-click a toy, spell or item in the Toy Box to add it."
+local EMPTY_MESSAGE = "%s has no items. Right-click a toy, mount, pet, spell or item in the Toy Box to add it."
 local EMPTY_FAVORITES_MESSAGE = "%s has no toys. Star toys in the Toy Box to add them."
 
 -- Runs inside the button's click, before the entry is used, in WoW's restricted environment. In
@@ -132,7 +132,7 @@ function ns.Unreadable(m)
 	end
 end
 
--- Messages call what a macro holds "items": a toy, a spell or an item from the bags. Favorites
+-- Messages call what a macro holds "items": a toy, a mount, a pet, a spell or an item from the bags. Favorites
 -- holds only toys (the Toy Box's stars), so its messages say "toys".
 function ns.MacroNoun(m)
 	return m.builtin and "toys" or "items"

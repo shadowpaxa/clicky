@@ -1,25 +1,38 @@
--- What a macro holds: entries. An entry is a toy, a spell or an item, named by its key, which is
--- its entry in ToyList.lua: a toy is its item ID (a number), a spell is "s" and its spell ID, an
--- item is "i" and its item ID. This file dispatches on the kind; each kind has one owner file
--- (Toys.lua, Spells.lua, Items.lua) that registers what the kind does, so a name, icon, tooltip,
--- cooldown, owned or usable test and secure action is the same in the panel, the drawers and the
--- macro buttons.
+-- What a macro holds: entries. An entry is a toy, a mount, a pet, a spell or an item, named by its
+-- key, which is its entry in ToyList.lua: a toy is its item ID (a number), a spell is "s" and its
+-- spell ID, an item "i" and its item ID, a mount "m" and its mount ID, a pet "p", its species ID,
+-- ":" and a look's display ID. This file dispatches on the kind; each kind has one owner file
+-- (Toys.lua, Mounts.lua, Pets.lua, Spells.lua, Items.lua) that registers what the kind does, so a
+-- name, icon, tooltip, cooldown, owned or usable test, star and secure action is the same in the
+-- panel, the drawers, the macro buttons and the grid.
 --   ns.RegisterEntryKind(kind, impl)    impl has name(id), icon(id), owned(id), usable(id),
 --                                       onCooldown(id), updateCooldown(cooldown, id),
 --                                       tooltip(owner, id, anchor), link(id), pickup(id),
---                                       action(id) -> type, attribute, value, and drawerOnly(id)
---   ns.EntryKind(key)                   "toy", "spell" or "item"; key's id is ns.EntryID(key)
---   ns.EntryID(key)
+--                                       action(id) -> type, attribute, value, and drawerOnly(id);
+--                                       a kind with a star (the game's favorite) also favorite(id),
+--                                       canFavorite(id) and setFavorite(id, favorite); a kind
+--                                       the player can be on or have out also active(id); and
+--                                       tooltipData(id): its tooltip as data (C_TooltipInfo), or nil
+--   ns.EntryKind(key)                   "toy", "mount", "pet", "spell" or "item"; key's id is
+--                                       ns.EntryID(key)
+--   ns.EntryID(key)                     a number, or for a pet its "species:display" string
 --   ns.EntryName(key)                   its name, or "" until the game has it (and asks for it)
 --   ns.EntryIcon(key)
---   ns.IsEntryOwned(key)                the player has the toy, knows the spell, has the item
+--   ns.IsEntryOwned(key)                the player has the toy, the mount or a pet of the look,
+--                                       knows the spell, has the item
 --   ns.IsEntryUsable(key)
 --   ns.IsEntryOnCooldown(key)
+--   ns.IsEntryFavorite(key)             it has the game's star (a toy's, mount's or pet's)
+--   ns.CanFavoriteEntry(key)            the star can be set or cleared from Clicky's menu
+--   ns.SetEntryFavorite(key, favorite)  sets or clears the star (the player picked it in the menu)
+--   ns.IsEntryActive(key)               the mount the player is on, or a look whose pet is out
 --   ns.IsDrawerOnly(key)                an item that can be worn: its secure action wears it if it
 --                                       isn't worn, so a click on the macro never picks it
 --   ns.SetEntryTexture(texture, key, owned)   the icon, grey if not owned
 --   ns.ShowEntryTooltip(owner, key, anchor)   anchor is "ANCHOR_RIGHT" if not given
 --   ns.EntryLink(key)                   its chat link, or nil if the game has none yet
+--   ns.EntryTooltipText(key)            its tooltip's text, lines joined by newlines, or nil if the
+--                                       game has no text for it yet
 --   ns.PickupEntry(key)                 puts it on the cursor, to drop on an action bar
 --   ns.UpdateEntryCooldown(cooldown, key)     the cooldown swipe, empty if not owned
 --   ns.SortEntries(keys, names)         sorts keys by name, then kind, then ID, in place; names
@@ -33,15 +46,16 @@
 --
 -- A secure button uses an entry the way Select's flyout buttons do (its secure/button.lua): set
 -- the button's "type" to the action and the attribute that action reads to the entry's value
--- (SECURE_ACTIONS.toy, .spell and .item in Blizzard_FrameXML/SecureTemplates.lua).
+-- (SECURE_ACTIONS.toy, .spell, .item and .macro in Blizzard_FrameXML/SecureTemplates.lua).
 
 local _, ns = ...
 
 local kinds = {}
-local KIND_RANK = { toy = 1, spell = 2, item = 3 }
+local KIND_RANK = { toy = 1, mount = 2, pet = 3, spell = 4, item = 5 }
+local KIND_OF = { s = "spell", i = "item", m = "mount", p = "pet" }
 
 ns.GCD_THRESHOLD = 1.5
-ns.ACTION_ATTRIBUTES = { "toy", "spell", "item" }
+ns.ACTION_ATTRIBUTES = { "toy", "spell", "item", "macrotext" }
 
 function ns.RegisterEntryKind(kind, impl)
 	kinds[kind] = impl
@@ -51,12 +65,14 @@ function ns.EntryKind(key)
 	if type(key) == "number" then
 		return "toy"
 	end
-	return key:sub(1, 1) == "s" and "spell" or "item"
+	return KIND_OF[key:sub(1, 1)]
 end
 
 function ns.EntryID(key)
 	if type(key) == "number" then
 		return key
+	elseif key:sub(1, 1) == "p" then
+		return key:sub(2)
 	end
 	return tonumber(key:sub(2))
 end
@@ -90,6 +106,28 @@ function ns.IsEntryOnCooldown(key)
 	return kind.onCooldown(id)
 end
 
+function ns.IsEntryFavorite(key)
+	local kind, id = Of(key)
+	return kind.favorite ~= nil and kind.favorite(id) == true
+end
+
+function ns.CanFavoriteEntry(key)
+	local kind, id = Of(key)
+	return kind.canFavorite ~= nil and kind.canFavorite(id) == true
+end
+
+function ns.IsEntryActive(key)
+	local kind, id = Of(key)
+	return kind.active ~= nil and kind.active(id) == true
+end
+
+function ns.SetEntryFavorite(key, favorite)
+	local kind, id = Of(key)
+	kind.setFavorite(id, favorite)
+	ns.Trace("[entries] %s %s", tostring(key), favorite and "starred" or "unstarred")
+	ns.Changed()
+end
+
 function ns.IsDrawerOnly(key)
 	local kind, id = Of(key)
 	return kind.drawerOnly(id)
@@ -117,6 +155,25 @@ end
 function ns.EntryLink(key)
 	local kind, id = Of(key)
 	return kind.link(id)
+end
+
+-- A TooltipData's lines each have a leftText and rightText (as TooltipUtil.lua:55 reads them). Text
+-- the game keeps secret (issecretvalue) is left out: it can't be read.
+function ns.EntryTooltipText(key)
+	local kind, id = Of(key)
+	local data = kind.tooltipData and kind.tooltipData(id)
+	if not data or not data.lines then
+		return nil
+	end
+	local parts = {}
+	for _, line in ipairs(data.lines) do
+		for _, text in ipairs({ line.leftText, line.rightText }) do
+			if type(text) == "string" and not issecretvalue(text) and text ~= "" then
+				parts[#parts + 1] = text
+			end
+		end
+	end
+	return #parts > 0 and table.concat(parts, "\n") or nil
 end
 
 function ns.PickupEntry(key)

@@ -30,26 +30,88 @@ local function Items()
 	return items
 end
 
--- Clicky's list: the toys, then the spells and items; a macro can hold any of them.
+-- Mounts: collected or not, one hidden on this character, one the Mount Journal's filters hide.
+local function Mounts()
+	local mounts = {}
+	for i = 1, 5 do
+		mounts[i] = { id = i, name = ("Mount %d"):format(i), spell = 900 + i, icon = 7000 + i, collected = i ~= 4,
+			hidden = i == 5, shown = i ~= 3, favorite = i == 2 }
+	end
+	return mounts
+end
+
+-- Pets: two of species 1 in one look and one in another, species 2 in one look, one that can't be
+-- summoned.
+local function Pets()
+	return {
+		{ guid = "BattlePet-0-000000000001", species = 1, display = 11, name = "Cat" },
+		{ guid = "BattlePet-0-000000000002", species = 1, display = 11, name = "Cat" },
+		{ guid = "BattlePet-0-000000000003", species = 1, display = 12, name = "Cat", favorite = true },
+		{ guid = "BattlePet-0-000000000004", species = 2, display = 21, name = "Dog" },
+		{ guid = "BattlePet-0-000000000005", species = 3, display = 31, name = "Frog", summonable = false },
+	}
+end
+
+-- Clicky's list: the toys, then the spells and items, the mounts and the pets' looks; a macro can
+-- hold any of them.
 local function EntryList()
 	local list = {}
 	for i = 1, 30 do list[#list + 1] = 100 + i end
 	for i = 1, 6 do list[#list + 1] = "s" .. i end
 	for i = 1, 6 do list[#list + 1] = "i" .. i end
+	for i = 1, 5 do list[#list + 1] = "m" .. i end
+	for _, look in ipairs({ "1:11", "1:12", "2:21", "3:31", "4:41" }) do list[#list + 1] = "p" .. look end
 	return list
 end
 
 local function Run(seed, steps)
 	math.randomseed(seed)
 	local list = EntryList()
-	local world = wow.New({ toys = Toys(), spells = Spells(), items = Items(), toyList = list })
+	local world = wow.New({ toys = Toys(), spells = Spells(), items = Items(), mounts = Mounts(), pets = Pets(),
+		toyList = list })
 	local ns = world.ns
+	-- The pets of a look ("species:display"), in the order the player got them.
+	local function PetsOf(look)
+		local out = {}
+		for _, pet in ipairs(world.pets) do
+			if pet.species .. ":" .. pet.display == look then out[#out + 1] = pet end
+		end
+		return out
+	end
+	-- The pet a look's entry summons: one that isn't out and can be summoned, a starred one first;
+	-- else the look's pet that's out (using it puts it away), else the first.
+	local function PetFor(look)
+		local found
+		for _, pet in ipairs(PetsOf(look)) do
+			if pet.guid ~= world.summonedPet and pet.summonable then
+				if pet.favorite then return pet, true end
+				found = found or pet
+			end
+		end
+		if found then return found, true end
+		for _, pet in ipairs(PetsOf(look)) do
+			if pet.guid == world.summonedPet then return pet, false end
+		end
+		return PetsOf(look)[1], false
+	end
 	-- Whether the player has the entry, from the game's own state.
 	local function Has(key)
 		if type(key) == "number" then return world.toys[key].owned end
 		local id = tonumber(key:sub(2))
 		if key:sub(1, 1) == "s" then return world.spells[id].known end
+		if key:sub(1, 1) == "m" then return world.mounts[id].collected end
+		if key:sub(1, 1) == "p" then return PetsOf(key:sub(2))[1] ~= nil end
 		return world.items[id].count > 0 or world.items[id].equipped
+	end
+	-- The key of what the game used: world.used holds a mount's spell and a pet's GUID.
+	local function UsedKey(used)
+		if type(used) == "string" and used:find("^BattlePet") then
+			local pet = world:Pet(used)
+			return "p" .. pet.species .. ":" .. pet.display
+		elseif type(used) == "string" and used:sub(1, 1) == "s" and tonumber(used:sub(2)) > 900 then
+			return "m" .. (tonumber(used:sub(2)) - 900)
+		end
+		return used
 	end
 	local function Worn(key)
 		return type(key) == "string" and key:sub(1, 1) == "i" and world.items[tonumber(key:sub(2))].equippable
@@ -113,13 +175,18 @@ local function Run(seed, steps)
 		if type(key) == "number" then return "toy", "toy", key end
 		local id = tonumber(key:sub(2))
 		if key:sub(1, 1) == "s" then return "spell", "spell", id end
+		if key:sub(1, 1) == "m" then return "spell", "spell", world.mounts[id].name end
+		if key:sub(1, 1) == "p" then
+			local pet = PetFor(key:sub(2))
+			return "macro", "macrotext", pet and ("/summonpet " .. pet.guid)
+		end
 		return "item", "item", "item:" .. id
 	end
-	-- The spells and items the grid should list, from the game's state: the spells in the spellbook
-	-- (not passive, known), the items in the bags or worn, as the search allows (the filters are the
-	-- toys' only).
+	-- The mounts, pets, spells and items the grid should list, from the game's state: the spells in the
+	-- spellbook (not passive, known), the items in the bags or worn, as the search allows; spells and
+	-- items have no filters.
 	local function Expected(text)
-		local want = { spells = {}, items = {} }
+		local want = { spells = {}, items = {}, mounts = {}, pets = {} }
 		text = world.env.strtrim(text):lower()
 		local function Add(set, key, name)
 			if text == "" or name:lower():find(text, 1, true) then set[key] = true end
@@ -130,9 +197,34 @@ local function Run(seed, steps)
 		for id, item in pairs(world.items) do
 			if item.count > 0 or item.worn then Add(want.items, "i" .. id, item.name) end
 		end
+		-- Mounts and pets as each tab's own filters let them through: collected or not, and with Usable
+		-- Only, a collected one that can't be used now isn't listed.
+		-- The mounts here are all ground mounts (no mount type flags), the pets' species all battle pets
+		-- of family 1, none with a source.
+		local filters = ns.GetGridFilters()
+		local function Collected(f, owned)
+			return owned and f.collected or not owned and f.uncollected
+		end
+		local mf = filters.mounts
+		for id, mount in pairs(world.mounts) do
+			if not mount.hidden and Collected(mf, mount.collected) and (mf.unusable or not mount.collected or mount.usable)
+				and not mf.typesOff[1] then
+				Add(want.mounts, "m" .. id, mount.name)
+			end
+		end
+		local pf = filters.pets
+		-- Only the looks Clicky's list has: a look a patch added waits for a Clicky update.
+		local listed = {}
+		for _, key in ipairs(list) do listed[key] = true end
+		for _, pet in ipairs(world.pets) do
+			local key = "p" .. pet.species .. ":" .. pet.display
+			if listed[key] and pf.collected and pf.battlePets and not pf.familiesOff[1] then
+				Add(want.pets, key, world.account.species[pet.species].name)
+			end
+		end
 		return want
 	end
-	local TABS = { toys = 1, spells = 2, items = 3 }
+	local TABS = { toys = 1, mounts = 2, pets = 3, spells = 4, items = 5 }
 	local function GridChecks(where)
 		for i, b in ipairs(grid.buttons) do
 			if b:IsShown() then
@@ -140,22 +232,24 @@ local function Run(seed, steps)
 				local t1 = b:GetAttribute("type1")
 				if t1 then
 					local action, attribute, value = ActionOf(b.entry)
-					assert(t1 == action and b:GetAttribute(attribute) == value,
+					-- In combat or with a mouse button held the grid keeps each button's action (Grid.lua,
+					-- COMPANION_UPDATE): a pet's can still name a pet that has come out since.
+					local kept = (world.combat or next(world.mouse)) and action == "macro"
+					assert(t1 == action and (b:GetAttribute(attribute) == value
+						or kept and tostring(b:GetAttribute(attribute)):find("^/summonpet ") ~= nil),
 						where .. ": button shows " .. tostring(b.entry) .. " uses " .. t1 .. " " .. tostring(b:GetAttribute(attribute)))
 				end
 				assert(b.icon.texture == ns.EntryIcon(b.entry), where .. ": icon mismatch on button " .. i)
 			else
 				assert(b:GetAttribute("type1") == nil and b:GetAttribute("toy") == nil and b:GetAttribute("spell") == nil
-					and b:GetAttribute("item") == nil, where .. ": hidden button with action")
+					and b:GetAttribute("item") == nil and b:GetAttribute("macrotext") == nil, where .. ": hidden button with action")
 			end
 		end
 		if not world.combat and not next(world.mouse) then
 			-- after a redraw the buttons show GridView of the rows of GridSections
-			local entries = world:GridFilterMenu()
-			local f = { collected = entries[1].isSelected(), uncollected = entries[2].isSelected(), usableOnly = entries[3].isSelected() }
-			local sections = ns.GridSections(f, grid.search:GetText())
+			local sections = ns.GridSections(ns.GetGridFilters(), grid.search:GetText())
 			local want = Expected(grid.search:GetText())
-			for _, section in ipairs({ sections[2], sections[3] }) do
+			for _, section in ipairs({ sections[2], sections[3], sections[4], sections[5] }) do
 				local got = {}
 				for _, key in ipairs(section.keys) do got[key] = true end
 				local expected = want[section.name]
@@ -165,11 +259,11 @@ local function Run(seed, steps)
 			local state = ns.GetGridState()
 			local shownTab = TABS[state:match("showing (%a+),")]
 			for i, section in ipairs(sections) do
-				local title = ({ "Toys", "Spells", "Items" })[i]
+				local title = ({ "Toys", "Mounts", "Pets", "Spells", "Items" })[i]
 				assert(grid.Tabs[i].text == ("%s (%d)"):format(title, #section.keys),
 					where .. ": tab " .. tostring(grid.Tabs[i].text) .. " for " .. #section.keys .. " " .. section.name)
 			end
-			assert(grid.filterButton:IsShown() == (shownTab == 1), where .. ": the filter button is on the Toys tab only")
+			assert(grid.filterButton:IsShown() == (shownTab <= 3), where .. ": the filter button is on the Toys, Mounts and Pets tabs")
 			local rows = ns.GridRows(sections[shownTab], 12)
 			local first = tonumber(state:match("top row (%d+) of"))
 			local view = ns.GridView(rows, first)
@@ -225,6 +319,8 @@ local function Run(seed, steps)
 			world:TakeErrors()
 		end,
 		function()
+			-- The Filter button shows on the Toys, Mounts and Pets tabs only.
+			if not grid.filterButton:IsShown() then return end
 			local ents = world:GridFilterMenu()
 			local e = Pick(ents)
 			L("filter " .. e.text)
@@ -237,7 +333,7 @@ local function Run(seed, steps)
 			grid.search:SetText(t)
 		end,
 		function()
-			local i = math.random(3)
+			local i = math.random(5)
 			L("tab " .. i)
 			if grid:IsVisible() then grid.Tabs[i].scripts.OnClick(grid.Tabs[i], "LeftButton", false) end
 		end,
@@ -257,7 +353,7 @@ local function Run(seed, steps)
 			L("grid click " .. tostring(b.entry) .. (world.combat and " (combat)" or ""))
 			world:MouseClick(b)
 			local used = world.used[before + 1]
-			if used then assert(used == b.entry, "grid click used " .. tostring(used) .. " shows " .. tostring(b.entry)) end
+			if used then assert(UsedKey(used) == b.entry, "grid click used " .. tostring(used) .. " shows " .. tostring(b.entry)) end
 			-- An item that can be worn and isn't is worn instead of used.
 			if #world.equipped > wornBefore then assert(world.equipped[#world.equipped] == tonumber(tostring(b.entry):sub(2))) end
 			world:TakeErrors()
@@ -303,14 +399,22 @@ local function Run(seed, steps)
 			if not button or not button:IsShown() or not button.entry then return end
 			local key, before, wornBefore = button.entry, #world.used, #world.equipped
 			local toWear = Worn(key) and not world.items[tonumber(key:sub(2))].equipped
+			-- A look whose only pets are out or can't be summoned: the drawer's click puts the one out away.
+			local putAway = type(key) == "string" and key:sub(1, 1) == "p" and not select(2, PetFor(key:sub(2)))
+			-- Drawers aren't refilled in combat: a look's button can name its pet that has come out since,
+			-- and puts it away (journey 2).
+			putAway = putAway or world.combat and world.summonedPet ~= nil
+				and button:GetAttribute("macrotext") == "/summonpet " .. world.summonedPet
 			L("drawer click " .. m.name .. " " .. key)
 			button:Click("LeftButton", false)
 			world:TakeErrors()
 			-- An item that can be worn and isn't is worn instead of used (the game's item action).
 			if toWear then
 				assert(#world.equipped == wornBefore + 1 and #world.used == before, "the drawer should wear " .. key)
+			elseif putAway then
+				assert(#world.used == before, "the drawer summoned " .. key .. " with no pet to summon")
 			else
-				assert(#world.equipped == wornBefore and #world.used == before + 1 and world.used[#world.used] == key,
+				assert(#world.equipped == wornBefore and #world.used == before + 1 and UsedKey(world.used[#world.used]) == key,
 					"the drawer should use " .. key .. "\n" .. table.concat(log, "\n"))
 			end
 		end,
@@ -455,7 +559,7 @@ local function Run(seed, steps)
 			m.button:Click("LeftButton", false)
 			world:TakeErrors()
 			assert(#world.equipped == wornBefore, "a click wore an item\n" .. table.concat(log, "\n"))
-			local used = world.used[before + 1]
+			local used = UsedKey(world.used[before + 1])
 			if used then
 				assert(not Worn(used), "a click used " .. used .. ", which only the drawer uses\n" .. table.concat(log, "\n"))
 				assert(m.button:GetAttribute("entry") == used, "the button holds " .. tostring(m.button:GetAttribute("entry")) .. " used " .. used)
@@ -464,6 +568,48 @@ local function Run(seed, steps)
 				else
 					assert(Has(used), "used " .. used .. " that the player doesn't have")
 					assert(ns.MacroEntries(m)[used], "used " .. used .. " that isn't in " .. m.name .. "\n" .. table.concat(log, "\n"))
+				end
+			end
+		end,
+		function()
+			-- Mounts and pets: starred from Clicky's menu or the journals, a mount usable here or not,
+			-- a pet summoned or put away, caged or learned.
+			local k = math.random(6)
+			if k == 1 then
+				local key = Pick({ "m1", "m2", "m3", "m4", "p1:11", "p1:12", "p2:21", "p3:31" })
+				if ns.CanFavoriteEntry(key) then
+					L("star " .. key)
+					ns.SetEntryFavorite(key, not ns.IsEntryFavorite(key))
+				end
+			elseif k == 2 then
+				local mount = world.mounts[math.random(5)]
+				mount.usable = not mount.usable
+				L("mount " .. mount.id .. " usable " .. tostring(mount.usable))
+				world:Fire("MOUNT_JOURNAL_USABILITY_CHANGED")
+			elseif k == 3 and #world.pets > 0 then
+				local pet = Pick(world.pets)
+				world.summonedPet = world.summonedPet ~= pet.guid and pet.guid or nil
+				L("summoned " .. tostring(world.summonedPet))
+				-- As the game does when the pet that's out changes (tests/wow.lua, SecureAction).
+				world:Fire("COMPANION_UPDATE", "CRITTER")
+			elseif k == 4 and #world.pets > 0 then
+				local pet = Pick(world.pets)
+				L("cage " .. pet.guid)
+				world:CagePet(pet.guid)
+			elseif k == 5 then
+				local species = math.random(4)
+				local guid = ("BattlePet-0-%012d"):format(100 + math.random(900))
+				if not world:Pet(guid) then
+					L("learn pet " .. guid .. " species " .. species)
+					world:LearnPet({ guid = guid, species = species, display = species * 10 + math.random(2) - 1,
+						name = ({ "Cat", "Dog", "Frog", "Owl" })[species] })
+				end
+			else
+				local pet = Pick(world.pets)
+				if pet then
+					pet.favorite = not pet.favorite
+					L("star in the Pet Journal " .. pet.guid)
+					world:Fire("PET_JOURNAL_LIST_UPDATE")
 				end
 			end
 		end,

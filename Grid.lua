@@ -1,137 +1,130 @@
 -- Clicky's grid in place of the Toy Box's (journey 15; docs/architecture.md, "The grid"), with
 -- its own search and filters: the Toy Box's are the player's settings and are only hidden. It lists
--- entries (Entries.lua) in sections: toys, the spells the character knows, and the items carried or
--- worn. A tab for each, with its count, shows that section. A view (ns.RegisterView); its own
--- redraws (search, filters, a tab, scrolling, unwrap, held-mouse retry) skip ns.Changed. In combat
--- the buttons keep their entries until combat ends.
---   ns.GridSections(filters, text)   the sections listed, in order: { name ("toys", "spells" or
---                                    "items"), keys, loading }, where loading is how many of
---                                    those the filters let through have no name yet; for tests
+-- entries (Entries.lua) in sections: toys, mounts and pets as each tab's filters let them through,
+-- the spells the character knows, and the items carried or worn. A tab for each, with its count,
+-- shows that section. A view (ns.RegisterView); its own redraws (search, filters, a tab, scrolling,
+-- unwrap, held-mouse retry, the mount ridden or the pet out changing) skip ns.Changed. In combat the
+-- buttons keep their entries until combat ends.
+--   ns.GridSections(filters, text)   the sections listed, in order: { name ("toys", "mounts", "pets",
+--                                    "spells" or "items"), keys }; filters is section name -> its
+--                                    filters (GridFilters.lua), its defaults for one not given; for tests
 --   ns.GridRows(section, columns)    the grid's rows of a section's keys, { keys }; for tests
 --   ns.GridView(rows, from)          the rows in view from `from` (kept between 1 and the highest
 --                                    first row), each { index, row, offset }; then the first row
 --                                    used and the highest first row; for tests
---   ns.GRID_FILTERS                  the filters a grid starts with; for tests
+--   ns.GetGridFilters()              the grid's filters now, section name -> filters; for tests
 --   ns.GetGridState()                for /clicky debug: whether the grid is made, the tab shown,
---                                    where it is scrolled to, its search and filters
+--                                    where it is scrolled to, its search and the shown tab's filters
 
 local _, ns = ...
 
--- 12 x 9 icons of the Toy Box's size (Blizzard_CollectionTemplates.xml) with gaps of 6
--- (12 * 48 - 6 = 570 across, 9 * 48 - 6 = 426 down), centered with the scroll bar (8 from it,
--- 8 wide, MinimalScrollBar.xml) in the icons frame: 693 x 541, the 703 x 606 Collections window
--- (Blizzard_Collections.xml:15) less its insets (SharedCollectionTemplates.xml:57-60). That keeps
--- clear of the frame's corners as the Toy Box's own buttons do (its first at 40, 53,
--- Blizzard_ToyBox.xml:52), 6 lower than centered for the stars above the first row.
-local VIEW_WIDTH, VIEW_HEIGHT = 570, 426
-local VIEW_X, VIEW_Y = 53, 63
-local COLUMNS, ROWS = 12, 9
+-- 12 x 8 icons of the Toy Box's size (Blizzard_CollectionTemplates.xml), 6 apart across
+-- (12 * 48 - 6 = 570) and 14 down (8 * 56 - 14 = 434): a star rises 13 above its icon
+-- (slotFavorite, Blizzard_CollectionTemplates.xml:118), so 14 keeps it off the row above, as the
+-- Toy Box's 16 between rows does for its 50-wide buttons (Blizzard_ToyBox.xml:67). Centered with
+-- the scroll bar (8 from it, 8 wide, MinimalScrollBar.xml) in the icons frame: 693 x 541, the
+-- 703 x 606 Collections window (Blizzard_Collections.xml:15) less its insets
+-- (SharedCollectionTemplates.xml:57-60); down, the first row's stars are counted, so there are 47
+-- above them and 47 below the last row ((541 - 13 - 434) / 2). That keeps clear of the frame's
+-- corners as the Toy Box's own buttons do (its first at 40, 53, Blizzard_ToyBox.xml:52).
+local VIEW_WIDTH, VIEW_HEIGHT = 570, 434
+local VIEW_X, VIEW_Y = 53, 60
+local COLUMNS, ROWS = 12, 8
 local ICON_SIZE = 42
-local STEP = ICON_SIZE + 6 -- the distance from one entry to the next, across and down
+local COLUMN_STEP = ICON_SIZE + 6 -- from one entry to the next across
+local ROW_STEP = ICON_SIZE + 14 -- and down
 local TITLE = "Clicky" -- the Collections window's, on the Toy Box tab
 -- The Toy Box's parts Clicky's grid takes the place of (Blizzard_ToyBox.xml).
 local TOY_BOX_PARTS = { "iconsFrame", "PagingFrame", "searchBox", "FilterDropdown" }
 -- The sections, in the order of their tabs, with their titles.
 local SECTIONS = {
 	{ name = "toys", title = "Toys" },
+	{ name = "mounts", title = "Mounts" },
+	{ name = "pets", title = "Pets" },
 	{ name = "spells", title = "Spells" },
 	{ name = "items", title = "Items" },
 }
+-- The search box: its width and its distance from the window's right edge.
+local SEARCH_WIDTH, SEARCH_RIGHT = 115, 12
+local TABS_X = 58 -- the first tab, from the window's left edge
+-- Every tab's width together, as Appearances fits its own tabs to WARDROBE_TABS_MAX_WIDTH
+-- (Blizzard_Wardrobe.lua:3, 9, 133): from the first tab to the search box in the 703-wide window
+-- (Blizzard_Collections.xml:15), less the 3 between tabs (PanelTemplates_AnchorTabs,
+-- SharedUIPanelTemplates.lua:479).
+local TABS_WIDTH = 703 - SEARCH_RIGHT - SEARCH_WIDTH - TABS_X - (#SECTIONS - 1) * 3
 local WHEEL_ROWS = 3 -- as one notch scrolls a message frame's three (ScrollUtil.lua:198-203)
 local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
 -- Toy names arrive one event at a time (GET_ITEM_INFO_RECEIVED) and drawing the grid is costlier
 -- than the panel, so refreshes wait this long and run once.
 local REFRESH_DELAY = 0.2
--- The longest the grid waits for names still loading before drawing anyway (see Refresh).
-local NAME_WAIT = 5
 
 -- The filters each session starts with: Clicky has no saved settings.
-ns.GRID_FILTERS = { collected = true, uncollected = false, usableOnly = false }
 
-local filters = CopyTable(ns.GRID_FILTERS)
+-- Toys, Mounts and Pets each have their own filters, as the Toy Box, the Mount Journal and the Pet
+-- Journal each keep their own; Spells and Items have none.
+local filters = { toys = ns.DefaultGridFilters("toys"), mounts = ns.DefaultGridFilters("mounts"),
+	pets = ns.DefaultGridFilters("pets") }
 local grid -- with fields board (its buttons), buttons, scrollBar, search, filterButton, Tabs (in
 -- SECTIONS' order)
 local waiting = false -- the Collections window loaded in combat: the grid is made when it ends
 local retrying = false -- a redraw is queued for after the held mouse button is released
-local nameTimer -- the first draw's wait for names still loading (see Refresh), until it runs out
-local drawn = false -- the grid has drawn its entries once
 local rows = {} -- GridRows' rows, as of the last refresh
 local first = 1 -- the row at the top of the view
 local maxFirst = 1 -- the highest row the view can start at
-local listed = { 0, 0, 0 } -- how many toys, spells and items the last refresh listed
+local listed = { 0, 0, 0, 0, 0 } -- how many of each section the last refresh listed, in SECTIONS' order
 local inMacro = {} -- key -> true for the entries in a Clicky macro, as of the last refresh
 
 ------------------------------------------------------------------------------------------
 -- What's listed.
 
--- Keeps an entry's name, which is "" while it loads; true if the name matches the search.
+-- Keeps an entry's name, which is "" while it loads; true if the entry matches the search (Search.lua).
 local function Matches(names, key, name, text)
 	names[key] = name
-	return text == "" or name:lower():find(text, 1, true) ~= nil
+	return ns.EntryMatches(key, name, text)
 end
 
--- Toys: favorites, then owned, then the rest, each by name, one after the other as in the Toy Box.
--- Only toys the filters let through are named: an uncached name is loaded from the server.
-local function ToyKeys(gridFilters, text)
+-- Starred, then the rest the player has, then the rest, each by name (or as Pets' Sort by says), one
+-- after the other as in the Toy Box, as the tab's filters let them through (GridFilters.lua); Spells
+-- and Items (no tab filters) list what the player has. Only entries the filters let through are
+-- named: an uncached name is loaded from the server.
+local function ListedKeys(candidates, tab, gridFilters, text)
 	local groups, names = { {}, {}, {} }, {}
-	for _, itemID in ipairs(ns.GetToyList().ids) do
-		local owned = PlayerHasToy(itemID)
-		-- A toy the game client has no data for would be a blank slot (GetItemInfoInstant answers
-		-- from the client's data, never the server: seen in play), so only an owned one is kept.
-		local known = owned or ns.ToyIcon(itemID) ~= nil
-		-- A toy with the 2 bit in the Toy table's Flags (ToyList.lua's TOY_HIDDEN) only when owned, which
-		-- matches the Toy Box: with Not Collected on, its list (C_ToyBox.GetNumFilteredToys) and the grid
-		-- were seen in play to hold the same 1076 toys.
-		if not owned and ns.GetToyList().hidden[itemID] then
-			known = false
-		end
-		if known and (owned and gridFilters.collected or not owned and gridFilters.uncollected)
-			and (not gridFilters.usableOnly or not owned or C_ToyBox.IsToyUsable(itemID)) then
-			if Matches(names, itemID, ns.ToyName(itemID), text) then
-				local group = C_ToyBox.GetIsFavorite(itemID) and 1 or owned and 2 or 3
-				table.insert(groups[group], itemID)
-			end
-		end
-	end
-	local toys = {}
-	for _, group in ipairs(groups) do
-		ns.SortEntries(group, names)
-		for _, itemID in ipairs(group) do
-			toys[#toys + 1] = itemID
-		end
-	end
-	return toys, names
-end
-
--- Spells and items: those the character knows or carries, by name. The filters are the toys' only.
-local function OwnedKeys(candidates, text)
-	local keys, names = {}, {}
 	for _, key in ipairs(candidates) do
-		if ns.IsEntryOwned(key) and Matches(names, key, ns.EntryName(key), text) then
+		local owned = ns.IsEntryOwned(key)
+		if (gridFilters and ns.PassesGridFilters(tab, gridFilters, key, owned) or not gridFilters and owned)
+			and Matches(names, key, ns.EntryName(key), text) then
+			table.insert(groups[ns.IsEntryFavorite(key) and 1 or owned and 2 or 3], key)
+		end
+	end
+	local keys = {}
+	for _, group in ipairs(groups) do
+		if gridFilters then
+			ns.SortGridGroup(tab, gridFilters, group, names)
+		else
+			ns.SortEntries(group, names)
+		end
+		for _, key in ipairs(group) do
 			keys[#keys + 1] = key
 		end
 	end
-	ns.SortEntries(keys, names)
 	return keys, names
 end
 
--- names has every entry the filters let through, searched for or not.
-local function Section(name, keys, names)
-	local loading = 0
-	for _, entryName in pairs(names) do
-		if entryName == "" then
-			loading = loading + 1
-		end
-	end
-	return { name = name, keys = keys, loading = loading }
+local function Section(name, keys)
+	return { name = name, keys = keys }
 end
 
 function ns.GridSections(gridFilters, text)
 	text = strtrim(text or ""):lower()
+	local function Filters(name)
+		return gridFilters[name] or ns.DefaultGridFilters(name)
+	end
 	return {
-		Section("toys", ToyKeys(gridFilters, text)),
-		Section("spells", OwnedKeys(ns.KnownSpellEntries(), text)),
-		Section("items", OwnedKeys(ns.CarriedItemEntries(), text)),
+		Section("toys", ListedKeys(ns.ListedToyEntries(Filters("toys").uncollected), "toys", Filters("toys"), text)),
+		Section("mounts", ListedKeys(ns.ListedMountEntries(Filters("mounts").uncollected), "mounts", Filters("mounts"), text)),
+		Section("pets", ListedKeys(ns.ListedPetEntries(Filters("pets").uncollected), "pets", Filters("pets"), text)),
+		Section("spells", ListedKeys(ns.KnownSpellEntries(), "spells", nil, text)),
+		Section("items", ListedKeys(ns.CarriedItemEntries(), "items", nil, text)),
 	}
 end
 
@@ -153,7 +146,7 @@ function ns.GridView(allRows, from)
 	from = math.max(1, math.min(from, highest))
 	local view = {}
 	for i = from, math.min(#allRows, from + ROWS - 1) do
-		view[#view + 1] = { index = i, row = allRows[i], offset = (i - from) * STEP }
+		view[#view + 1] = { index = i, row = allRows[i], offset = (i - from) * ROW_STEP }
 	end
 	return view, from, highest
 end
@@ -184,15 +177,29 @@ local function GridClick(key, mouseButton, modified, chatLink)
 	end
 end
 
+-- "3 toys, 0 mounts, ...": what the last refresh listed.
+local function Counts()
+	local counts = {}
+	for i, section in ipairs(SECTIONS) do
+		counts[i] = ("%d %s"):format(listed[i], section.name)
+	end
+	return table.concat(counts, ", ")
+end
+
 function ns.GetGridState()
 	if not grid then
 		return waiting and "waiting for combat to end" or "not made"
 	end
-	return ("made, showing %s, top row %d of %d (%d toys, %d spells, %d items), collected %s, not collected %s, usable only %s, search %q%s%s"):format(
-		SECTIONS[PanelTemplates_GetSelectedTab(grid)].name, first, #rows, listed[1], listed[2], listed[3], tostring(filters.collected), tostring(filters.uncollected),
-		tostring(filters.usableOnly), grid.search:GetText(), InCombatLockdown() and ", in combat: redrawing waits for it to end" or "",
+	local name = SECTIONS[PanelTemplates_GetSelectedTab(grid)].name
+	local shown = filters[name]
+	return ("made, showing %s, top row %d of %d (%s), %ssearch %q%s%s"):format(name, first, #rows, Counts(),
+		shown and (ns.DescribeGridFilters(shown) .. ", ") or "",
+		grid.search:GetText(), InCombatLockdown() and ", in combat: redrawing waits for it to end" or "",
 		retrying and ", redrawing waits for the mouse button" or "")
-		.. (nameTimer and ", waiting for names" or "")
+end
+
+function ns.GetGridFilters()
+	return filters
 end
 
 ------------------------------------------------------------------------------------------
@@ -214,11 +221,11 @@ local function ShowFrom(from)
 			shown = shown + 1
 			local button = grid.buttons[shown]
 			button:ClearAllPoints()
-			button:SetPoint("TOPLEFT", grid.board, "TOPLEFT", (column - 1) * STEP, -entry.offset)
+			button:SetPoint("TOPLEFT", grid.board, "TOPLEFT", (column - 1) * COLUMN_STEP, -entry.offset)
 			ns.SetEntryButton(button, key, GridClick(key, "LeftButton") ~= "use")
 			button.icon:SetAlpha(ns.IsEntryOwned(key) and 1 or 0.5)
 			button.check:SetShown(inMacro[key] == true)
-			button.star:SetShown(ns.EntryKind(key) == "toy" and C_ToyBox.GetIsFavorite(key))
+			button.star:SetShown(ns.IsEntryFavorite(key))
 			button.new:SetShown(IsNew(key))
 			button:Show()
 		end
@@ -242,6 +249,12 @@ local function ScrollBar_OnScroll(_, percentage)
 		ShowFrom(row)
 		ns.Trace("[grid] scrolled to row %d of %d", first, #rows)
 	end
+end
+
+-- Only when they'd reach the search box: the selected tab keeps its label and the rest share what's
+-- left (SharedUIPanelTemplates.lua:439-468).
+local function FitTabs(frame)
+	PanelTemplates_ResizeTabsToFit(frame, TABS_WIDTH)
 end
 
 local Refresh
@@ -270,33 +283,22 @@ function Refresh()
 		end
 		return
 	end
+	-- A name still loading sorts first, and its entry moves when it arrives (each arrival refreshes
+	-- the grid: Toys.lua, Spells.lua, Items.lua). Timed when tracing: a search can read thousands of
+	-- tooltips (Search.lua).
+	local started = ns.IsTracing() and debugprofilestop()
 	local sections = ns.GridSections(filters, grid.search:GetText())
-	-- A name still loading sorts first, and its entry moves when it arrives. After a reload no name
-	-- is loaded and the whole grid would shuffle, so its first draw waits: each name that arrives
-	-- refreshes it (Toys.lua, Spells.lua, Items.lua). A load that fails brings no name and no refresh, so it
-	-- waits NAME_WAIT at most. Later redraws (a filter, a search) don't wait, so they show at once.
-	local loading = sections[1].loading + sections[2].loading + sections[3].loading
-	if loading > 0 and not drawn then
-		nameTimer = nameTimer or C_Timer.NewTimer(NAME_WAIT, function()
-			nameTimer, drawn = nil, true
-			RefreshIfShown()
-		end)
-		ns.Trace("[grid] refresh waits for %d names", loading)
-		return
-	end
-	if nameTimer then
-		nameTimer:Cancel()
-		nameTimer = nil
-	end
-	drawn = true
+	local took = started and debugprofilestop() - started
 	local shown = PanelTemplates_GetSelectedTab(grid)
 	for i, section in ipairs(sections) do
 		listed[i] = #section.keys
 		grid.Tabs[i]:SetText(("%s (%d)"):format(SECTIONS[i].title, #section.keys))
 		PanelTemplates_TabResize(grid.Tabs[i], grid.tabPadding)
 	end
+	-- The counts change the labels, so the tabs are fitted after every resize (FitTabs).
+	FitTabs(grid)
 	rows = ns.GridRows(sections[shown], COLUMNS)
-	grid.filterButton:SetShown(SECTIONS[shown].name == "toys")
+	grid.filterButton:SetShown(filters[SECTIONS[shown].name] ~= nil)
 	-- Favorites isn't counted: its toys are the favorites, which have their star.
 	inMacro = {}
 	for _, m in ipairs(ns.GetMacros()) do
@@ -313,8 +315,8 @@ function Refresh()
 	bar:SetVisibleExtentPercentage(1 / maxFirst)
 	bar:SetPanExtentPercentage(maxFirst > 1 and WHEEL_ROWS / (maxFirst - 1) or 0)
 	bar:SetScrollPercentage(ScrollPosition(), ScrollBoxConstants.NoScrollInterpolation)
-	ns.Trace("[grid] refresh, %d toys, %d spells, %d items, showing %s, top row %d of %d", listed[1], listed[2], listed[3],
-		SECTIONS[shown].name, first, #rows)
+	ns.Trace("[grid] refresh, %s, showing %s, top row %d of %d, listed in %.1f ms", Counts(), SECTIONS[shown].name,
+		first, #rows, took or 0)
 end
 
 -- A search or filter change: only the grid shows it; back to the top.
@@ -331,6 +333,11 @@ local function ShowSection(index)
 	end
 	PanelTemplates_SetTab(grid, index)
 	ns.Trace("[grid] showing %s", SECTIONS[index].name)
+	-- At once, not in the redraw, which can wait for a mouse button (Refresh): the filter button is
+	-- this tab's, and its reset button shows whether this tab's filters are the defaults, checked again
+	-- as filters changed outside the menu are (Blizzard_Menu/11_0_0_MenuImplementationGuide.lua:230).
+	grid.filterButton:SetShown(filters[SECTIONS[index].name] ~= nil)
+	grid.filterButton:ValidateResetState()
 	ChangedList()
 end
 
@@ -354,34 +361,69 @@ end
 ns.RegisterEvent("SPELL_UPDATE_COOLDOWN", UpdateCooldowns)
 ns.RegisterEvent("BAG_UPDATE_COOLDOWN", UpdateCooldowns)
 
+-- The mount ridden or the pet that's out changed: the Mount Journal redraws its list and the mount
+-- it marks on it, whatever its argument (Blizzard_MountCollection.lua:140, 353-357, 414); the Pet
+-- Journal on "CRITTER" (Blizzard_PetCollection.lua:98, 271-275). What's listed doesn't change, so
+-- only the buttons in view are redrawn, at once: their marks, and which of a look's pets a click
+-- summons (one that isn't out). Going through ns.Changed rebuilt the whole list after its wait,
+-- which made the mark lag (seen in play). In combat, or with a mouse button held, the marks change
+-- at once (they're textures, which aren't protected) and the rest waits: Refresh for the button's
+-- release, combat's end for its redraw.
+ns.RegisterEvent("COMPANION_UPDATE", function(companionType)
+	ns.Trace("[grid] COMPANION_UPDATE %s", tostring(companionType))
+	if not grid or not grid:IsVisible() then
+		return
+	end
+	if InCombatLockdown() or IsMouseButtonDown() then
+		for _, button in ipairs(grid.buttons) do
+			if button:IsShown() and button.entry then
+				button.active:SetShown(ns.IsEntryActive(button.entry))
+			end
+		end
+		if not InCombatLockdown() then
+			Refresh()
+		end
+		return
+	end
+	ShowFrom(first)
+end)
+
 ------------------------------------------------------------------------------------------
--- The filter menu, like the Toy Box's first three (ToyBox_InitFilterDropdown, Blizzard_ToyBox.lua).
+-- The filter menu of the tab shown: the Toy Box's, the Mount Journal's or the Pet Journal's
+-- (GridFilters.lua).
+
+-- The grid's frame is the filter button's parent. The menu reads it, not `grid`: SetupMenu builds the
+-- menu at once, asking each checkbox whether it's ticked and whether the filters are the defaults
+-- (DropdownButton.lua:240-247, 284-307; MenuTemplates.lua:924-927), while the grid is being built,
+-- before `grid` is set. The frame has its tabs by then.
+local function ShownName(frame)
+	return SECTIONS[PanelTemplates_GetSelectedTab(frame)].name
+end
 
 local function SetUpFilters(filterButton)
+	local frame = filterButton:GetParent()
+	local function ShownFilters()
+		return filters[ShownName(frame)]
+	end
 	-- Off as on the Toy Box's (Blizzard_ToyBox.xml:41; MenuTemplates.xml:74-75).
 	filterButton.resizeToText = false
 	filterButton:SetWidth(90)
 	filterButton:SetIsDefaultCallback(function()
-		return tCompare(filters, ns.GRID_FILTERS)
+		local shown = ShownFilters()
+		return shown == nil or ns.GridFiltersAreDefault(ShownName(frame), shown) -- Spells and Items have none
 	end)
 	filterButton:SetDefaultCallback(function()
-		filters = CopyTable(ns.GRID_FILTERS)
-		ns.Trace("[grid] filters reset")
+		local name = ShownName(frame)
+		filters[name] = ns.DefaultGridFilters(name)
+		ns.Trace("[grid] %s filters reset", name)
 		ChangedList()
 	end)
-	local function Checkbox(rootDescription, text, name)
-		rootDescription:CreateCheckbox(text, function()
-			return filters[name]
-		end, function()
-			filters[name] = not filters[name]
-			ns.Trace("[grid] filter %s %s", name, filters[name])
-			ChangedList()
-		end)
-	end
+	-- Spells and Items have no filters, and their tabs hide the button.
 	filterButton:SetupMenu(function(_, rootDescription)
-		Checkbox(rootDescription, COLLECTED, "collected")
-		Checkbox(rootDescription, NOT_COLLECTED, "uncollected")
-		Checkbox(rootDescription, PET_JOURNAL_FILTER_USABLE_ONLY, "usableOnly")
+		local shown = ShownFilters()
+		if shown then
+			ns.AddGridFilterMenu(ShownName(frame), shown, rootDescription, ChangedList)
+		end
 	end)
 end
 
@@ -468,19 +510,25 @@ local function CreateGrid()
 	-- on the edge of the grid's frame. PanelTemplates_SetTab shows the selected one
 	-- (SharedUIPanelTemplates.lua:369-400).
 	frame.Tabs = {}
-	-- 10 more on each side than the template's 20 in all, which looked cramped; a tab's OnShow
-	-- resizes it with its parent's tabPadding too (SharedUIPanelTemplates.lua:256-258, 405-413).
-	frame.tabPadding = 20
+	-- More than the template's 20 in all, which looked cramped, and a fifth less than 20 more,
+	-- which looked too wide with five tabs (seen in play); a tab's OnShow resizes it with its
+	-- parent's tabPadding too (SharedUIPanelTemplates.lua:256-258, 405-413).
+	frame.tabPadding = 16
 	for i, section in ipairs(SECTIONS) do
 		local tab = CreateFrame("Button", nil, frame, "PanelTopTabButtonTemplate")
 		tab:SetID(i)
 		tab:SetText(section.title)
+		-- A tab resizes itself to its full label when shown and when the screen size changes
+		-- (PanelTabButtonMixin, SharedUIPanelTemplates.lua:249-258), which would undo the fit; a hook
+		-- runs after the tab's own script, so the tabs are fitted again after it.
+		tab:HookScript("OnShow", function() FitTabs(frame) end)
+		tab:HookScript("OnEvent", function() FitTabs(frame) end)
 		tab:SetScript("OnClick", function()
 			ShowSection(i)
 		end)
 		frame.Tabs[i] = tab
 	end
-	frame.Tabs[1]:SetPoint("TOPLEFT", ToyBox, "TOPLEFT", 58, -28)
+	frame.Tabs[1]:SetPoint("TOPLEFT", ToyBox, "TOPLEFT", TABS_X, -28)
 	-- As Appearances sets its own up (Blizzard_Wardrobe.lua:131-132): SetNumTabs anchors each after the
 	-- one before, and SetTab keeps the selected one on the frame (SharedUIPanelTemplates.lua:369-376).
 	-- Each session starts with the toys.
@@ -518,19 +566,25 @@ local function CreateGrid()
 	-- The search, for every tab, where the Toy Box's filter button is (Blizzard_ToyBox.xml:39-45),
 	-- leaving the tabs room.
 	frame.search = CreateFrame("EditBox", "ClickyGridSearch", frame, "SearchBoxTemplate")
-	frame.search:SetSize(115, 20)
-	frame.search:SetPoint("TOPRIGHT", ToyBox, "TOPRIGHT", -12, -35)
+	frame.search:SetSize(SEARCH_WIDTH, 20)
+	frame.search:SetPoint("TOPRIGHT", ToyBox, "TOPRIGHT", -SEARCH_RIGHT, -35)
 	frame.search:SetAutoFocus(false)
 	frame.search:HookScript("OnTextChanged", function(self)
 		ns.Trace("[grid] search %q", self:GetText())
 		ChangedList()
 	end)
-	-- The toys' filters, on the Toys tab only, in the top right corner, which is free with its
-	-- corner hidden: 18 high (MenuTemplates.xml:67), centered between the edge and the stars on the
-	-- first row (VIEW_Y less the star's 13 above its icon: 50), 16 from each, and 16 from the side.
+	-- The filters, on the Toys, Mounts and Pets tabs, above the grid's top right, which is free with its
+	-- corner hidden: 18 high (MenuTemplates.xml:67), centered between the edge and the first row's
+	-- icons ((VIEW_Y - 18) / 2 = 21 from each; a star there comes within 8, centering on the stars
+	-- looked high over the usual icon without one, seen in play); its right edge lines up with the
+	-- scroll bar's, at the grid's right (693 - VIEW_X - VIEW_WIDTH - 16 = 54).
 	frame.filterButton = CreateFrame("DropdownButton", "ClickyGridFilter", frame, "WowStyle1FilterDropdownTemplate")
-	frame.filterButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -16, -16)
+	frame.filterButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(693 - VIEW_X - VIEW_WIDTH - 16), -(VIEW_Y - 18) / 2)
 	SetUpFilters(frame.filterButton)
+	-- The Macros panel's arrow, right of the Filter button, in the room left to the window's edge. It
+	-- stays there on the tabs without a Filter button.
+	frame.panelToggle = ns.CreatePanelToggle(frame)
+	frame.panelToggle:SetPoint("LEFT", frame.filterButton, "RIGHT", 4, 0)
 
 	frame:SetScript("OnShow", Refresh)
 	grid = frame
