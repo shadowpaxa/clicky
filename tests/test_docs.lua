@@ -392,12 +392,15 @@ describe("README.md", function()
 		eq(first.macro.name, name, "the panel's first macro")
 	end)
 
+	-- Full links into the public repo, so README pasted as Wago's description shows them too.
 	it("Pictures: each one's file exists and its alt text says what it shows", function()
 		local n = 0
-		for alt, path in README:gmatch("!%[([^%]]*)%]%(([^)]+)%)") do
+		for alt, url in README:gmatch("!%[([^%]]*)%]%(([^)]+)%)") do
 			n = n + 1
-			truthy(alt:match("%S"), ("%s has alt text"):format(path))
-			local file = io.open(path, "rb")
+			truthy(alt:match("%S"), ("%s has alt text"):format(url))
+			local path = url:match("^https://raw%.githubusercontent%.com/shadowpaxa/clicky/main/(.+)$")
+			truthy(path, ("%s is a full link into the repo"):format(url))
+			local file = path and io.open(path, "rb")
 			truthy(file, ("%s exists"):format(path))
 			if file then file:close() end
 		end

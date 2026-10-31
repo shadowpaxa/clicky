@@ -7,7 +7,7 @@ the pets that chase a laser pointer, and give each group its own button. Click a
 one from it, or right-click it for a drawer of what it holds and choose one. Your macros follow you
 to every computer you play on.
 
-![Clicky's grid in the Toy Box, with its Toys, Mounts, Pets, Spells and Items tabs and a search for "fire", and the Macros panel beside it](docs/images/panel.png)
+![Clicky's grid in the Toy Box, with its Toys, Mounts, Pets, Spells and Items tabs and a search for "fire", and the Macros panel beside it](https://raw.githubusercontent.com/shadowpaxa/clicky/main/docs/images/panel.png)
 
 ## Installation
 
@@ -41,7 +41,7 @@ then Illusion mod for a random extra on top. Click either again for a new look.
 click uses a random one that isn't on cooldown. Right-click for its drawer, which shows each one's
 cooldown, and click the one you want.
 
-![The Hearthstone macro's drawer, open above its button](docs/images/drawer.png)
+![The Hearthstone macro's drawer, open above its button](https://raw.githubusercontent.com/shadowpaxa/clicky/main/docs/images/drawer.png)
 
 **Keep your portals on one button.** Put your portal toys, your "Path of the ..." spells and a
 teleport cloak from your bags in a **Portal** macro. Click for a random toy or spell, or
@@ -322,7 +322,7 @@ line is changed, Clicky shows the macro greyed out with "?" rather than guess it
 and make it again. If either line is removed, the macro is no longer a Clicky macro: it leaves the
 panel and no longer uses items.
 
-![The Hearthstone macro in /macro: its /click line and its #clicky line](docs/images/macro.png)
+![The Hearthstone macro in /macro: its /click line and its #clicky line](https://raw.githubusercontent.com/shadowpaxa/clicky/main/docs/images/macro.png)
 
 **Why does each macro click something called Clicky plus four letters?** WoW only lets a toy be used
 when you click something, not when an addon asks. So each macro clicks a hidden button called
@@ -351,5 +351,5 @@ again and they work as before.
 
 ## Development
 
-[docs/architecture.md](docs/architecture.md) covers how the code fits together, running the
+[docs/architecture.md](https://github.com/shadowpaxa/clicky/blob/main/docs/architecture.md) covers how the code fits together, running the
 tests, and making releases.

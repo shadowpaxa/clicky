@@ -115,9 +115,11 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
 
 ## Commits and releases
 
-- `main` is on GitHub (private `shadowpaxa/clicky`). Add new commits; don't amend or force-push
-  pushed history. Commits are authored `shadowpaxa <shadowpaxa@gmail.com>` (set in this clone's
-  `.git/config`; set it in any new clone). Nothing personal beyond that goes in the repo.
+- `main` is on GitHub (public `shadowpaxa/clicky`). Add new commits; don't amend or force-push
+  pushed history. Commits are authored `shadowpaxa <shadowpaxa@gmail.com>` and pushed as the
+  shadowpaxa GitHub account (this clone's `.git/config` sets both, with `gh auth git-credential`
+  as GitHub's credential helper; set them in any new clone). The repo is public: nothing personal
+  beyond that goes in it.
 - Release: add a section to the top of `CHANGELOG.md` (`.pkgmeta`'s manual-changelog makes it the
   release notes) and commit everything else, then run `tools/release.sh v0.5.0-alpha1`. It runs
   `tools/update_toys.py` (appends the toys patches added to ToyList.lua), checks the changelog's
