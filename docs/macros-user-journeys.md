@@ -33,8 +33,8 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
 - 2026-10-25: A macro mixes toys, spells and bag items (entries), up to 100 of any mix. Players add
   them in the same grid, in sections after the toys: the spells the character knows that Clicky's
   list has (the spellbook's flyouts and the Professions book included), then the usable items in
-  the bags or worn that the list has. The word for what a macro holds is "items" in messages, panel counts and the README;
-  Favorites holds only toys, so its messages say "toys". The grid has no "in a macro" filter or
+  the bags or worn that the list has. The word for what a macro holds is "items" in messages,
+  panel counts and the README; Favorites holds only toys, so its messages say "toys". The grid has no "in a macro" filter or
   section; the check mark is the only sign. Favorites holds toys only: it is the Toy Box's stars,
   which only toys have. An item that can be worn is chosen only from the drawer: the game's item
   action wears it if it isn't worn instead of using it, so a click on the macro never picks it.

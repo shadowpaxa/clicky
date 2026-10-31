@@ -1,5 +1,14 @@
 # Clicky
 
+## 1.0.0
+
+- **Clicky's first full release.** Your macros from 0.6.0 and later keep working, and updates from
+  now on won't break them.
+- **Profession spells are on the Spells tab,** such as Cooking Fire, Fishing and Survey, so they
+  can go in your macros.
+- **Macros from Clicky 0.4.0 no longer show in the panel.** They couldn't be used anyway: delete
+  them in /macro.
+
 ## 0.7.0 (alpha)
 
 - **Update Clicky on every computer you play on.** Clicky 0.6.0 can't use macros that hold mounts

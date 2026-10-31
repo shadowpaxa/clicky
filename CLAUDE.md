@@ -87,8 +87,8 @@ Clicky uses checked against Blizzard's live UI source; `tests/fetch.sh` refreshe
   documentation or source; keep it one file. A second computer on the same account is `wow.New({
   account = world.account })`; `world:AddToy` adds a toy to the game, `world:AddSpell` a spell (on a
   spellbook skill line, in a flyout or a profession's), `world:AddItem` an item (in a bag or worn),
-  `world:AddMount` a mount and `world:AddPet` (or `world:LearnPet`) a pet the player owns. Clicky's toy list
-  (ToyList.lua) is `wow.New`'s `toyList` option: a toy's item ID, `"s<id>"` for a spell, `"i<id>"`
+  `world:AddMount` a mount and `world:AddPet` (or `world:LearnPet`) a pet the player owns.
+  Clicky's toy list (ToyList.lua) is `wow.New`'s `toyList` option: a toy's item ID, `"s<id>"` for a spell, `"i<id>"`
   for an item, `"m<id>"` for a mount, `"p<species>:<display>"` for a pet look; without it the list
   is the account's toys when the world is made; its `TOY_HIDDEN` is the `toyHidden` option. A test
   that adds or removes game toys passes it explicitly, so places don't move; a shorter or longer
@@ -122,8 +122,8 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
   "Clicky 1.1.0" if either changed, pushes, then pushes an annotated tag. It refuses to run off
   `main`.
   A tag with `alpha` or `beta` releases as that; any other tag as a full release (BigWigsMods
-  packager, release.sh). The tag runs CI, then `.github/workflows/release.yml` packages and uploads to Wago (project `mKOa3ENx`,
-  secret `WAGO_API_TOKEN`). Check the run with `gh run list -R shadowpaxa/clicky`.
+  packager, release.sh). The tag runs CI, then `.github/workflows/release.yml` packages and
+  uploads to Wago (project `mKOa3ENx`, secret `WAGO_API_TOKEN`). Check the run with `gh run list -R shadowpaxa/clicky`.
 
 ## README
 
@@ -161,8 +161,8 @@ start again from step 1. Done means one full pass with no findings.
    the changelog. Every changelog sentence is true of the code being released,
    including what an older Clicky does with new macros (read that version's code at its tag).
 3. **The docs.** The journeys, CLAUDE.md and each file's header say each item from step 1;
-   README.md says it only if a player needs it (the README rules above). Grep for every name, message, number and term the change removed
-   or renamed: no stale mention is left.
+   README.md says it only if a player needs it (the README rules above). Grep for every name,
+   message, number and term the change removed or renamed: no stale mention is left.
 4. **Readable prose.** Read each changed passage of the changelog, README.md and the journeys as
    a player would. Each changelog bullet leads with what the player notices, then says what to
    do, if anything. Sentences are short and plain; one idea per bullet; no internal terms
@@ -224,10 +224,10 @@ start again from step 1. Done means one full pass with no findings.
   spellbook's: its skill lines' active spells and the known spells in its flyouts
   (`C_SpellBook.GetSpellBookSkillLineInfo` and `GetSpellBookItemInfo`; `GetFlyoutInfo` and
   `GetFlyoutSlotInfo`, which Blizzard's own spell search calls on flyouts,
-  Blizzard_SpellSearchTextFilter.lua), and the professions' spells, as the Professions book finds them
-  (`GetProfessions` and `GetProfessionInfo`'s spell count and offset, Blizzard_ProfessionsBook.lua),
-  not passive and not off-spec. Items are those in the bags
-  (the backpack, the equipped bags and the reagent bag: `0` to `NUM_TOTAL_EQUIPPED_BAG_SLOTS`,
+  Blizzard_SpellSearchTextFilter.lua), and the professions' spells, as the Professions book
+  finds them (`GetProfessions` and `GetProfessionInfo`'s spell count and offset,
+  Blizzard_ProfessionsBook.lua), not passive and not off-spec. Items are those in the bags (the
+  backpack, the equipped bags and the reagent bag: `0` to `NUM_TOTAL_EQUIPPED_BAG_SLOTS`,
   Constants.lua) and the worn ones (`INVSLOT_FIRST_EQUIPPED` to `INVSLOT_LAST_EQUIPPED`); the bank
   isn't looked at. Spells and items change with `SPELLS_CHANGED`, `BAG_UPDATE_DELAYED` and
   `PLAYER_EQUIPMENT_CHANGED` (through `ns.Changed`, so in combat the grid waits), and their

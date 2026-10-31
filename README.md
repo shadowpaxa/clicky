@@ -9,9 +9,9 @@ macros follow you to every computer you play on.
 
 ## Installation
 
-Clicky is for World of Warcraft Retail (Midnight). Get it from
-[Wago](https://addons.wago.io/addons/clicky), or download it there and unzip it into
-`World of Warcraft/_retail_/Interface/AddOns`.
+Clicky is for World of Warcraft Retail (Midnight). Install it from
+[Wago](https://addons.wago.io/addons/clicky) with your addon manager, or download it there and
+unzip it into `World of Warcraft/_retail_/Interface/AddOns`.
 
 ## Getting started
 
@@ -46,9 +46,9 @@ Clicky is for World of Warcraft Retail (Midnight). Get it from
   one first.
 - In combat your buttons and drawers work, but macros can't be changed.
 - You can add your own lines to a Clicky macro in `/macro`. Leave its `/click` and `#clicky` lines
-  as they are: they hold its button and its items.
-- Clicky changes only its own macros and the stars you set from its menus. If you remove Clicky,
-  its macros stay in `/macro` and do nothing.
+  as they are: the first clicks its button, the second holds its items.
+- Clicky changes only its own macros, and the stars and gift wraps you click in it. If you remove
+  Clicky, its macros stay in `/macro` and do nothing.
 
 ## Limits
 
