@@ -92,3 +92,5 @@ patch adds.
 
 [CLAUDE.md](https://github.com/shadowpaxa/clicky/blob/main/CLAUDE.md) has the rules the code
 follows, how to run the tests and how to release.
+
+Clicky was inspired by [Select](https://www.wowinterface.com/downloads/info11607) by Gello.
