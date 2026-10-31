@@ -152,7 +152,8 @@ Paste it into a macro of your own to use a random item from the Clicky macro the
 ### Copying a macro
 
 Make a new general macro in `/macro` and paste in the old macro's text. From then on the two are
-separate, so changing one leaves the other alone.
+separate, so changing one leaves the other alone (see "A copy that stays tied to its original"
+under "Details").
 
 ## In combat
 
@@ -220,6 +221,11 @@ keeps working in your macros.
 
 **Hiding the Macros panel.** The arrow beside the grid's **Filter** button hides the panel; click it
 again to bring it back. The panel is back each time you log in or reload.
+
+**A copy that stays tied to its original.** A copy with long lines of your own in accented or
+non-Latin letters may not fit once Clicky gives it its own button, so it's left as it is: it uses
+the original's items and changes with it. Shorten your lines in the copy in `/macro`, and it gets
+its own button.
 
 **Deleting Favorites' macro.** Favorites stays in the panel, named Favorites again and ready to
 drag.

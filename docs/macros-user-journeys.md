@@ -242,6 +242,11 @@ another WoW account, it works there too (every account has the same game toys, m
 and items), with the items that account has, as long as that account's Clicky is the same version or
 newer.
 
+A copy holding more than Clicky can write back (lines of the player's own in letters that take
+more room, such as accented or non-Latin ones) is left as it is: it uses the original's items and
+changes with it, and `/clicky debug` counts it under "waiting". Once the player shortens those
+lines, it gets buttons of its own.
+
 ## 13. An item leaves
 *Goal: keep playing after a toy leaves the collection or the game, a pet is caged or released, a
 spell is forgotten, or an item is no longer carried.*

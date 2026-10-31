@@ -1115,6 +1115,27 @@ describe("journeys", function()
 		list(UsedToys(world, 1), { PIRATE, ORB }, "the original is unchanged")
 	end)
 
+	it("12. Copy a macro: a copy too long to rewrite keeps the original's button, and nothing hangs", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		local body = world.macros[1].body
+		-- A line of the player's own in accented letters: under /macro's 255 characters, over 255
+		-- bytes, which Clicky can't write back.
+		local long = body .. "\n/say " .. ("é"):rep(240 - #body)
+		world.bars[1] = world:CreateMacroInUI("Mine", long)
+		local copy = world:FindMacroByName("Mine")
+		ok(#copy.body > 255, "more than 255 bytes: " .. #copy.body)
+		eq(copy.body, long, "left as it is")
+		eq(CodeOf(copy.body), Code(world, "Illusion"), "it still clicks the original's button")
+		list(UsedToys(world, 1), { PIRATE }, "and uses the original's toys")
+		ok(Debug(world):find("\nwaiting: copies too long to separate: 1\n", 1, true), Debug(world))
+		-- The player shortens the line in /macro.
+		world:EditMacroInUI(world.macros[2] == copy and 2 or 1, "Mine", body .. "\n/say hi")
+		ok(CodeOf(copy.body) ~= Code(world, "Illusion"), "then it gets buttons of its own: " .. copy.body)
+		ok(Debug(world):find("\nwaiting: nothing\n", 1, true), Debug(world))
+		eq(#world:TakeErrors(), 0)
+	end)
+
 	it("7. Put a macro on a bar: the player's own macro can /click a Clicky macro's button", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")

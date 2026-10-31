@@ -88,6 +88,22 @@ local function Letters(s)
 	return select(2, s:gsub("[^\128-\191]", ""))
 end
 
+-- The first n characters of a UTF-8 string. /macro's body box holds 255 characters, whatever their
+-- bytes (MacroFrameText letters="255", Blizzard_MacroUI.xml; its counter is GetNumLetters).
+local function FirstLetters(s, n)
+	local letters = 0
+	for at = 1, #s do
+		local byte = s:byte(at)
+		if byte < 0x80 or byte >= 0xC0 then
+			letters = letters + 1
+			if letters > n then
+				return s:sub(1, at - 1)
+			end
+		end
+	end
+	return s
+end
+
 -- General macros are kept sorted by name, so creating or renaming one can move it and others
 -- (warcraft.wiki.gg API_EditMacro: "as they are sorted alphabetically"). Returns m's new index.
 local function SortMacros(macros, m)
@@ -1060,11 +1076,11 @@ function World:GridFilterMenu()
 end
 
 -- The player editing macros in /macro, which saves through EditMacro and CreateMacro; bodies are
--- cut to 255 characters (MacroFrameText letters="255").
+-- cut to 255 characters, which can be more than 255 bytes (MacroFrameText letters="255").
 function World:EditMacroInUI(index, name, body)
 	assert(not self.combat, "/macro can't save in combat: EditMacro is nocombat (warcraft.wiki.gg API EditMacro)")
 	local m = assert(self.macros[index], "no macro " .. tostring(index))
-	m.name, m.body = name or m.name, (body or m.body):sub(1, 255)
+	m.name, m.body = name or m.name, FirstLetters(body or m.body, 255)
 	SortMacros(self.macros, m)
 	self:Fire("UPDATE_MACROS")
 end
@@ -1073,7 +1089,7 @@ function World:CreateMacroInUI(name, body, perCharacter)
 	assert(not self.combat, "/macro can't save in combat: CreateMacro is nocombat (warcraft.wiki.gg API CreateMacro)")
 	local macros = perCharacter and self.characterMacros or self.macros
 	local m = { name = name, body = body }
-	m.body = body:sub(1, 255) -- MacroFrameText letters="255" (Blizzard_MacroUI.xml)
+	m.body = FirstLetters(body, 255) -- MacroFrameText letters="255" (Blizzard_MacroUI.xml)
 	table.insert(macros, m)
 	SortMacros(macros, m)
 	self:Fire("UPDATE_MACROS")

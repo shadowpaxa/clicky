@@ -443,13 +443,17 @@ local function SeparateCopies(records, canWrite)
 		if live[rec.id] ~= rec and not ns.IsLegacyID(rec.id) then
 			if canWrite then
 				local newCode = NewCode(records)
-				-- A code replaces a code of the same length, so the body never grows and EditMacro
-				-- (which keeps 255 characters) saves all of it.
-				ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetCode(rec.body, rec.id, newCode))
-				ns.Trace("[%s] copy of %s, now %s", rec.name, ns.ButtonName(rec.id), ns.ButtonName(newCode))
-				return live, true
+				-- A code replaces a code of the same length, so the body never grows. But /macro holds
+				-- 255 characters (MacroFrameText letters="255"), which can be more bytes than Clicky
+				-- writes (MacroStore.lua): such a copy is left as it is, or this would retry forever.
+				if ns.EditMacroAt(rec.index, rec.name, rec.icon, ns.SetCode(rec.body, rec.id, newCode)) then
+					ns.Trace("[%s] copy of %s, now %s", rec.name, ns.ButtonName(rec.id), ns.ButtonName(newCode))
+					return live, true
+				end
+				Wait("copies too long to separate")
+			else
+				Wait("copies to separate")
 			end
-			Wait("copies to separate")
 		end
 	end
 	return live, false
