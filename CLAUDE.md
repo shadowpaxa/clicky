@@ -49,17 +49,13 @@ test "Never changes the player's settings" fails on any such call.
   four random consonants (`BCDFGHJKLMNPQRSTVWXZ`). Favorites' is `/click [btn:2]ClickyPFVRT;ClickyFVRT`
   (`FVRT` is reserved, no macro is given it), and its macro is found by that line, not its name.
   Never rename the `Clicky<code>` or `ClickyP<code>` buttons or change that line, except to give
-  a copied macro its own code (both buttons). 0.4.0's `ClickyP<number>;ClickySet<number>` line is
-  recognized only to show that macro as damaged (MacroStore.lua): never rewritten, its copies not
-  separated. 0.4.0's Favorites line (`ClickyP0;ClickyButton`) is not recognized.
+  a copied macro its own code (both buttons). Any other `/click` line isn't a Clicky macro's.
 - Changing the `#clicky` format means a new format version in Codec.lua. Macros are written in
-  format 6 (with a checksum), the only format read; 1 to 5 (0.4.0's format 4 and 0.5.0's format 5
-  included) read as damaged. An unreleased format may change in place. Favorites' macro has no
-  `#clicky` line.
-- **No compatibility work until spells and items in macros work and seem sane** (decided
-  2026-10-25): no migration, no reading of old formats, nothing for older Clicky versions; alpha
-  releases may break macros, and players make them again. The format this work ships with is the
-  first one later versions keep reading; from then on, full releases must not break macros.
+  format 6 (with a checksum), the only format read; anything else reads as damaged. An unreleased
+  format may change in place. Favorites' macro has no `#clicky` line.
+- **A release never breaks players' macros.** Every later version reads format 6 and the places in
+  `ToyList.lua`; a new format is read alongside format 6, never instead of it. Earlier formats read
+  as damaged, with no migration.
 - An entry's number in a macro (a toy, mount, pet look, spell or item: Entries.lua) is its place in
   `ToyList.lua`, which only grows at the end (`tools/update_toys.py` appends;
   `tests/check_toylist.py` checks against every tagged release). Never reorder it or remove from it.
@@ -120,15 +116,14 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
   as GitHub's credential helper; set them in any new clone). The repo is public: nothing personal
   beyond that goes in it.
 - Release: add a section to the top of `CHANGELOG.md` (`.pkgmeta`'s manual-changelog makes it the
-  release notes) and commit everything else, then run `tools/release.sh v0.5.0-alpha1`. It runs
+  release notes) and commit everything else, then run `tools/release.sh v1.1.0`. It runs
   `tools/update_toys.py` (appends the toys patches added to ToyList.lua), checks the changelog's
-  top section is `## 0.5.0`, runs `tests/run.sh`, commits ToyList.lua and CHANGELOG.md as
-  "Clicky 0.5.0" if either changed, pushes, then pushes an annotated tag. It refuses to run off
+  top section is `## 1.1.0`, runs `tests/run.sh`, commits ToyList.lua and CHANGELOG.md as
+  "Clicky 1.1.0" if either changed, pushes, then pushes an annotated tag. It refuses to run off
   `main`.
   A tag with `alpha` or `beta` releases as that; any other tag as a full release (BigWigsMods
   packager, release.sh). The tag runs CI, then `.github/workflows/release.yml` packages and uploads to Wago (project `mKOa3ENx`,
   secret `WAGO_API_TOKEN`). Check the run with `gh run list -R shadowpaxa/clicky`.
-- Compatibility: alpha releases may break players' macros; full releases must not.
 
 ## README
 

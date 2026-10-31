@@ -24,12 +24,11 @@
 -- A runtime macro m has: id, name, icon, index, button, lastUsed (a key), data, and state:
 --   "ready"      entries (key -> true) read from data
 --   "newer"      saved by a newer Clicky, or holding an entry this Clicky's list doesn't have yet
---   "unreadable" damaged (every format but 6 included, and so every macro 0.4.0 wrote)
+--   "unreadable" damaged: anything but format 6
 -- reason says why. Unreadable macros load nothing onto their buttons and can't have entries changed.
 -- Favorites (id ns.FAVORITES_ID, builtin): its toys are the Toy Box stars, and its macro is found
 -- by its /click line (ns.FindFavoritesMacro); it may not exist yet, and it holds no data.
--- A macro's id is its code (four random letters, NewCode); a macro 0.4.0 wrote has its number as a
--- string (ns.IsLegacyID), is always unreadable, and is never rewritten or separated from its copies.
+-- A macro's id is its code (four random letters, NewCode).
 --
 -- Rules every write follows: nothing is written in combat (macros and secure attributes are
 -- locked; the work waits for PLAYER_REGEN_ENABLED).
@@ -441,9 +440,7 @@ local function SeparateCopies(records, canWrite)
 		live[rec.id] = live[rec.id] or Original(records, rec.id)
 	end
 	for _, rec in ipairs(records) do
-		-- 0.4.0's macros are shown as damaged and never rewritten: an extra one with the same number
-		-- is left alone and not shown.
-		if live[rec.id] ~= rec and not ns.IsLegacyID(rec.id) then
+		if live[rec.id] ~= rec then
 			if canWrite then
 				local newCode = NewCode(records)
 				-- A code replaces a code of the same length, so the body never grows. But /macro holds

@@ -14,7 +14,7 @@
 -- and puts on ns only what other files call; the list is at the top of each file. This one has
 -- the shared names, messages, tracing, change notification and event wiring:
 --   ns.FAVORITES_ID, ns.FAVORITES_MACRO, ns.FAVORITES_ICON
---   ns.BUTTON_PREFIX, ns.DRAWER_BUTTON_PREFIX, ns.SET_BUTTON_PREFIX
+--   ns.BUTTON_PREFIX, ns.DRAWER_BUTTON_PREFIX
 --   ns.Print(msg), ns.ShowError(msg)
 --   ns.Trace(format, ...), ns.IsTracing(), ns.SetTracing(on)
 --   ns.RegisterView(name, isShown, refresh, delay), ns.Changed()   views (the panel, the grid)
@@ -33,9 +33,6 @@ ns.FAVORITES_MACRO = "Favorites" -- its macro's name when Clicky makes it
 ns.FAVORITES_ICON = "Trade_Archaeology_ChestofTinyGlassAnimals" -- the Toy Box portrait
 ns.BUTTON_PREFIX = "Clicky" -- followed by the macro's id: a click uses an entry
 ns.DRAWER_BUTTON_PREFIX = "ClickyP" -- followed by the id: right-click opens the drawer
--- 0.4.0 named the toy button ClickySet<number> (drawer ClickyP<number>). Clicky reads those macros
--- only to show them as damaged (MacroStore.lua).
-ns.SET_BUTTON_PREFIX = "ClickySet"
 
 local tracing = false -- the debug window's Trace box: record every pick, click and change (Debug.lua)
 

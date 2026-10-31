@@ -1,5 +1,5 @@
 #!/bin/sh
-# Releases Clicky: tools/release.sh v0.5.0-alpha1
+# Releases Clicky: tools/release.sh v1.1.0
 # Updates ToyList.lua from the live game build, checks CHANGELOG.md's top section is this
 # version's, runs the tests, commits ToyList.lua and CHANGELOG.md if either changed, pushes, then
 # tags and pushes the tag, which makes GitHub run CI and upload to Wago
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 tag="$1"
 if ! echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)[0-9]+)?$'; then
-	echo "usage: tools/release.sh v0.5.0-alpha1 (a tag like v1.2.3, v1.2.3-alpha1 or v1.2.3-beta2)" >&2
+	echo "usage: tools/release.sh v1.1.0 (a tag like v1.2.3, v1.2.3-alpha1 or v1.2.3-beta2)" >&2
 	exit 1
 fi
 version="${tag#v}"

@@ -9,7 +9,7 @@
 --   ns.EditMacroAt(index, name, icon, body)   -> index | nil, reason
 --   ns.DeleteMacroAt(index)
 --   ns.NewBody(id, data), ns.SetDataLine(body, data), ns.SetCode(body, oldID, newCode),
---   ns.ButtonName(id), ns.TruncateMacroName(name), ns.IsLegacyID(id)   game-independent
+--   ns.ButtonName(id), ns.TruncateMacroName(name)   game-independent
 --   ns.CODE_LETTERS, ns.CODE_LENGTH           the letters and length of a macro's code
 --
 -- A Clicky macro's id is its code: four random capitals from CODE_LETTERS (Macros.lua draws it).
@@ -23,13 +23,8 @@
 -- which opens the macro's drawer (Drawer.lua), anything else to Clicky<code>, which uses a toy.
 -- Favorites' macro is the general macro whose line is /click [btn:2]ClickyPFVRT;ClickyFVRT, with
 -- no data line (FVRT is its reserved code). The /click line is what players' bars depend on: it's
--- only rewritten to give a copied macro a code of its own.
--- Macros 0.4.0 wrote have a /click line with a number, /click [btn:2]ClickyP<number>;ClickySet<number>
--- (Favorites': ClickyP0;ClickyButton). A macro with that line and a data line is read, with the
--- number as a string for its id (a "legacy" id), so that it shows as a macro Clicky can't read
--- (its data is not format 6, so Macros.lua reads it as damaged): Clicky never rewrites its line or
--- body, and doesn't separate copies of it. Favorites' old line has no data line, so it is not a
--- Clicky macro, and FindFavoritesMacro doesn't match it.
+-- only rewritten to give a copied macro a code of its own. A /click line naming any other button
+-- (an earlier Clicky's numbered ones, say) isn't a Clicky macro's.
 
 local _, ns = ...
 
@@ -62,17 +57,8 @@ local CODE_LENGTH = 4
 -- "Clicky" + a code + a non-word character. It can't match ClickyPanel, a drawer's name (five
 -- capitals after "Clicky").
 local CODE_PATTERN = "Clicky(" .. ("[" .. CODE_LETTERS .. "]"):rep(CODE_LENGTH) .. ")%f[%W]"
-local LEGACY_PATTERN = ns.SET_BUTTON_PREFIX .. "(%d+)%f[%W]"
-
--- 0.4.0's macros: the id is the number as a string. Codes are letters, so they can't collide.
-local function IsLegacyID(id)
-	return tostring(id):find("^%d+$") ~= nil
-end
 
 local function ButtonName(id)
-	if IsLegacyID(id) then
-		return ns.SET_BUTTON_PREFIX .. id
-	end
 	return ns.BUTTON_PREFIX .. id
 end
 
@@ -96,13 +82,12 @@ local function IsClickLine(line)
 	return line:find("^%s*/click") ~= nil
 end
 
--- The id of the first Clicky button a /click line in body clicks (a code, or for 0.4.0's the
--- number as a string), and the data line's data.
+-- The code of the first Clicky button a /click line in body clicks, and the data line's data.
 local function ParseBody(body)
 	local id, data
 	for _, line in ipairs(Lines(body or "")) do
 		if not id and IsClickLine(line) then
-			id = line:match(CODE_PATTERN) or line:match(LEGACY_PATTERN)
+			id = line:match(CODE_PATTERN)
 		end
 		if not data and line:sub(1, #DATA_PREFIX) == DATA_PREFIX then
 			data = strtrim(line:sub(#DATA_PREFIX + 1))
@@ -150,13 +135,12 @@ ns.NewBody = NewBody
 ns.SetDataLine = SetDataLine
 ns.SetCode = SetCode
 ns.ButtonName = ButtonName
-ns.IsLegacyID = IsLegacyID
 ns.CODE_LETTERS = CODE_LETTERS
 ns.CODE_LENGTH = CODE_LENGTH
 
 ------------------------------------------------------------------------------------------
 -- Reading: every general macro (indexes 1..numAccount) with a #clicky line and a Clicky
--- /click line (0.4.0's included), in index order, as { index, name, icon, body, id, data }.
+-- /click line, in index order, as { index, name, icon, body, id, data }.
 
 function ns.ReadMacros()
 	local records = {}

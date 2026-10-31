@@ -12,10 +12,8 @@ to every computer you play on.
 ## Installation
 
 Clicky is for World of Warcraft Retail (Midnight). It's on
-[Wago](https://addons.wago.io/addons/clicky), not CurseForge. It only has alpha
-releases so far, so if your addon manager hides alpha releases, turn them on for Clicky. To
-install by hand, download it from Wago and unzip it into
-`World of Warcraft/_retail_/Interface/AddOns`, so that you have an `AddOns/Clicky` folder.
+[Wago](https://addons.wago.io/addons/clicky), not CurseForge. To install by hand, download it from
+Wago and unzip it into `World of Warcraft/_retail_/Interface/AddOns`, so that you have an `AddOns/Clicky` folder.
 
 ## Getting started
 
@@ -152,8 +150,7 @@ Paste it into a macro of your own to use a random item from the Clicky macro the
 ### Copying a macro
 
 Make a new general macro in `/macro` and paste in the old macro's text. From then on the two are
-separate, so changing one leaves the other alone (see "A copy that stays tied to its original"
-under "Details").
+separate, so changing one leaves the other alone.
 
 ## In combat
 
@@ -222,11 +219,6 @@ keeps working in your macros.
 **Hiding the Macros panel.** The arrow beside the grid's **Filter** button hides the panel; click it
 again to bring it back. The panel is back each time you log in or reload.
 
-**A copy that stays tied to its original.** A copy with long lines of your own in accented or
-non-Latin letters may not fit once Clicky gives it its own button, so it's left as it is: it uses
-the original's items and changes with it. Shorten your lines in the copy in `/macro`, and it gets
-its own button.
-
 **Deleting Favorites' macro.** Favorites stays in the panel, named Favorites again and ready to
 drag.
 
@@ -285,21 +277,12 @@ before the next one.
 **Making or renaming a macro says "There's already a macro called" and its name.**
 Two Clicky macros can't share a name. Choose another name.
 
-**A macro does nothing on another computer, and isn't in its Clicky panel.**
-That computer is still on Clicky 0.4.0, which doesn't recognize macros made by a
-newer Clicky. Update Clicky there.
-
-**A macro from Clicky 0.4.0 is greyed out in the panel.**
-This version doesn't read macros Clicky 0.4.0 made. Delete it and make it again. Favorites'
-button from 0.4.0 does nothing and has no row in the panel: drag Favorites from the panel to your
-bar again; the old macro stays in /macro until you delete it.
-
 **A macro's icon is greyed out with "?" for its item count.**
 Clicky can't read that macro's items. Hover over it for the reason:
 
 - "This macro was saved by a newer version of Clicky": update Clicky.
-- "Clicky can't read this macro's items": its `#clicky` line was changed, or it was saved by
-  Clicky 0.4.0 or 0.5.0. Delete it and make it again.
+- "Clicky can't read this macro's items": its `#clicky` line was changed. Delete it and make it
+  again.
 
 You can still rename it, delete it or move it on your bars.
 

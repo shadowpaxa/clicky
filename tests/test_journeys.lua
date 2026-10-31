@@ -61,7 +61,7 @@ local UNKNOWN_TOY = "Clicky doesn't know this item yet. Update Clicky."
 
 -- A macro as Clicky 0.4.0 wrote it (its /click line names ClickySet<number>), made by the real
 -- 0.4.0 code: a worktree of this repository at tag v0.4.0-alpha1, MakeMacro("Illusion", 101), then
--- SetEntry for 201. Clicky reads these as damaged (data in format 4).
+-- SetEntry for 201. Its /click line isn't a Clicky macro's.
 local V040_PIRATE_HAT = "/click [btn:2]ClickyP1;ClickySet1\n"
 	.. "#clicky gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c"
 
@@ -1036,27 +1036,24 @@ describe("journeys", function()
 		list(UsedToys(world, 1), { PIRATE }, "made again")
 	end)
 
-	it("10. Update Clicky: macros from 0.4.0 read as damaged, like 0.5.0's, and are never rewritten", function()
+	it("10. Update Clicky: macros from 0.4.0 aren't Clicky macros: no row, left as they are", function()
 		local world = World({ macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT },
 			{ name = "Illusion 2", icon = 1001, body = V040_PIRATE_HAT },
 			{ name = "Stars", icon = "x", body = OLD_FAVORITES_LINE } } })
 		world.bars[1] = world.macros[1]
-		list(PanelTexts(world), { "Favorites", "Illusion" }, "a row for Illusion")
-		ExpectUnreadable(world, "Illusion", UNREADABLE, 1)
+		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
 		eq(world.macros[1].body, V040_PIRATE_HAT, "not rewritten")
-		eq(world.macros[2].body, V040_PIRATE_HAT, "nor is its copy, which has no row")
-		eq(world.macros[3].body, OLD_FAVORITES_LINE, "nor is the old Favorites macro, which isn't a Clicky macro")
-		assert(world.env.ClickySet1, "the button the macro clicks")
+		eq(world.macros[2].body, V040_PIRATE_HAT, "nor is its copy")
+		eq(world.macros[3].body, OLD_FAVORITES_LINE, "nor is the old Favorites macro")
+		eq(world.env.ClickySet1, nil, "no button for its line")
 		eq(world.env.ClickyButton, nil)
-		assert(world.ns.RenameMacro(Macro(world, "Illusion"), "Hat"))
-		eq(world:FindMacroByName("Hat").body, V040_PIRATE_HAT, "renamed, line and body as they were")
+		list(UsedToys(world, 1), {}, "it does nothing")
 		world.ns.PickupMacro(Favorites(world))
 		eq(#world.macros, 4, "Favorites gets a macro of its own")
 		eq(world.cursor.body, FAVORITES_LINE)
-		eq(world:FindMacroByName("Stars").body, OLD_FAVORITES_LINE, "the old one is untouched")
-		assert(world.ns.DeleteMacro(Macro(world, "Hat")))
 		MakeMacro(world, PIRATE, "Illusion")
-		list(UsedToys(world, 2), {}, "bar 2 is empty")
+		eq(world:FindMacroByName("Illusion").body, V040_PIRATE_HAT, "a new macro of the same name leaves it alone")
+		eq(#world:TakeErrors(), 0)
 	end)
 
 	it("11. Can't be read: a macro saved by a newer Clicky says to update", function()

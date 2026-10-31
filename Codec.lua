@@ -16,10 +16,7 @@
 -- macro holds an entry it doesn't know yet (a newer list), which Macros.lua reads as a newer version.
 --
 -- A first character above 48 is a later format (48 + n is format 6 + n; 63 is format 21 and any
--- after it), which reads as newer. Clicky 0.5.0 read the first character as version * 8 + r and
--- anything past its version 5 as newer, so it reads format 6 and later as newer too.
--- Every other first character reads as damaged: formats 1 to 5 (alpha releases may break
--- macros), 0.4.0's and 0.5.0's included.
+-- after it), which reads as newer. Every other first character reads as damaged.
 -- Lua 5.1's numbers are doubles, exact to 2^53, and there are no bitwise operators.
 --
 -- The fixed rule every macro follows: at most MACRO_ENTRY_CAP = 100 entries, guaranteed to fit while

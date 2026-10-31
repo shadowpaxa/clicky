@@ -15,11 +15,8 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
 - 2026-10-17: No Random/Pick switch and no saved pick. Every macro is random on a click and has a
   drawer on a right-click. The point is less code.
 - 2026-10-17: Favorites works like any other macro, with as few exceptions as possible.
-- 2026-10-17: Alpha releases may break players' macros, with no migration code; full releases
-  must not. 2026-10-25: no compatibility work at all (no migration, no reading of old formats,
-  nothing for older Clicky versions) until spells and items in macros work and seem sane; the
-  format this work ships with is the first one later versions keep reading. The one conversion
-  Clicky had, of macros saved by 0.4.0, is gone: they read as damaged.
+- 2026-10-30: A release never breaks players' macros: every later version reads format 6 and an
+  entry's place in Clicky's list. Earlier formats read as damaged, with no migration.
 - 2026-10-17: No license, and no bug-report route for now.
 - 2026-10-18: No saved variables: a macro is the only copy of its items.
 - 2026-10-18: Nothing in the repo states what the code or a cited source doesn't confirm.
@@ -200,19 +197,6 @@ macros, and shows in Clicky's grid
 be added. A macro that holds such an item shows as made by a newer version on a computer whose
 Clicky is older (journey 11).
 
-Macros saved by Clicky 0.5.0 can't be read (journey 11): the player deletes them and makes them
-again. Favorites' macro has no items in it, so it isn't affected. A computer still on 0.5.0 shows a
-macro this version made as saved by a newer version (journey 11), so Clicky needs updating there
-too.
-
-Macros saved by Clicky 0.4.0 are no longer converted: they read as damaged (journey 11), like
-0.5.0's. Their `/click` lines (`ClickyP<number>;ClickySet<number>`) are still recognized so the
-macro has a row, greyed out; Clicky never rewrites their line or body. The player deletes them and
-makes them again. 0.4.0's Favorites macro (its line is `ClickyP0;ClickyButton`, with no `#clicky`
-line) is not Favorites' macro and has no row: its button on a bar does nothing (`/click` with no
-button of that name does nothing, SlashCommands.lua), and dragging Favorites makes a macro of its
-own, leaving the old one in /macro.
-
 ## 11. A macro whose items can't be read
 *Goal: understand a macro Clicky can't use.*
 1. Look at the macro in the panel, hover over it, or click it.
@@ -221,7 +205,7 @@ own, leaving the old one in /macro.
 Hovering over it, and clicking it (in the panel or on a bar), says why:
 - It was saved by a newer Clicky, including one with items this Clicky's list doesn't have yet:
   "This macro was saved by a newer version of Clicky. Update Clicky to use it."
-- Its `#clicky` line was changed (in /macro, say), or it was saved by Clicky 0.4.0 or 0.5.0:
+- Its `#clicky` line was changed (in /macro, say):
   "Clicky can't read this macro's items. Delete it and make it again."
 
 It never uses items that weren't put in it. Its items can't be changed, but it can be renamed,
