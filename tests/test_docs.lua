@@ -43,19 +43,6 @@ describe("README.md", function()
 		eq(cap, world.ns.MACRO_ENTRY_CAP, "README's items per macro")
 	end)
 
-	it("Troubleshooting: a macro with too many lines of its own", function()
-		local message = Says('adding one says "([^"]+)"', "the too-long message"):gsub("%s+", " ")
-		local toys = {}
-		for i = 1, 300 do toys[i] = { id = 1000 + i } end
-		local world = wow.New({ toys = toys })
-		local m = assert(world.ns.MakeMacro("Illusion", toys[1].id))
-		local body = world.macros[1].body
-		world:EditMacroInUI(1, nil, body .. "\n/say " .. ("x"):rep(255 - #body - 6))
-		local ok, err = world.ns.SetEntry(m, toys[300].id, true)
-		eq(ok, nil, "refused")
-		eq(err, message, "README's message")
-	end)
-
 	it("Limits: macro name length", function()
 		local limit = tonumber(Says("Macro names up to (%d+) characters", "the macro name limit"))
 		local truncate = World().ns.TruncateMacroName
@@ -63,59 +50,14 @@ describe("README.md", function()
 		eq(#truncate(("x"):rep(limit + 1)), limit, "a longer name is cut to README's length")
 	end)
 
-	it("Limits and Troubleshooting: general macro slots, and the message when they're full", function()
+	it("Limits: general macro slots", function()
 		local slots = tonumber(Says("\n%- (%d+) general macros, shared by your whole account", "the general macro limit"))
-		local message = Says('Making another%s+says "([^"]+)"', "the full-slots message"):gsub("%s+", " ")
 		local world = World()
 		eq(slots, world.env.Constants.MacroConsts.MAX_ACCOUNT_MACROS, "README's general macro slots")
 		local macros = {}
 		for i = 1, slots do macros[i] = { name = "m" .. i, body = "/say " .. i } end
 		local full = wow.New({ macros = macros, toys = { { id = PIRATE } } })
-		local ok, err = full.ns.MakeMacro("Illusion", PIRATE)
-		eq(ok, nil, "refused")
-		eq(err, message, "README's message")
-	end)
-
-	it("Troubleshooting: the message when a macro is full", function()
-		local example = Says('adding one more says "([^"]+)" with your macro\'s name', "the full-macro message")
-			:gsub("%s+", " ")
-		local toys = {}
-		for i = 1, 101 do toys[i] = { id = 1000 + i } end
-		local world = wow.New({ toys = toys })
-		local m = assert(world.ns.MakeMacro("Illusion", toys[1].id))
-		for i = 2, 100 do assert(world.ns.SetEntry(m, toys[i].id, true)) end
-		local ok, err = world.ns.SetEntry(m, toys[101].id, true)
-		eq(ok, nil, "refused")
-		eq(err, example, "README's message, for a macro called Illusion")
-	end)
-
-	it("Troubleshooting: the message for a change in combat", function()
-		local message = Says('A change says "([^"]+)"', "the combat refusal")
-		local world = World()
-		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
-		world:EnterCombat()
-		local ok, err = world.ns.SetEntry(m, ORB, true)
-		eq(ok, nil, "refused")
-		eq(err, message, "README's message")
-	end)
-
-	it("Troubleshooting: the message for dragging a macro in combat", function()
-		local message = Says('in a fight says "([^"]+)"; drag it once the fight ends', "the drag refusal")
-		local world = World()
-		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
-		world:EnterCombat()
-		world.ns.PickupMacro(m)
-		assert.are.same({ message }, world:TakeErrors(), "README's message")
-		eq(world.cursor, nil, "nothing picked up")
-	end)
-
-	it("Troubleshooting: the message for a name another macro has", function()
-		local phrase = Says('says "([^"]+)" and its name', "the duplicate-name message")
-		local world = World()
-		assert(world.ns.MakeMacro("Illusion", PIRATE))
-		local ok, err = world.ns.MakeMacro("Illusion", ORB)
-		eq(ok, nil, "refused")
-		eq(err, phrase .. " Illusion.", "README's message, then the name")
+		eq((full.ns.MakeMacro("Illusion", PIRATE)), nil, "one more is refused")
 	end)
 
 	it("Slash commands: the table lists exactly the commands /clicky handles", function()
@@ -151,7 +93,7 @@ describe("README.md", function()
 	end)
 
 	it("Troubleshooting: the message when no items are usable, and Favorites saying toys", function()
-		local phrase = Says('you\'ll%s+see "([^"]+)" and the macro\'s%s+name', "the no-usable-toys message")
+		local phrase = Says('say "([^"]+)" and the macro\'s%s+name', "the no-usable-toys message")
 		local world = World()
 		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
 		world.ns.PickupMacro(m)
@@ -221,10 +163,8 @@ describe("README.md", function()
 		eq(Reason("Broken"):sub(1, #damaged), damaged, "README's start of the reason, for a changed line")
 	end)
 
-	it("Getting started, Renaming and deleting, Using a macro's items: the menus' labels", function()
+	it("Getting started: the entry menu's label", function()
 		local add = Says("choose %*%*([^*]+)%*%*,%s+and%s+name%s+the", "the entry menu's new-macro label")
-		local rename = Says("choose %*%*([^*]+)%*%* or %*%*[^*]+%*%*%. Deleting", "the macro menu's rename label")
-		local copy = Says("choose %*%*([^*]+)%*%* and copy the line", "the macro menu's copy label")
 		local world = World()
 		local function Texts()
 			local texts = {}
@@ -233,105 +173,35 @@ describe("README.md", function()
 		end
 		world.ns.OpenEntryMenu(world.env.UIParent, PIRATE)
 		assert(Texts()[add], "the entry menu has README's " .. add)
-		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
-		world.ns.OpenMacroMenu(world.env.UIParent, m)
-		local texts = Texts()
-		assert(texts[rename], "the macro menu has README's " .. rename)
-		assert(texts[copy], "the macro menu has README's " .. copy)
 	end)
 
-	it("Adding and removing items: the menu's checkboxes", function()
-		local title = Says("Under%s+%*%*([^*]+)%*%*[^,]*,[^,]*,%s+each%s+macro%s+has%s+a%s+checkbox%s+with%s+its%s+name,%s+ticked%s+if%s+the%s+item%s+is%s+in%s+it",
-			"the macros' checkboxes")
-		local world = World()
-		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
-		-- The menu's entries after its title, from the real menu: { text, ticked } per checkbox.
-		local function Menu(itemID)
-			world.ns.OpenEntryMenu(world.env.UIParent, itemID)
-			local titles, boxes = {}, {}
-			for _, entry in ipairs(world.menu.entries) do
-				if entry.kind == "CreateTitle" then titles[#titles + 1] = entry.text end
-				if entry.kind == "CreateCheckbox" then boxes[#boxes + 1] = { entry.text, entry.args[1]() } end
-			end
-			return titles, boxes
-		end
-		local titles, boxes = Menu(ORB)
-		eq(titles[1], title, "README's title above them")
-		assert.are.same({ { m.name, false } }, boxes, "a checkbox with the macro's name, not ticked: the toy isn't in it")
-		assert.are.same({ { m.name, true } }, select(2, Menu(PIRATE)), "ticked: the toy is in it")
-	end)
-
-	it("In combat: /clicky says it can't open the Toy Box", function()
-		local message = Says('`/clicky` in combat says "([^"]+)"', "the message for /clicky in combat")
-		local world = World()
-		world:Slash("/clicky")
-		eq(world.journal.tab, world.env.COLLECTIONS_JOURNAL_TAB_INDEX_TOYS, "out of combat it opens the Toy Box tab")
-		world.journal = nil
-		world:EnterCombat()
-		world:Slash("/clicky")
-		eq(world.journal, nil, "in combat it doesn't ask the game to show the window")
-		assert.are.same({ message }, world:TakeErrors(), "README's message")
-	end)
-
-	it("The grid: it starts with collected toys only", function()
-		Says("[Ii]t%s+starts%s+with%s+collected%s+toys%s+only", "the grid's starting filters")
-		local filters = World().ns.DefaultGridFilters("toys")
-		eq(filters.collected, true, "collected toys shown")
-		eq(filters.uncollected, false, "toys not collected hidden")
-		eq(filters.usableOnly, false, "not only usable toys")
-	end)
-
-	it("The grid: a tab each for toys, mounts, pets, spells and items with its count; the filters on Toys; Favorites stays toys only", function()
-		local toys, mounts, pets, spells, items = Says("with a tab each for%s+%*%*([^*]+)%*%*,%s+%*%*([^*]+)%*%*,%s+%*%*([^*]+)%*%*,%s+"
+	it("Good to know: a tab each for toys, mounts, pets, spells and items; the filters on Toys, not Spells", function()
+		local toys, mounts, pets, spells, items = Says("a tab each for%s+%*%*([^*]+)%*%*,%s+%*%*([^*]+)%*%*,%s+%*%*([^*]+)%*%*,%s+"
 			.. "%*%*([^*]+)%*%* and%s+%*%*([^*]+)%*%*", "the grid's tabs")
-		local example = Says("Each tab says how many it lists, as %*%*([^*]+)%*%*", "a tab's count")
-		Says("Favorites%s+stays%s+toys%s+only", "Favorites stays toys only")
-		Says("Spells%s+and%s+items%s+have%s+no%s+Set%s+Favorite", "no star on spells and items")
-		Says("On%s+the%s+Toys%s+tab,%s+the%s+%*%*Filter%*%*%s+menu", "the filters on the Toys tab")
-		Says("Favorites'%s+toys%s+have%s+their%s+star%s+instead", "no check mark for Favorites")
-		Says("Not%s+Collected%s+lists%s+the%s+same%s+toys%s+as%s+the%s+Toy%s+Box's%s+own%s+Not%s+Collected", "Not Collected as in the Toy Box")
+		Says("Toys,%s+Mounts%s+and%s+Pets%s+have%s+their%s+own%s+%*%*Filter%*%*%s+menus", "the filters on those tabs")
 		local world = wow.New({
-			toys = { { id = PIRATE, name = "Pirate's Costume", favorite = true }, { id = ORB, name = "Orb", owned = false } },
+			toys = { { id = PIRATE, name = "Pirate's Costume" } },
 			spells = { { id = 500, name = "Path of the Fire" } },
 			items = { { id = 600, name = "Hearth Ring" } },
 			mounts = { { id = 6, name = "Brown Horse" } },
 			pets = { { guid = "BattlePet-0-000000000001", species = 40, display = 300, name = "Cat" } },
-			toyList = { PIRATE, ORB, "s500", "i600", "m6", "p40:300" },
-			toyHidden = { [ORB] = true },
+			toyList = { PIRATE, "s500", "i600", "m6", "p40:300" },
 		})
 		world:LoadCollections()
 		world:OpenToyBox()
 		local grid = world.env.ClickyGrid
-		eq(example:match("^(%a+) %(%d+%)$"), toys, "README's example is a tab's label")
 		local labels = {}
-		for i, tab in ipairs(grid.Tabs) do labels[i] = tab.text end
-		assert.are.same({ toys .. " (1)", mounts .. " (1)", pets .. " (1)", spells .. " (1)", items .. " (1)" }, labels,
-			"the tabs, each with its count")
-		world:GridFilterMenu()[2].toggle()
-		eq(grid.Tabs[1].text, toys .. " (1)", "Not Collected: not a toy the Toy Box leaves out")
-		truthy(grid.filterButton:IsShown(), "the filters on the Toys tab")
-		grid.Tabs[4].scripts.OnClick(grid.Tabs[4])
-		truthy(not grid.filterButton:IsShown(), "and not on Spells")
-		local favorite
-		grid.Tabs[1].scripts.OnClick(grid.Tabs[1])
-		for _, button in ipairs(grid.buttons) do
-			if button.entry == PIRATE then favorite = button end
-		end
-		truthy(favorite.star:IsShown() and not favorite.check:IsShown(), "a favorite has its star, not a check mark")
-		local ns = world.ns
-		local fav = ns.GetMacro(ns.FAVORITES_ID)
-		eq((ns.SetEntry(fav, "s500", true)), nil, "Favorites takes no spell")
-		eq((ns.SetEntry(fav, "m6", true)), nil, "nor a mount")
-		ns.OpenEntryMenu(world.env.UIParent, "s500")
-		for _, entry in ipairs(world.menu.entries) do
-			assert(entry.text ~= world.env.BATTLE_PET_FAVORITE, "a spell's menu has no star")
+		for i, tab in ipairs(grid.Tabs) do labels[i] = tab.text:match("^(%a+)") end
+		assert.are.same({ toys, mounts, pets, spells, items }, labels, "the tabs, in README's order")
+		for i, filtered in ipairs({ true, true, true, false, false }) do
+			grid.Tabs[i].scripts.OnClick(grid.Tabs[i])
+			eq(grid.filterButton:IsShown(), filtered, labels[i] .. "'s Filter menu")
 		end
 	end)
 
 	it("Pets: a click doesn't pick the pet you already have out, and prefers a starred one", function()
-		Says("A%s+click%s+summons%s+one%s+that%s+isn't%s+out:%s+summoning%s+the%s+pet%s+you%s+already%s+have%s+out",
-			"the pet that's out isn't picked")
-		Says("A%s+click%s+summons%s+a%s+starred%s+one%s+first", "a starred pet first")
+		Says("A%s+click%s+summons%s+one%s+that%s+isn't%s+already%s+out", "the pet that's out isn't picked")
+		Says("a%s+click%s+summons%s+a%s+starred%s+one%s+first", "a starred pet first")
 		local cat1, cat2 = "BattlePet-0-000000000001", "BattlePet-0-000000000002"
 		local world = wow.New({
 			pets = { { guid = cat1, species = 40, display = 300 }, { guid = cat2, species = 40, display = 300, favorite = true } },
@@ -370,7 +240,8 @@ describe("README.md", function()
 	end)
 
 	it("The grid: the search finds tooltip words, which Blizzard's searches don't", function()
-		local word = Says('or any words in the tooltip: "(%a+)" finds', "the tooltip search")
+		Says("words%s+in%s+the%s+tooltip", "the tooltip search")
+		local word = "rested"
 		local world = wow.New({ toys = { { id = PIRATE, name = "Pirate's Costume" }, { id = ORB, name = "Orb" } } })
 		world.toys[PIRATE].tooltip = "Use: " .. word:upper() .. " experience is gained faster."
 		world:LoadCollections()
@@ -380,16 +251,7 @@ describe("README.md", function()
 		for _, button in ipairs(world.env.ClickyGrid.buttons) do
 			if button:IsShown() then shown[#shown + 1] = button.entry end
 		end
-		assert.are.same({ PIRATE }, shown, "README's example word finds it in the tooltip")
-	end)
-
-	it("Favorites: always at the top of the panel", function()
-		local name = Says("\n### (%w+)\n\n%1 is always at the top of the panel", "where Favorites is")
-		local world = World()
-		assert(world.ns.MakeMacro("Illusion", PIRATE))
-		local first = world.ns.PanelRows()[1]
-		eq(first.kind, "macro", "the panel's first row")
-		eq(first.macro.name, name, "the panel's first macro")
+		assert.are.same({ PIRATE }, shown, "a word in its tooltip finds it")
 	end)
 
 	-- Full links into the public repo, so README pasted as Wago's description shows them too.
@@ -409,7 +271,7 @@ describe("README.md", function()
 
 	it("Troubleshooting ends with where to get help: Wago's comments", function()
 		local troubleshooting = Section("Troubleshooting")
-		truthy(troubleshooting:match("Leave a comment on %[Clicky's Wago page%]%(https://addons%.wago%.io/addons/clicky%)%.%s*$"),
+		truthy(troubleshooting:match("Leave a comment on%s+%[Clicky's Wago page%]%(https://addons%.wago%.io/addons/clicky%)%.%s*$"),
 			"the last entry")
 	end)
 end)

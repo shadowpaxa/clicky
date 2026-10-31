@@ -127,37 +127,21 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
 
 ## README
 
-README.md is for players. Review step 4 checks it against these rules:
+README.md is for players, and short: about 100 lines. Review step 4 checks it against these rules:
 
-- **The first screen gets a player going.** It says what Clicky does in a few sentences and shows a
-  picture of it. Then it says which WoW it's for (Retail, the `.toc`'s Interface), how to install
-  Clicky and the shortest path to a working button. A player who reads only that far can use Clicky.
-- **Examples come from the journeys.** A "What you can do" section shows macros a player would
-  make, taken from docs/macros-user-journeys.md (dressing up, hearthstones, portals). Each example
-  says what goes in the macro, what a click does and what a right-click does. Every journey a
-  player starts on purpose is an example or a how-to step.
-- **Every limit says why and what to do.** Each limit names the WoW rule behind it (255
-  characters per macro, 120 general macros), Clicky's choice and its reason, or both (100 toys is
-  what always fits in 255 characters). It also says what the player can do about it. Each line of
-  "Limits" points to its explanation.
-- **Everything a player is asked to fix can be found.** Each message or greyed-out state that asks
-  the player to act is under "Troubleshooting". Its heading is what the player sees, and the entry
-  gives the cause and the fix.
-- **It says what Clicky leaves alone.** It names the player's settings Clicky doesn't change (the
-  Toy Box filters) and what is left behind when Clicky is removed.
-- **How it works, in a player's words.** It explains where toys are stored, why the `/click` line
-  is there and why new toys wait for a Clicky update. It gives as much of how Clicky works as the
-  limits need, with no internal terms.
-- **Guide first, reference after.** Steps and examples come before details: combat edge cases,
-  slash commands, other versions. A detail that matters in only one case goes in the reference
-  part ("Details"), not the first sections. The test, for each sentence above "In combat": would
-  every player who uses that feature miss it? If not (a mount the journal's filters hide, a pet
-  color Clicky's list lacks, how far a wheel notch scrolls, a missing animation), it moves.
-- **It says where to get help.** Troubleshooting ends with where to report a problem or ask: the
-  comments on Clicky's Wago page.
-- **Its facts are tested.** Each limit, message, command and label README gives needs a check in
-  tests/test_docs.lua; a review adds any that's missing. Each picture's file exists and has alt
-  text saying what it shows (tested); a release review checks the pictures show the current UI.
+- **Every sentence is one a player needs.** Ask of each: would a player using Clicky miss it? If
+  not, it goes: what the UI already shows (labels, counts, highlights, how scrolling works), rare
+  cases, history and old versions, and how Clicky works inside. The journeys hold the full
+  behavior; README isn't a copy of them.
+- **Concise.** Short plain sentences, one fact each, no internal terms. Say a thing once.
+- **The first screen gets a player going:** what Clicky does in a few sentences, a picture, which
+  WoW it's for (the `.toc`'s Interface), how to install it, and the steps to a working button.
+- **Troubleshooting only for what the game doesn't explain.** A message that already says what to
+  do needs no entry. It ends with where to get help: the comments on Clicky's Wago page.
+- **Limits are one line each:** the number, and what to do about it.
+- **Its facts are tested.** Each limit, message, command and label README gives has a check in
+  tests/test_docs.lua. Each picture's file exists and has alt text (tested); a release review
+  checks the pictures show the current UI.
 
 ## Reviews
 
@@ -173,11 +157,11 @@ start again from step 1. Done means one full pass with no findings.
 2. **The changelog.** The release's `CHANGELOG.md` section is short: what a player has to do
    (remake macros, update other computers), what they lose (a limit lowered, a feature removed),
    the new features, one bullet each, and fixes to bugs a player would have hit. Details that
-   playing shows (labels, scrolling, combat edge cases, debug output) stay in README.md and the
-   journeys, not the changelog. Every changelog sentence is true of the code being released,
+   playing shows (labels, scrolling, combat edge cases, debug output) stay in the journeys, not
+   the changelog. Every changelog sentence is true of the code being released,
    including what an older Clicky does with new macros (read that version's code at its tag).
-3. **The docs.** README.md, the journeys, CLAUDE.md and each file's header
-   say each item from step 1. Grep for every name, message, number and term the change removed
+3. **The docs.** The journeys, CLAUDE.md and each file's header say each item from step 1;
+   README.md says it only if a player needs it (the README rules above). Grep for every name, message, number and term the change removed
    or renamed: no stale mention is left.
 4. **Readable prose.** Read each changed passage of the changelog, README.md and the journeys as
    a player would. Each changelog bullet leads with what the player notices, then says what to
@@ -185,8 +169,8 @@ start again from step 1. Done means one full pass with no findings.
    (formats, function names, code) in player-facing text. A change in behavior says what it was
    and what it is now. Then read the whole section in one go: no two bullets seem to contradict,
    and each says where it applies (this computer, other computers, older versions). README.md
-   meets every rule under "README" above: write down each sentence above "In combat" that fails
-   the "Guide first" test, and move it.
+   meets every rule under "README" above: write down each sentence a player wouldn't miss, and
+   cut it.
 5. **Every claim.** For each sentence added to docs, comments and the changelog, name where it's
    confirmed: a line of code, a test, or a cited Blizzard source. Game behavior not seen in play
    and not in Blizzard's source comes out. Look hardest at absolutes, reasons and claims about
