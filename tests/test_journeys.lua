@@ -1821,6 +1821,20 @@ describe("journeys", function()
 			return set
 		end
 
+		-- LuaJIT walks string keys in an order that changes from run to run, so a click's choices are
+		-- put in list order: a seed then replays the same picks (tests/test_random_play.lua).
+		it("4. Use a macro: a click chooses among its entries in the list's order, every run", function()
+			local spells, list_ = {}, {}
+			for i = 1, 24 do
+				spells[i] = { id = 700 + i, name = ("Spell %02d"):format(25 - i) }
+				list_[i] = "s" .. (700 + i)
+			end
+			local world = World({ toyList = list_, spells = spells })
+			local m = assert(world.ns.MakeMacro("Many", list_[1]))
+			for i = 2, 24 do assert(world.ns.SetEntry(m, list_[i], true)) end
+			list(world.ns.GetCandidates(m, true), list_)
+		end)
+
 		-- How a click on each entry is set on a button: its type, then the attribute that type reads.
 		local ACTION = {
 			[PIRATE] = { "toy", "toy", PIRATE },

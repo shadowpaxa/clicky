@@ -171,7 +171,8 @@ local function DropRepeat(candidates, lastUsed)
 end
 
 -- What a click can pick: entries the player has that can be used now, off cooldown, and not
--- drawer-only.
+-- drawer-only. In list order: pairs' order over string keys changes from run to run in LuaJIT,
+-- which would make the same random numbers pick different entries (tests replay a seed).
 local function GetCandidates(m, allowRepeat)
 	local candidates = {}
 	for key in pairs(MacroEntries(m)) do
@@ -180,6 +181,8 @@ local function GetCandidates(m, allowRepeat)
 			candidates[#candidates + 1] = key
 		end
 	end
+	local index = ns.GetToyList().index
+	table.sort(candidates, function(a, b) return index[a] < index[b] end)
 	if allowRepeat then
 		return candidates
 	end
