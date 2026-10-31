@@ -542,6 +542,33 @@ describe("journeys", function()
 		ok(#world.macros[1].body <= 255)
 	end)
 
+	-- EditMacro keeps only the first 255 characters: one more would cut the player's last line.
+	it("4. Add toys: a change that leaves the macro exactly 255 characters is saved whole; one character more is refused", function()
+		local toys = {}
+		for i = 1, 300 do toys[i] = { id = 1000 + i, name = ("Toy %03d"):format(i) } end
+		local world = World({ toys = toys })
+		MakeMacro(world, toys[1].id, "Illusion")
+		local m = Macro(world, "Illusion")
+		local base = world.macros[1].body
+		AddTo(world, toys[300].id, "Illusion")
+		local grown = #world.macros[1].body -- with the second toy's data, no lines of the player's
+		assert(world.ns.SetEntry(m, toys[300].id, false))
+		for _, extra in ipairs({ 0, 1 }) do
+			local line = ("x"):rep(255 - grown - 1 + extra)
+			world:EditMacroInUI(1, nil, base .. "\n" .. line)
+			local ok2, err = world.ns.SetEntry(m, toys[300].id, true)
+			if extra == 0 then
+				eq(ok2, true, err)
+				eq(#world.macros[1].body, 255)
+				eq(world.macros[1].body:sub(-#line - 1), "\n" .. line, "the player's line kept whole")
+				assert(world.ns.SetEntry(m, toys[300].id, false))
+			else
+				eq(err, "That macro is too long to update. Remove your own lines from it in /macro.")
+				eq(world.macros[1].body, base .. "\n" .. line, "left as it was")
+			end
+		end
+	end)
+
 	it("4. Add toys: a data line goes right after the /click line, keeping the player's lines in order", function()
 		local ns = World().ns
 		eq(ns.SetDataLine("#showtooltip\n/click ClickyBCDF\n/say hi", "abc"),
@@ -626,12 +653,12 @@ describe("journeys", function()
 			list({ ns.DecodePlaces(good:sub(1, i - 1) .. c .. good:sub(i + 1)) }, { nil, "damaged" }, "character " .. i .. " changed")
 		end
 		list({ ns.DecodePlaces(good:sub(1, 7) .. "|" .. good:sub(9)) }, { nil, "damaged" }, "not the alphabet")
-		list({ ns.DecodePlaces("x" .. good:sub(2)) }, { nil, "newer" }, "format 7")
-		list({ ns.DecodePlaces("/" .. good:sub(2)) }, { nil, "newer" }, "format 21 and later")
-		list({ ns.DecodePlaces("rAvTtd") }, { nil, "damaged" }, "format 5, 0.5.0's: alpha releases may break macros")
-		list({ ns.DecodePlaces("I" .. good:sub(2)) }, { nil, "damaged" }, "format 1, a development build's")
-		list({ ns.DecodePlaces("Q" .. good:sub(2)) }, { nil, "damaged" }, "format 2, a development build's")
-		list({ ns.DecodePlaces("g" .. good:sub(2)) }, { nil, "damaged" }, "format 4, 0.4.0's")
+		list({ ns.DecodePlaces("x" .. good:sub(2)) }, { nil, "newer" }, "format 2")
+		list({ ns.DecodePlaces("/" .. good:sub(2)) }, { nil, "newer" }, "format 16 and later")
+		list({ ns.DecodePlaces("rAvTtd") }, { nil, "damaged" }, "0.5.0's format (an alpha), no longer read")
+		list({ ns.DecodePlaces("I" .. good:sub(2)) }, { nil, "damaged" }, "a development build's format")
+		list({ ns.DecodePlaces("Q" .. good:sub(2)) }, { nil, "damaged" }, "another development build's format")
+		list({ ns.DecodePlaces("g" .. good:sub(2)) }, { nil, "damaged" }, "0.4.0's format")
 	end)
 
 	it("5. See a macro: its toys listed alphabetically when open, with its toy count", function()
@@ -796,6 +823,32 @@ describe("journeys", function()
 		eq(world.env["Clicky" .. code]:GetAttribute("type"), nil, "its button is emptied")
 		world.env["ClickyP" .. code]:Click("LeftButton", false) -- a copy left in character macros
 		ok(not world.ns.GetDrawer(code).frame:IsShown(), "and its drawer")
+	end)
+
+	-- Buttons can't be destroyed (CLAUDE.md, WoW constraints): a second one by the same name would
+	-- leave the first, with its drawer, behind.
+	it("8. Delete: a macro pasted back with the same code gets its old button back, and it works", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		local code = Code(world, "Illusion")
+		local button = world.env["Clicky" .. code]
+		local body = world:FindMacroByName("Illusion").body
+		assert(world.ns.DeleteMacro(Macro(world, "Illusion")))
+		world:CreateMacroInUI("Illusion", body)
+		eq(Macro(world, "Illusion").button, button, "the same button, not a second one by its name")
+		eq(world.env["Clicky" .. code], button)
+		PutOnBar(world, "Illusion", 1)
+		world:PressBar(1)
+		eq(world:LastUsed(), PIRATE)
+	end)
+
+	it("8. Delete in /macro: a change from a menu opened before is refused", function()
+		local world = World()
+		MakeMacro(world, PIRATE, "Illusion")
+		local illusion = Macro(world, "Illusion") -- as the open menu's checkbox holds it
+		world.env.DeleteMacro(1) -- in /macro
+		list({ world.ns.SetEntry(illusion, ORB, true) }, { nil, "That macro is gone." })
+		eq(#world.macros, 0, "nothing is written")
 	end)
 
 	it("8. Delete: never touches a macro the player wrote", function()
@@ -1023,7 +1076,7 @@ describe("journeys", function()
 	it("10. Update Clicky: a macro saved by 0.5.0 can't be read and is left as it is", function()
 		local world = World()
 		local ns = world.ns
-		-- 0.5.0's format 5 line for places 0, 3 and 40, as 0.5.0 wrote it.
+		-- 0.5.0's line for places 0, 3 and 40, as 0.5.0 wrote it.
 		local body = ns.NewBody("BCDF", "rAvTtd")
 		world.bars[1] = world:CreateMacroInUI("Old", body)
 		ExpectUnreadable(world, "Old", UNREADABLE, 1)
@@ -1178,29 +1231,29 @@ describe("journeys", function()
 	end)
 
 	-- The format Clicky writes into players' macros, exactly as written. Macros live in players'
-	-- games, so it keeps reading as it did; only an alpha release may drop a format (CLAUDE.md). A
+	-- games, so it keeps reading as it did: a release never breaks players' macros (CLAUDE.md). A
 	-- new format version needs a sample here before this test passes.
 	local WRITTEN_FORMATS = {
-		-- Format 6: places 0, 3 and 40.
-		[6] = { data = "wDAvT1t", positions = { 0, 3, 40 } },
+		-- Format 1: places 0, 3 and 40.
+		[1] = { data = "wDAvT1t", positions = { 0, 3, 40 } },
 	}
 	it("Saved macros: every format Clicky writes still reads exactly as it did", function()
 		local ns = World().ns
 		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-		-- Codec.lua: a first character of 48 + n is format 6 + n.
-		local function Version(data) return alphabet:find(data:sub(1, 1), 1, true) - 1 - 42 end
+		-- Codec.lua: a first character of 48 + n is format 1 + n.
+		local function Version(data) return alphabet:find(data:sub(1, 1), 1, true) - 1 - 47 end
 		for version, sample in pairs(WRITTEN_FORMATS) do
 			local d = assert(ns.DecodePlaces(sample.data), "format " .. version .. " no longer reads")
 			list(d.positions, sample.positions, "format " .. version)
 			eq(ns.EncodePlaces(sample.positions), sample.data, "format " .. version .. " is still written the same")
 		end
 		ok(WRITTEN_FORMATS[Version(ns.EncodePlaces({ 0 }))], "the format written has a sample here")
-		-- Format 4 (written by 0.4.0) is no longer read.
+		-- 0.4.0's format is no longer read.
 		list({ ns.DecodePlaces("gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c") }, { nil, "damaged" },
-			"format 4 reads as damaged")
-		-- Format 3 (written by 0.3.0-alpha1) had no checksum, so it could be edited into other toys.
+			"0.4.0's format reads as damaged")
+		-- 0.3.0-alpha1's format had no checksum, so it could be edited into other toys.
 		list({ ns.DecodePlaces("YAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf") }, { nil, "damaged" },
-			"format 3 reads as damaged")
+			"0.3.0-alpha1's format reads as damaged")
 	end)
 
 	it("Saved macros: Clicky 0.5.0 reads this version's macros, and every later format's, as saved by a newer Clicky", function()
@@ -1283,6 +1336,9 @@ describe("journeys", function()
 		local code = Code(later, "Illusion")
 		ok(later.env["ClickyP" .. code] and later.env.ClickyPFVRT, "the openers exist")
 		eq(DrawerCount(later, code), 0, "not filled yet")
+		later:Advance(0.1)
+		local filled = (DrawerCount(later, code) > 0 and 1 or 0) + (DrawerCount(later, later.ns.FAVORITES_ID) > 0 and 1 or 0)
+		eq(filled, 1, "one drawer per FILL_DELAY (Drawer.lua), not all at once")
 		later:Advance(1)
 		eq(DrawerCount(later, code), 2, "filled soon after login")
 		eq(DrawerCount(later, later.ns.FAVORITES_ID), 2)
@@ -1501,16 +1557,18 @@ describe("journeys", function()
 		end
 	end)
 
-	-- Runs fn, failing instead of hanging if it never returns (count hooks need the interpreter).
+	-- Runs fn, failing instead of hanging if it never returns (count hooks need the interpreter). The
+	-- hook that was set before (luacov's, when measuring coverage) is put back after.
 	local function Finishes(fn, what)
 		require("jit").off()
 		local steps = 0
+		local hook, mask, count = debug.gethook()
 		debug.sethook(function()
 			steps = steps + 1
 			if steps > 2000 then error("never finished: " .. what, 2) end
 		end, "", 100000)
 		local result = { pcall(fn) }
-		debug.sethook()
+		if hook then debug.sethook(hook, mask, count) else debug.sethook() end
 		require("jit").on()
 		assert(result[1], result[2])
 		return unpack(result, 2)
@@ -1600,7 +1658,7 @@ describe("journeys", function()
 		for v = 0, 63 do
 			if v < 48 then
 				list({ ns.DecodePlaces(Sum(Char(v) .. body:sub(2))) }, { nil, "damaged" },
-					"first character " .. v .. ": formats 1 to 5, even with a good checksum")
+					"first character " .. v .. ": an earlier format's, even with a good checksum")
 			end
 			if v >= 16 then
 				list({ ns.DecodePlaces(Sum("w" .. Char(v) .. body:sub(3))) }, { nil, "damaged" },
@@ -2622,6 +2680,24 @@ describe("journeys", function()
 			list(world:TakeErrors(), {})
 		end)
 
+		-- 5506957 (before the history was squashed) fixed a right click on the icon that did nothing.
+		it("7, 14. The panel: a macro's icon takes the row's clicks, the right one too, and drags the macro to a bar", function()
+			local world = World()
+			local menus = {}
+			world.ns.OpenMacroMenu = function(owner, m) menus[#menus + 1] = { owner, m.name } end
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			OpenPanel(world)
+			local row = PanelShown(world)[2].row
+			world:MouseClick(row.macroIcon, "RightButton")
+			list(menus, { { row, "Illusion" } }, "a right click on the icon opens the macro's menu")
+			world:MouseClick(row.macroIcon)
+			world:Advance(1)
+			list(Names(PanelShown(world)), { "Favorites", "Illusion" }, "a left click closes it, as on the row")
+			world:Drag(row.macroIcon)
+			eq(world.cursor, world:FindMacroByName("Illusion"), "the drag picks up the macro itself")
+		end)
+
 		it("14. The panel: a macro Clicky can't read has a greyed icon, a warning and a ? and says why when hovered or clicked", function()
 			local world = World()
 			local ns = world.ns
@@ -2754,6 +2830,54 @@ describe("journeys", function()
 			list(world:TakeErrors(), { COMBAT, COMBAT, COMBAT })
 		end)
 
+		it("3, 8. The menus' dialogs: a new macro from a toy, Rename, Copy /click line and Delete do what they say; a refused name keeps the dialog open", function()
+			local world = World()
+			local ns = world.ns
+			ns.OpenEntryMenu(world.env.UIParent, ORB)
+			world:ChooseMenuEntry("Add to new macro...")
+			eq(world.dialog:GetEditBox():GetText(), "")
+			eq(world.dialog:GetButton1():IsEnabled(), false, "no name, nothing to create")
+			world:TypeInDialog("  ")
+			eq(world.dialog:GetButton1():IsEnabled(), false, "nor with only spaces")
+			world:TypeInDialog("Orbs")
+			world:PressEnterInDialog()
+			eq(world.dialog, nil, "Enter makes it and closes the dialog")
+			local id = Macro(world, "Orbs").id
+			list(world.ns.GetMacroEntries(Macro(world, "Orbs")), { ORB }, "holding the toy whose menu it came from")
+
+			local _, taken = ns.MakeMacro("Orbs", PIRATE)
+			ns.OpenEntryMenu(world.env.UIParent, PIRATE)
+			world:ChooseMenuEntry("Add to new macro...")
+			world:TypeInDialog("Orbs")
+			world:ClickDialogButton(1)
+			ok(world.dialog, "a refused name leaves the dialog open, to fix it")
+			list(world:TakeErrors(), { taken })
+			world.dialog:Hide()
+
+			ns.OpenMacroMenu(world.env.UIParent, ns.GetMacro(id))
+			world:ChooseMenuEntry("Rename")
+			eq(world.dialog.text, "Rename Orbs to:")
+			eq(world.dialog:GetEditBox():GetText(), "Orbs", "starting from its name")
+			world:TypeInDialog("Spheres")
+			world:ClickDialogButton(1)
+			eq(world.dialog, nil)
+			eq(Macro(world, "Spheres").id, id, "the same macro, renamed")
+
+			ns.OpenMacroMenu(world.env.UIParent, ns.GetMacro(id))
+			world:ChooseMenuEntry("Copy /click line")
+			local line = world.dialog:GetEditBox():GetText()
+			eq(world.dialog:GetEditBox().selected, line, "shown selected, to copy")
+			eq(world.env[line:match("^/click (%S+)$")], ns.GetMacro(id).button, "it clicks the macro's button")
+			world.dialog:Hide()
+
+			ns.OpenMacroMenu(world.env.UIParent, ns.GetMacro(id))
+			world:ChooseMenuEntry(world.env.DELETE)
+			eq(world.dialog.text, "Delete the macro Spheres? It will be removed from your bars.")
+			world:ClickDialogButton(1)
+			eq(world:FindMacroByName("Spheres"), nil)
+			list(world:TakeErrors(), {})
+		end)
+
 		it("14. The panel: closing the Toy Box before it scrolls to a macro just opened doesn't scroll when it opens again", function()
 			local world = World()
 			MakeMacro(world, PIRATE, "Illusion")
@@ -2855,7 +2979,7 @@ describe("journeys", function()
 		end
 
 		local function TopRow(world)
-			return tonumber(world.ns.GetGridState():match("top row (%d+) of"))
+			return select(2, world.ns.GetGridPlace())
 		end
 
 		-- The mouse wheel over the grid: delta -1 is a notch down.
@@ -3134,13 +3258,13 @@ describe("journeys", function()
 			filters[2].toggle()
 			world:Advance(1)
 			eq(TopRow(world), 1, "a filter goes to the top")
-			ok(world.ns.GetGridState():find("not collected true", 1, true), "Not Collected is on")
+			eq(world.ns.GetGridFilters().toys.uncollected, true, "Not Collected is on")
 			Wheel(world, -1, 2)
 			eq(TopRow(world), 7, "Not Collected adds the toys not owned: more rows to scroll")
 			world.env.ClickyGridFilter.defaultCallback()
 			world:Advance(1)
 			eq(TopRow(world), 1, "resetting the filters goes to the top")
-			ok(world.ns.GetGridState():find("not collected false", 1, true))
+			eq(world.ns.GetGridFilters().toys.uncollected, false)
 			list(world:TakeErrors(), {})
 		end)
 
@@ -3404,7 +3528,7 @@ describe("journeys", function()
 			eq(bar:IsScrollAllowed(), true, "scrolling is on again")
 			eq(Refreshes(world, "grid"), 1, "one refresh for everything asked for in combat")
 			eq(ns.GetGridState():find("waits", 1, true), nil)
-			ok(ns.GetGridState():find("not collected true", 1, true), "the filter changed in combat applies")
+			eq(ns.GetGridFilters().toys.uncollected, true, "the filter changed in combat applies")
 			ok(ns.GetGridState():find('search "Toy"', 1, true), "and the search")
 			eq(TopRow(world), 1, "the search goes to the top")
 			-- 1002 is a favorite now, and the toy learned in combat is in the list.
@@ -3689,6 +3813,32 @@ describe("journeys", function()
 			list(ShownKeys(world), { SHADOWS, CLOAK, RING, SPARE }, "the Items tab, the items")
 			ok(world.ns.GetGridState():find("showing items, top row 1 of 1 (6 toys, 0 mounts, 0 pets, 4 spells, 4 items)", 1, true),
 				"/clicky debug: " .. world.ns.GetGridState())
+			-- A newer list with the overridden spell too: a spellbook slot gives one key, its own spell's
+			-- (Spells.lua, actionID before spellID).
+			local newer = { unpack(LIST) }
+			newer[#newer + 1] = "s509"
+			local keys = {}
+			for _, key in ipairs(GridWorld({ toyList = newer }).ns.KnownSpellEntries()) do keys[key] = true end
+			ok(keys.s509 and not keys[OVER], "the overridden spell, not also the one overriding it")
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("the search reads a spell's tooltip again once its data has arrived, and takes what's typed as plain text", function()
+			local world = GridWorld()
+			local search = world.env.ClickyGridSearch
+			world.spells[501].tooltip = "Teleports you home."
+			world.spells[500].tooltip = "Takes you 100% of the way (to the Firelands)."
+			ClickTab(world, SPELLS_TAB)
+			search:SetText("hearthstone")
+			list(ShownKeys(world), {}, "the tooltip as first read doesn't say it")
+			world.spells[501].tooltip = world.spells[501].tooltip .. " Shares a cooldown with your Hearthstone."
+			world:LoadSpell(501)
+			world:Advance(1)
+			list(ShownKeys(world), { HOME }, "read again once the game says its data has arrived")
+			for _, text in ipairs({ "100%", "(to the", "way (" }) do
+				search:SetText(text)
+				list(ShownKeys(world), { FIRE }, text .. ": Lua's pattern characters match themselves")
+			end
 			eq(#world:TakeErrors(), 0)
 		end)
 
@@ -3759,12 +3909,12 @@ describe("journeys", function()
 			end
 			local world = GridWorld({ toys = toys, spells = spells, toyList = toyList })
 			world:MouseWheel(world.env.ClickyGrid, -1)
-			ok(world.ns.GetGridState():find("showing toys, top row 4 of 17", 1, true), world.ns.GetGridState())
+			list({ world.ns.GetGridPlace() }, { "toys", 4, 17 })
 			ClickTab(world, SPELLS_TAB)
-			ok(world.ns.GetGridState():find("showing spells, top row 1 of 17", 1, true), world.ns.GetGridState())
+			list({ world.ns.GetGridPlace() }, { "spells", 1, 17 })
 			world:MouseWheel(world.env.ClickyGrid, -1)
 			ClickTab(world, TOYS_TAB)
-			ok(world.ns.GetGridState():find("showing toys, top row 1 of 17", 1, true), "and back: " .. world.ns.GetGridState())
+			list({ world.ns.GetGridPlace() }, { "toys", 1, 17 }, "and back")
 		end)
 
 		it("the filter button is on the Toys, Mounts and Pets tabs, not Spells or Items; the toys' filters change the toys only", function()
@@ -4608,6 +4758,9 @@ describe("journeys", function()
 			world:Advance(1) -- the look moves on to its other pet, which isn't out
 			ok(ButtonFor(world, BLUE_CAT).cooldown.start, "still the swipe of the pet just summoned")
 			eq(ButtonFor(world, DOG).cooldown.start, nil, "no swipe on a pet without a cooldown")
+			world:Pet(CAT1).cooldown, world:Pet(CAT2).cooldown = 30, 5
+			world:Fire("SPELL_UPDATE_COOLDOWN")
+			eq(ButtonFor(world, BLUE_CAT).cooldown.duration, 31, "of a look's pets, the one that ends last")
 		end)
 
 		it("2, 17. a click skips a pet look on cooldown, as a toy; the global cooldown doesn't count", function()
@@ -4654,6 +4807,10 @@ describe("journeys", function()
 			world:MouseClick(ButtonFor(world, HORSE))
 			ok(ButtonFor(world, HORSE).active:IsShown(), "riding the Horse, marked at once")
 			ok(not ButtonFor(world, RAM).active:IsShown())
+			world:EnterCombat()
+			world:MouseClick(ButtonFor(world, RAM))
+			ok(ButtonFor(world, RAM).active:IsShown(), "in combat too: the marks are textures, not locked")
+			ok(not ButtonFor(world, HORSE).active:IsShown())
 		end)
 
 		it("2. in combat a macro picks from the mounts and pets ready when the fight started", function()

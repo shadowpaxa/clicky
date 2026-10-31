@@ -91,6 +91,7 @@ def main():
     blizzard_lua = strip_comments(read_tree(UI, (".lua",)))
     blizzard_xml = read_tree(UI, (".xml",))
     blizzard_docs = {}  # namespace -> its generated documentation file
+    global_docs = ""  # the documentation files of global functions (a System with no Namespace)
     docs_dir = os.path.join(UI, "AddOns", "Blizzard_APIDocumentationGenerated")
     for name in os.listdir(docs_dir):
         with open(os.path.join(docs_dir, name), encoding="utf-8", errors="replace") as f:
@@ -98,6 +99,8 @@ def main():
         ns_name = re.search(r'Namespace = "(\w+)"', text)
         if ns_name:
             blizzard_docs[ns_name.group(1)] = blizzard_docs.get(ns_name.group(1), "") + text
+        elif re.search(r'\n\tType = "System"', text):
+            global_docs += text
     widget_api = read_tree(os.path.join(ANNOTATIONS, "Core"), (".lua",))
     sources = addon_sources()
     addon = "\n".join(strip_comments(s) for s in sources.values())
@@ -161,6 +164,29 @@ def main():
             rf'Name = "{field}", Type = "{table[5:]}", EnumValue', blizzard_lua)
         if not re.search(rf"\b{field}\s*=", blizzard_lua) and not documented:
             problems.append(f"{table}.{field} isn't defined in Blizzard's UI code")
+
+    # 2h. Secret values: a function whose documentation marks its returns secret, always or in some
+    #     state (SecretReturns, SecretWhen..., ConditionalSecret...: the function-level keys with
+    #     "Secret" in them, less those about arguments and NeverSecret), returns values Clicky can't
+    #     compare or hand to most widgets. Each one Clicky calls, in a C_ namespace or global, must be
+    #     in HANDLED_SECRET with exactly those keys, so a patch that marks another, or changes one's,
+    #     fails here until Clicky handles it (CLAUDE.md, WoW constraints). Widget methods aren't
+    #     checked: theirs are secret only on a frame given secret values (SecretReturnsForAspect),
+    #     and Clicky gives its frames none.
+    HANDLED_SECRET = {"C_Spell.GetSpellCooldown": ["SecretWhenCooldownsRestricted"]}  # Spells.lua
+    secret = {}
+    for namespace, text in list(blizzard_docs.items()) + [(None, global_docs)]:
+        for m in re.finditer(r'\n\t\t\{\n\t\t\tName = "(\w+)",\n\t\t\tType = "Function",(.*?)\n\t\t\},', text, re.S):
+            keys = sorted({k for k in re.findall(r"\n\t\t\t(\w*Secret\w*) =", m.group(2))
+                           if not k.startswith("SecretArguments") and not k.endswith("NeverSecret")})
+            if keys:
+                secret[f"{namespace}.{m.group(1)}" if namespace else m.group(1)] = keys
+    calls = set(re.findall(r"\b(C_\w+\.\w+)\b", addon))
+    calls |= {name for name in re.findall(r"(?<![\w.:])([A-Za-z_]\w*)\s*\(", addon) if name in secret}
+    for call in sorted(calls):
+        if secret.get(call) != HANDLED_SECRET.get(call) and (call in secret or call in HANDLED_SECRET):
+            problems.append(f"{call}: Blizzard's docs mark its returns {secret.get(call) or 'not secret'}, "
+                            f"Clicky handles {HANDLED_SECRET.get(call) or 'none'}")
 
     with open(os.path.join(ADDON, "Clicky.toc"), encoding="utf-8") as f:
         interface = re.search(r"## Interface: (\d+)", f.read()).group(1)

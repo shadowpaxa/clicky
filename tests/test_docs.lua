@@ -116,7 +116,7 @@ describe("README.md", function()
 
 	it("Wearable items: a click never picks gear; the drawer wears it, and uses it once worn", function()
 		Says("A click on a macro never picks gear that can be worn", "a click never picking gear")
-		Says("clicking it there wears it if it isn't worn, and uses it once it is", "the drawer wearing gear")
+		Says("if%s+you%s+aren't%s+wearing%s+it,%s+the%s+first%s+click%s+puts%s+it%s+on,%s+and%s+after%s+that%s+clicks%s+use%s+it", "the drawer wearing gear")
 		local world = wow.New({
 			items = { { id = 600, name = "Cloak of Teleport", equippable = true } },
 			toyList = { "i600" },
@@ -200,8 +200,8 @@ describe("README.md", function()
 	end)
 
 	it("Pets: a click doesn't pick the pet you already have out, and prefers a starred one", function()
-		Says("A%s+click%s+summons%s+one%s+that%s+isn't%s+already%s+out", "the pet that's out isn't picked")
-		Says("a%s+click%s+summons%s+a%s+starred%s+one%s+first", "a starred pet first")
+		Says("never%s+the%s+one%s+that's%s+already%s+out", "the pet that's out isn't picked")
+		Says("a%s+starred%s+one%s+first", "a starred pet first")
 		local cat1, cat2 = "BattlePet-0-000000000001", "BattlePet-0-000000000002"
 		local world = wow.New({
 			pets = { { guid = cat1, species = 40, display = 300 }, { guid = cat2, species = 40, display = 300, favorite = true } },
@@ -233,7 +233,7 @@ describe("README.md", function()
 	end)
 
 	it("Getting started: the panel's title", function()
-		local title = Says("the%s+Clicky%s+panel,%s+titled%s+%*%*([^*]+)%*%*", "the panel's title")
+		local title = Says("the%s+%*%*([^*]+)%*%*%s+panel%s+beside%s+it", "the panel's title")
 		local world = World()
 		world:LoadCollections()
 		eq(world.env.ClickyPanel.TitleContainer.TitleText:GetText(), title, "README's title")

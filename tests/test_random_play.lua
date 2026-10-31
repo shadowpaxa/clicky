@@ -121,6 +121,12 @@ local function Run(seed, steps)
 	world:OpenToyBox()
 	local log = {}
 	local function L(s) log[#log + 1] = s end
+	-- What each macro should hold, from what the player did, independent of Clicky: code -> { key =
+	-- true }. Kept for macros made through Clicky; dropped when the player breaks or deletes the macro
+	-- in /macro (what it holds is then unknown, or nothing). Copies aren't followed.
+	local model = {}
+	local CODE = "Clicky(" .. ("[BCDFGHJKLMNPQRSTVWXZ]"):rep(4) .. ")%f[%W]"
+	local function CodeOf(body) return body:match(CODE) end
 	local function Pick(t) return t[math.random(#t)] end
 	local function RandomKey() return Pick(list) end
 	local function Clicky()
@@ -167,6 +173,17 @@ local function Run(seed, steps)
 		-- every runtime macro has a record
 		for _, rt in ipairs(Clicky()) do
 			assert(seen[rt.id], where .. ": runtime macro " .. rt.name .. " " .. rt.id .. " without a macro\n" .. table.concat(log, "\n"))
+		end
+		-- every macro the player made holds what the player put in it: nothing lost, nothing added
+		for code, want in pairs(model) do
+			local rt = seen[code] and ns.GetMacro(code)
+			assert(rt and rt.entries, where .. ": " .. code .. ", made and not deleted, is gone or unreadable\n" .. table.concat(log, "\n"))
+			for key in pairs(want) do
+				assert(rt.entries[key], where .. ": " .. rt.name .. " lost " .. tostring(key) .. "\n" .. table.concat(log, "\n"))
+			end
+			for key in pairs(rt.entries) do
+				assert(want[key], where .. ": " .. rt.name .. " holds " .. tostring(key) .. ", never put in\n" .. table.concat(log, "\n"))
+			end
 		end
 	end
 	local grid = world.env.ClickyGrid
@@ -256,8 +273,8 @@ local function Run(seed, steps)
 				for key in pairs(got) do assert(expected[key], where .. ": the grid lists " .. key .. " under " .. section.name) end
 				for key in pairs(expected) do assert(got[key], where .. ": the grid lacks " .. key .. " under " .. section.name) end
 			end
-			local state = ns.GetGridState()
-			local shownTab = TABS[state:match("showing (%a+),")]
+			local shownName, first = ns.GetGridPlace()
+			local shownTab = TABS[shownName]
 			for i, section in ipairs(sections) do
 				local title = ({ "Toys", "Mounts", "Pets", "Spells", "Items" })[i]
 				assert(grid.Tabs[i].text == ("%s (%d)"):format(title, #section.keys),
@@ -265,13 +282,12 @@ local function Run(seed, steps)
 			end
 			assert(grid.filterButton:IsShown() == (shownTab <= 3), where .. ": the filter button is on the Toys, Mounts and Pets tabs")
 			local rows = ns.GridRows(sections[shownTab], 12)
-			local first = tonumber(state:match("top row (%d+) of"))
 			local view = ns.GridView(rows, first)
 			local wantKeys = {}
 			for _, e in ipairs(view) do for _, key in ipairs(e.row.keys) do wantKeys[#wantKeys + 1] = key end end
 			local got = {}
 			for _, b in ipairs(grid.buttons) do if b:IsShown() then got[#got + 1] = b.entry end end
-			assert(#wantKeys == #got, where .. ": grid shows " .. #got .. " entries, wants " .. #wantKeys .. " " .. state)
+			assert(#wantKeys == #got, where .. ": grid shows " .. #got .. " entries, wants " .. #wantKeys .. " " .. ns.GetGridState())
 			for i = 1, #wantKeys do assert(wantKeys[i] == got[i], where .. ": grid entry " .. i .. " is " .. tostring(got[i]) .. " wants " .. tostring(wantKeys[i])) end
 			-- each shown button's click
 			for _, b in ipairs(grid.buttons) do
@@ -284,6 +300,23 @@ local function Run(seed, steps)
 			end
 		end
 	end
+	-- Macros of the sizes players make, from a few items to dozens, made through Clicky as a player
+	-- would: one step adds or removes a single item, so the steps alone grew macros to three at most.
+	for _, size in ipairs({ 3, 12, 40 }) do
+		local keys, taken = {}, {}
+		while #keys < size do
+			local key = RandomKey()
+			if not taken[key] then taken[key], keys[#keys + 1] = true, key end
+		end
+		local m = assert(ns.MakeMacro("Start" .. size, keys[1]))
+		model[m.id] = { [keys[1]] = true }
+		for i = 2, size do
+			assert(ns.SetEntry(m, keys[i], true))
+			model[m.id][keys[i]] = true
+		end
+		L("start " .. m.name .. " with " .. size .. " entries")
+	end
+	Check("start")
 	local ops = {
 		function()
 			if world.combat or #world.macros == 0 then return end
@@ -295,6 +328,7 @@ local function Run(seed, steps)
 				world:EditMacroInUI(i, nil, m.body .. "\n/say " .. ("x"):rep(math.random(100)))
 			elseif kind == 2 then
 				L("corrupt " .. m.name)
+				model[CodeOf(m.body) or ""] = nil
 				local at = m.body:find("#clicky ", 1, true)
 				if at then
 					local b = m.body
@@ -303,6 +337,7 @@ local function Run(seed, steps)
 				end
 			elseif kind == 3 then
 				L("remove data line of " .. m.name)
+				model[CodeOf(m.body) or ""] = nil
 				world:EditMacroInUI(i, nil, (m.body:gsub("\n#clicky [^\n]*", "")))
 			else
 				L("pickup " .. m.name)
@@ -456,7 +491,9 @@ local function Run(seed, steps)
 		function()
 			local name = Pick(names) .. math.random(3)
 			L("make " .. name)
-			ns.MakeMacro(name, RandomKey())
+			local key = RandomKey()
+			local m = ns.MakeMacro(name, key)
+			if m then model[m.id] = { [key] = true } end
 		end,
 		function()
 			local c = Clicky()
@@ -464,7 +501,7 @@ local function Run(seed, steps)
 			local m, id = Pick(c), RandomKey()
 			local on = math.random(2) == 1
 			L("settoy " .. m.name .. " " .. id .. " " .. tostring(on))
-			ns.SetEntry(m, id, on)
+			if ns.SetEntry(m, id, on) and model[m.id] then model[m.id][id] = on or nil end
 		end,
 		function()
 			local c = Clicky()
@@ -479,7 +516,7 @@ local function Run(seed, steps)
 			if #c == 0 then return end
 			local m = Pick(c)
 			L("delete " .. m.name)
-			ns.DeleteMacro(m)
+			if ns.DeleteMacro(m) then model[m.id] = nil end
 		end,
 		function()
 			if world.combat then return end
@@ -525,6 +562,7 @@ local function Run(seed, steps)
 			if world.combat or #world.macros == 0 then return end
 			local i = math.random(#world.macros)
 			L("delete in /macro #" .. i .. " " .. world.macros[i].name)
+			model[CodeOf(world.macros[i].body) or ""] = nil
 			table.remove(world.macros, i)
 			world:Fire("UPDATE_MACROS")
 		end,

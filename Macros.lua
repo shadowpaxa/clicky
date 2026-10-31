@@ -24,7 +24,7 @@
 -- A runtime macro m has: id, name, icon, index, button, lastUsed (a key), data, and state:
 --   "ready"      entries (key -> true) read from data
 --   "newer"      saved by a newer Clicky, or holding an entry this Clicky's list doesn't have yet
---   "unreadable" damaged: anything but format 6
+--   "unreadable" damaged: anything but format 1
 -- reason says why. Unreadable macros load nothing onto their buttons and can't have entries changed.
 -- Favorites (id ns.FAVORITES_ID, builtin): its toys are the Toy Box stars, and its macro is found
 -- by its /click line (ns.FindFavoritesMacro); it may not exist yet, and it holds no data.
@@ -314,9 +314,9 @@ local function CantRead(m, state, reason)
 	ns.Trace("[%s] can't read its entries (%s): %s", m.name, state, reason)
 end
 
--- The entries at a format 6 macro's places in the list, or nil, why not, and the state it reads
+-- The entries at a format 1 macro's places in the list, or nil, why not, and the state it reads
 -- as: a place past the list's end is an entry a newer list has.
-local function ReadFormat6(d)
+local function ReadFormat1(d)
 	local list = ns.GetToyList().entries
 	local entries = {}
 	for _, p in ipairs(d.positions) do
@@ -336,7 +336,7 @@ local function Decode(m, data)
 		return CantRead(m, err == "newer" and "newer" or "unreadable", err)
 	end
 	local entries, state
-	entries, err, state = ReadFormat6(d)
+	entries, err, state = ReadFormat1(d)
 	if not entries then
 		return CantRead(m, state, err)
 	end
@@ -622,6 +622,7 @@ function ns.SetEntry(m, key, inMacro)
 	entries[key] = inMacro or nil
 	local rec
 	rec, err = FindRecord(m)
+	ok = false
 	if rec then
 		ok, err = Save(m, rec, entries)
 	end

@@ -1,5 +1,6 @@
-# Runs tests/run.sh (luacheck, the tests and the API check) on every push and pull request, and
-# before each release (release.yml calls it).
+# Runs tests/run.sh (luacheck, the tests and the API check) on every push and pull request, before
+# each release (release.yml calls it), and weekly: the API check reads Blizzard's live UI source, so a
+# patch that changes an API Clicky calls fails it without anyone pushing.
 name: CI
 
 on:
@@ -8,10 +9,16 @@ on:
       - '**'
   pull_request:
   workflow_call:
+  schedule:
+    - cron: '0 18 * * 2' # Tuesdays, 18:00 UTC
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A change that makes a test loop forever fails in minutes, not after GitHub's six-hour default
+    # (a tests/run.sh run takes under a minute on a Mac).
+    timeout-minutes: 15
     steps:
       - name: Clone project
         uses: actions/checkout@v7

@@ -22,8 +22,9 @@
 -- bar and list, a filter menu, tooltips, cooldown frames, the context menu's entries), as far as
 -- Clicky uses them, each citing Blizzard's source. The mouse reaches a button as WoW sends it:
 -- the clicks it registered for, the wheel and drags only if enabled (World:HoldMouse,
--- World:MouseWheel, World:Drag). UI behavior is shown by tests, or relies only on behavior Blizzard's source shows; menus
--- and dialogs aren't stubbed, so a test replaces ns.OpenEntryMenu to see what opens.
+-- World:MouseWheel, World:Drag). UI behavior is shown by tests, or relies only on behavior Blizzard's source shows. A
+-- context menu is kept as its generator builds it (world.menu) and a dialog as StaticPopup_Show sets it up
+-- (world.dialog); what Blizzard draws for them isn't here.
 -- tests/check_api.py checks every API Clicky calls exists.
 
 local wow = {}
@@ -56,20 +57,53 @@ local function strtrim(s)
 end
 
 ------------------------------------------------------------------------------------------
--- Frames. Methods Clicky calls only for layout and looks (SetPoint, CreateTexture...) are
--- accepted and do nothing.
+-- Frames. Methods Clicky calls only for looks (SetAtlas, SetFrameStrata...) do nothing, on the
+-- widget types that have them (LOOKS); a method no stub defines is missing, as in the game.
 
 local Frame = {}
 
--- Methods Clicky calls only for how a frame looks (SetAtlas, SetColorTexture...) are accepted and
--- do nothing.
+-- A widget's type (frame.kind: the type CreateFrame was given, or Texture or FontString) and the
+-- types it inherits, as Ketho's annotations (Annotations/Core) and warcraft.wiki.gg Widget API have
+-- them: CheckButton is a Button, every frame type is a Frame, and everything is a Region and a
+-- ScriptRegion.
+local function IsA(frame, class)
+	local kind = frame.kind
+	if class == "Region" or class == "ScriptRegion" then return true end
+	if class == "Frame" then return kind ~= "Texture" and kind ~= "FontString" end
+	if class == "Button" then return kind == "Button" or kind == "CheckButton" end
+	return kind == class
+end
+
+-- Methods Clicky calls only for how a widget looks or sits: they do nothing here, and only the types
+-- that have them have them (the class each is defined on in Ketho's annotations). Any other method
+-- the stubs don't define is missing, so calling it is an error, as calling a method a widget lacks
+-- is in the game.
+local LOOKS = {
+	EnableMouse = "ScriptRegion",
+	SetAtlas = "Texture", SetBlendMode = "Texture", SetColorTexture = "Texture", -- TextureBase
+	SetHighlightTexture = "Button", SetNormalTexture = "Button", SetPushedTexture = "Button",
+	SetAutoFocus = "EditBox",
+	SetClampedToScreen = "Frame", SetDontSavePosition = "Frame", SetFrameStrata = "Frame", SetID = "Frame",
+	SetMovable = "Frame", SetToplevel = "Frame",
+	SetFontObject = "FontString EditBox", SetJustifyH = "FontString EditBox", SetShadowOffset = "FontString EditBox",
+	SetWordWrap = "FontString",
+}
+
+-- Methods with state that only some types have (TextureBase's SetTexture and SetDesaturated,
+-- Button's GetHighlightTexture), filled in below.
+local TYPED = {}
+
 Frame.__index = function(self, key)
 	local method = rawget(Frame, key)
 	if method then
 		return method
 	end
-	if type(key) == "string" and key:find("^%u") then
-		return function() return self end
+	local typed = TYPED[key]
+	if typed and IsA(self, typed.class) then
+		return typed.fn
+	end
+	for class in (LOOKS[key] or ""):gmatch("%a+") do
+		if IsA(self, class) then return function() return self end end
 	end
 end
 
@@ -125,8 +159,8 @@ end
 
 local Cooldown, ScrollBar, ScrollList, FilterDropdown, ButtonFrame -- templates with methods of their own, below
 
-local function NewFrame(world, name, parent, template)
-	local frame = setmetatable({ world = world, name = name, parent = parent, template = template,
+local function NewFrame(world, name, parent, template, kind)
+	local frame = setmetatable({ world = world, name = name, parent = parent, template = template, kind = kind or "Frame",
 		scripts = {}, hooks = {}, attributes = {}, wraps = {}, shown = true, points = {}, width = 0,
 		height = 0, level = 1 }, Frame)
 	if PROTECTED[template] then
@@ -152,6 +186,10 @@ local function NewFrame(world, name, parent, template)
 		frame.rows, frame.elements, world.scrollList = {}, {}, frame
 	elseif template == "ButtonFrameTemplate" then
 		ButtonFrame(world, frame)
+	elseif template == "PortraitFrameTemplate" then
+		-- Its title (TitledPanelMixin, PortraitFrame.lua:4-14), as ButtonFrameTemplate's below.
+		frame.TitleContainer = { TitleText = NewFrame(world, nil, frame, nil, "FontString") }
+		function frame:SetTitle(title) self.TitleContainer.TitleText:SetText(title) end
 	elseif template == "PanelTopTabButtonTemplate" then
 		-- A tab resizes itself to its label with its parent's padding when shown
 		-- (PanelTabButtonMixin:OnShow, SharedUIPanelTemplates.lua:256-258).
@@ -166,7 +204,7 @@ local function NewFrame(world, name, parent, template)
 		-- HighlightText(0) selects from the start to the end (warcraft.wiki.gg API
 		-- EditBox:HighlightText: end defaults to the end), kept as the text selected.
 		frame.ScrollBox = NewFrame(world, nil, frame)
-		frame.ScrollBox.EditBox = NewFrame(world, nil, frame.ScrollBox)
+		frame.ScrollBox.EditBox = NewFrame(world, nil, frame.ScrollBox, nil, "EditBox")
 		local editBox = frame.ScrollBox.EditBox
 		function editBox:SetFocus()
 			self.focused = true
@@ -182,7 +220,7 @@ local function NewFrame(world, name, parent, template)
 	elseif template == "UICheckButtonTemplate" then
 		-- Its label, parentKey Text (CheckButtonTemplates.xml:50-64). A click ticks or unticks it,
 		-- then runs OnClick (warcraft.wiki.gg Widget API CheckButton).
-		frame.Text = NewFrame(world, nil, frame)
+		frame.Text = NewFrame(world, nil, frame, nil, "FontString")
 		function frame:SetChecked(checked) self.checked = checked == true end
 		function frame:GetChecked() return self.checked == true end
 		function frame:Click()
@@ -364,15 +402,20 @@ function Frame:GetFrameLevel() return self.level end
 -- Regions: textures and font strings are made by their frame, are never protected and have the
 -- state Clicky sets on them.
 local function NewRegion(frame, kind)
-	local region = NewFrame(frame.world, nil, frame)
+	local region = NewFrame(frame.world, nil, frame, nil, kind == "texture" and "Texture" or "FontString")
 	region.region = kind
 	return region
 end
 
 function Frame:CreateTexture() return NewRegion(self, "texture") end
 function Frame:CreateFontString() return NewRegion(self, "fontstring") end
-function Frame:SetTexture(texture) self.texture = texture end
-function Frame:SetDesaturated(desaturated) self.desaturated = desaturated end
+TYPED.SetTexture = { class = "Texture", fn = function(self, texture) self.texture = texture end }
+TYPED.SetDesaturated = { class = "Texture", fn = function(self, desaturated) self.desaturated = desaturated end }
+-- The texture SetHighlightTexture set, or one made for it (warcraft.wiki.gg API Button GetHighlightTexture).
+TYPED.GetHighlightTexture = { class = "Button", fn = function(self)
+	self.highlight = self.highlight or NewRegion(self, "texture")
+	return self.highlight
+end }
 function Frame:SetAlpha(alpha) self.alpha = alpha end
 
 -- Text set by code runs OnTextChanged, with userInput false (warcraft.wiki.gg UIHANDLER OnTextChanged).
@@ -517,8 +560,8 @@ function RunSnippet(world, frame, body, ...)
 end
 
 -- A click: PreClick, the wrapped OnClick (each wrap's snippet first, Wrapped_Click in
--- SecureHandlers.lua; a snippet returning false stops the click), the template's OnClick,
--- PostClick. SecureActionButton_OnClick acts on the down click when useOnKeyDown is on and the up
+-- SecureHandlers.lua; a snippet returning false stops the click), the template's OnClick (or a
+-- plain button's own), PostClick. SecureActionButton_OnClick acts on the down click when useOnKeyDown is on and the up
 -- click otherwise; with the attribute unset it follows the ActionButtonUseKeyDown setting
 -- (SecureTemplates.lua, SecureActionButton_ShouldUseOnKeyDown), and SECURE_ACTIONS.toy uses the
 -- modified "toy" attribute. SecureHandlerClickTemplate's OnClick runs its _onclick snippet
@@ -538,6 +581,9 @@ function Frame:Click(button, down)
 			end
 		elseif self.template == "SecureHandlerClickTemplate" and self.attributes._onclick then
 			RunSnippet(world, self, self.attributes._onclick, button, down)
+		else
+			-- Any other button runs its own OnClick (warcraft.wiki.gg UIHANDLER OnClick).
+			RunScripts(self, "OnClick", button, down)
 		end
 	end
 	if self.scripts.PostClick then self.scripts.PostClick(self, button, down) end
@@ -689,9 +735,9 @@ function FilterDropdown:ValidateResetState() self.resetShown = not self.isDefaul
 -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml); and its title, which SetTitle puts in its top
 -- bar's TitleText (TitledPanelMixin, PortraitFrame.lua:4-14).
 ButtonFrame = function(world, frame)
-	frame.CloseButton = NewFrame(world, nil, frame)
+	frame.CloseButton = NewFrame(world, nil, frame, nil, "Button")
 	frame.Inset = NewFrame(world, nil, frame)
-	frame.TitleContainer = { TitleText = NewFrame(world, nil, frame) }
+	frame.TitleContainer = { TitleText = NewFrame(world, nil, frame, nil, "FontString") }
 	function frame:SetTitle(title) self.TitleContainer.TitleText:SetText(title) end
 end
 
@@ -1023,6 +1069,27 @@ function World:ChooseMenuEntry(text)
 		end
 	end
 	error("no menu entry " .. text)
+end
+
+-- The player typing in the dialog's edit box (its whole text), pressing Enter in it, or clicking its
+-- first button, which does nothing while it's disabled (see StaticPopup_Show above).
+function World:TypeInDialog(text)
+	assert(self.dialog and self.dialog:GetEditBox(), "no dialog with an edit box is shown")
+	self.dialog:GetEditBox():SetText(text)
+end
+
+function World:PressEnterInDialog()
+	local dialog = assert(self.dialog, "no dialog is shown")
+	local info = self.env.StaticPopupDialogs[dialog.which]
+	if info.EditBoxOnEnterPressed then info.EditBoxOnEnterPressed(dialog:GetEditBox(), dialog.data) end
+end
+
+function World:ClickDialogButton(index)
+	assert(index == 1, "the stubs click only a dialog's first button")
+	local dialog = assert(self.dialog, "no dialog is shown")
+	if not dialog:GetButton1():IsEnabled() then return end
+	local info = self.env.StaticPopupDialogs[dialog.which]
+	if not (info.OnAccept and info.OnAccept(dialog, dialog.data, dialog.data2)) then dialog:Hide() end
 end
 
 -- The grid's filter menu as it opens: { text, isSelected(), toggle() } per checkbox.
@@ -1484,8 +1551,8 @@ function World:BuildEnv()
 	env.UIParent = NewFrame(world)
 	env.UIErrorsFrame = { AddExternalErrorMessage = function(_, msg) table.insert(world.errors, msg) end }
 	world.frames = {}
-	env.CreateFrame = function(_, name, parent, template)
-		local frame = NewFrame(world, name, parent, template)
+	env.CreateFrame = function(frameType, name, parent, template)
+		local frame = NewFrame(world, name, parent, template, frameType)
 		table.insert(world.frames, frame)
 		return frame
 	end
@@ -1532,7 +1599,44 @@ function World:BuildEnv()
 		end,
 		GetAddOnMetadata = function(_, field) return world.toc[field] end,
 	}
+	-- Dialogs (Blizzard_StaticPopup/StaticPopup.lua, SharedTemplates.lua), as far as Clicky uses them:
+	-- StaticPopup_Show errors on a dialog that isn't defined (:300-304), keeps the data on the dialog and
+	-- runs its OnShow(dialog, data); the edit box's OnTextChanged runs EditBoxOnTextChanged(editBox,
+	-- data), whoever set the text, and Enter runs EditBoxOnEnterPressed(editBox, data)
+	-- (SharedTemplates.lua:37-66); button 1 runs OnAccept(dialog, data, data2), and the dialog stays
+	-- open if it returns true (StaticPopup_OnClick, :709-713). world.dialog is the dialog shown; what
+	-- Blizzard draws isn't here.
 	env.StaticPopupDialogs = {}
+	env.StaticPopup_Show = function(which, textArg1, textArg2, data)
+		local info = env.StaticPopupDialogs[which]
+		if not info then error("Dialog " .. which .. " does not exist.") end
+		local dialog = { which = which, data = data, text = info.text:format(textArg1 or "", textArg2 or "") }
+		local button1 = { enabled = true }
+		function button1.SetEnabled(b, enabled) b.enabled = enabled and true or false end
+		function button1.IsEnabled(b) return b.enabled end
+		function button1.Click() world:ClickDialogButton(1) end
+		local editBox = info.hasEditBox and { text = "" } or nil
+		function dialog.GetButton1() return button1 end
+		function dialog.GetEditBox() return editBox end
+		function dialog.Hide(d) if world.dialog == d then world.dialog = nil end end
+		if editBox then
+			function editBox.GetParent() return dialog end
+			function editBox.GetText(e) return e.text end
+			function editBox.SetText(e, text)
+				e.text = text
+				if info.EditBoxOnTextChanged then info.EditBoxOnTextChanged(e, dialog.data) end
+			end
+			function editBox.HighlightText(e) e.selected = e.text end
+		end
+		world.dialog = dialog
+		if info.OnShow then info.OnShow(dialog, data) end
+		return dialog
+	end
+	-- StaticPopup.lua:138-146, with UserEditBoxNonEmpty (Blizzard_SharedXML/StringUtil.lua:9-15).
+	env.StaticPopup_StandardNonEmptyTextHandler = function(editBox)
+		editBox:GetParent():GetButton1():SetEnabled(strtrim(editBox:GetText()) ~= "")
+	end
+	env.StaticPopup_StandardEditBoxOnEscapePressed = function(editBox) editBox:GetParent():Hide() end
 	-- EventUtil.ContinueOnAddOnLoaded (Blizzard_SharedXML/EventUtil.lua): the callback runs now if
 	-- the add-on is loaded (IsAddOnLoaded's second result), else once on its ADDON_LOADED.
 	env.EventUtil = {

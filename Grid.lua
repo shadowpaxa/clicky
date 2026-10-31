@@ -13,6 +13,8 @@
 --                                    first row), each { index, row, offset }; then the first row
 --                                    used and the highest first row; for tests
 --   ns.GetGridFilters()              the grid's filters now, section name -> filters; for tests
+--   ns.GetGridPlace()                the tab shown (a section's name), the top row in view and the
+--                                    number of rows; nothing before the grid is made; for tests
 --   ns.GetGridState()                for /clicky debug: whether the grid is made, the tab shown,
 --                                    where it is scrolled to, its search and the shown tab's filters
 
@@ -186,11 +188,17 @@ local function Counts()
 	return table.concat(counts, ", ")
 end
 
+function ns.GetGridPlace()
+	if grid then
+		return SECTIONS[PanelTemplates_GetSelectedTab(grid)].name, first, #rows
+	end
+end
+
 function ns.GetGridState()
 	if not grid then
 		return waiting and "waiting for combat to end" or "not made"
 	end
-	local name = SECTIONS[PanelTemplates_GetSelectedTab(grid)].name
+	local name = ns.GetGridPlace()
 	local shown = filters[name]
 	return ("made, showing %s, top row %d of %d (%s), %ssearch %q%s%s"):format(name, first, #rows, Counts(),
 		shown and (ns.DescribeGridFilters(shown) .. ", ") or "",

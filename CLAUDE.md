@@ -51,10 +51,10 @@ test "Never changes the player's settings" fails on any such call.
   Never rename the `Clicky<code>` or `ClickyP<code>` buttons or change that line, except to give
   a copied macro its own code (both buttons). Any other `/click` line isn't a Clicky macro's.
 - Changing the `#clicky` format means a new format version in Codec.lua. Macros are written in
-  format 6 (with a checksum), the only format read; anything else reads as damaged. An unreleased
+  format 1 (with a checksum), the only format read; anything else reads as damaged. An unreleased
   format may change in place. Favorites' macro has no `#clicky` line.
-- **A release never breaks players' macros.** Every later version reads format 6 and the places in
-  `ToyList.lua`; a new format is read alongside format 6, never instead of it. Earlier formats read
+- **A release never breaks players' macros.** Every later version reads format 1 and the places in
+  `ToyList.lua`; a new format is read alongside format 1, never instead of it. Earlier formats read
   as damaged, with no migration.
 - An entry's number in a macro (a toy, mount, pet look, spell or item: Entries.lua) is its place in
   `ToyList.lua`, which only grows at the end (`tools/update_toys.py` appends;
@@ -67,16 +67,19 @@ constraints and non-obvious reasons, not what the code does.
 
 ## Tests
 
-`tests/run.sh` must pass before every commit (setup is in its header); CI runs it on every push
-and before each release (`.github/workflows/ci.yml`). It runs luacheck (`.luacheckrc`: a WoW
+`tests/run.sh` must pass before every commit (setup is in its header); CI runs it on every push,
+before each release and weekly, so a patch is checked without a push (`.github/workflows/ci.yml`). It runs luacheck (`.luacheckrc`: a WoW
 global Clicky starts using goes in its `read_globals`), `tests/test_journeys.lua` (busted under
 LuaJIT, which is Lua 5.1 like WoW), `tests/test_docs.lua` (README.md's limits, commands, messages and labels against the code),
 `tests/test_toylist.lua` (the list's append-only check and the update script),
 `tests/test_random_play.lua` and `tests/test_random_play_accounts.lua` (fixed-seed random
 sequences of what a player does, on one computer and on two, checking after every step that
-macros, buttons, drawers and the grid agree),
+macros, buttons, drawers and the grid agree, and that each macro made through Clicky holds what
+the player put in it, from macros of a few items to dozens),
 `tests/check_api.py` (lua-language-server with Ketho's annotations, plus every Blizzard name
-Clicky uses checked against Blizzard's live UI source; `tests/fetch.sh` refreshes both) and
+Clicky uses checked against Blizzard's live UI source, and every `C_` or global function Clicky
+calls whose returns Blizzard marks secret against the list of those Clicky handles; `tests/fetch.sh` refreshes
+both) and
 `tests/check_toylist.py` (ToyList.lua against every tag the commit contains, so CI fetches tags).
 
 - Tests are named after the journeys and call what the UI is built on: the Macros API,
@@ -96,8 +99,12 @@ Clicky uses checked against Blizzard's live UI source; `tests/fetch.sh` refreshe
 - UI behavior is shown by tests (`tests/wow.lua` stubs the Blizzard frames and widgets Clicky relies
   on: the Toy Box's frames, `World:LoadCollections`, a scroll bar, a scroll list, a filter menu,
   frame sizes, anchors and visibility, and the combat lock on protected frames, each citing
-  Blizzard's source) or relies only on behavior Blizzard's source shows. Menus and dialogs are
-  Blizzard's own and aren't stubbed; a test replaces `ns.OpenEntryMenu` to see what opens.
+  Blizzard's source) or relies only on behavior Blizzard's source shows. Blizzard draws menus and
+  dialogs; `tests/wow.lua` keeps a context menu's entries as its generator builds them
+  (`world:ChooseMenuEntry`) and a dialog as `StaticPopup_Show` sets it up (`world:TypeInDialog`,
+  `world:PressEnterInDialog`, `world:ClickDialogButton`); a test may replace `ns.OpenEntryMenu` to
+  see what opens. A widget method no stub defines is missing, so calling one is an error, as in the
+  game; one Clicky calls only for looks goes in `LOOKS`, on the widget types that have it.
 - Test what a look at the UI wouldn't show: the format and its size maths, sync across computers,
   patches, combat, refusals and their reasons.
 - Assert on Clicky's results (macro bodies, button attributes, errors via `world:TakeErrors()`,
@@ -133,7 +140,8 @@ README.md is for players, and short: about 100 lines. Review step 4 checks it ag
   not, it goes: what the UI already shows (labels, counts, highlights, how scrolling works), rare
   cases, history and old versions, and how Clicky works inside. The journeys hold the full
   behavior; README isn't a copy of them.
-- **Concise.** Short plain sentences, one fact each, no internal terms. Say a thing once.
+- **Written like a person.** Explain Clicky as you would to a friend: plain, connected sentences,
+  "you" for the player, no internal terms. Say a thing once.
 - **The first screen gets a player going:** what Clicky does in a few sentences, a picture, which
   WoW it's for (the `.toc`'s Interface), how to install it, and the steps to a working button.
 - **Troubleshooting only for what the game doesn't explain.** A message that already says what to
@@ -173,10 +181,23 @@ start again from step 1. Done means one full pass with no findings.
    cut it.
 5. **Every claim.** For each sentence added to docs, comments and the changelog, name where it's
    confirmed: a line of code, a test, or a cited Blizzard source. Game behavior not seen in play
-   and not in Blizzard's source comes out. Look hardest at absolutes, reasons and claims about
-   other versions.
-6. **Tests.** Each new behavior has a test that was seen to fail with the code broken, and no
-   test relies on a stub behavior that `tests/wow.lua` doesn't cite.
+   and not in Blizzard's source comes out. Names and examples given to players (a toy, a mount,
+   the README's Ideas) aren't claims to check: they're from play. Look hardest at absolutes,
+   reasons and claims about other versions.
+6. **Tests.**
+   - Each new or changed behavior has a test that checks its result, seen to fail with the code
+     broken the way changes here go wrong: a macro losing, gaining or swapping an item, the
+     255-character limit off by one, another computer or a copy reading it differently, combat, a
+     refusal.
+   - Tests read state through Clicky's `ns` API, not `/clicky debug` or trace text, unless that
+     text is what's tested.
+   - Each stub behavior a test relies on cites Blizzard's source, and a stub added or changed does
+     what that source does, not less (a click that skipped the button's `OnClick` hid a bug).
+   - No stub, helper or test that nothing needs. A test of an improbable case goes if it breaks on
+     unrelated changes and getting the case wrong would lose no items, break no bar and raise no
+     Lua error.
+   - A function `tests/check_api.py` asks to add to `HANDLED_SECRET` is added only once the code
+     neither compares its secret returns nor hands them to a widget that refuses them.
 7. **Scripts and edge cases.** Run every changed script, or its logic in a throwaway repository or
    on temporary files, including: nothing to do, running twice, the wrong branch, missing or bad
    input.
