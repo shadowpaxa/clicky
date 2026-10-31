@@ -151,7 +151,7 @@ describe("README.md", function()
 		local damaged = Says('\n%- "([^"]+)": its `#clicky` line was changed', "the damaged reason")
 		local world = World()
 		local data = world.ns.EncodePlaces({ 0 })
-		world:CreateMacroInUI("Future", world.ns.NewBody("FTRX", "x" .. data:sub(2)))
+		world:CreateMacroInUI("Future", world.ns.NewBody("FTRX", world.ns.MarkFormat(data, 2)))
 		world:CreateMacroInUI("Broken", "/click ClickyBCDF\n#clicky broken")
 		local function Reason(name)
 			for _, m in ipairs(world.ns.GetMacros()) do

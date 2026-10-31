@@ -24,7 +24,7 @@
 -- Favorites' macro is the general macro whose line is /click [btn:2]ClickyPFVRT;ClickyFVRT, with
 -- no data line (FVRT is its reserved code). The /click line is what players' bars depend on: it's
 -- only rewritten to give a copied macro a code of its own. A /click line naming any other button
--- (an earlier Clicky's numbered ones, say) isn't a Clicky macro's.
+-- isn't a Clicky macro's.
 
 local _, ns = ...
 

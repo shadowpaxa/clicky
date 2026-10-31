@@ -51,14 +51,16 @@ test "Never changes the player's settings" fails on any such call.
   Never rename the `Clicky<code>` or `ClickyP<code>` buttons or change that line, except to give
   a copied macro its own code (both buttons). Any other `/click` line isn't a Clicky macro's.
 - Changing the `#clicky` format means a new format version in Codec.lua. Macros are written in
-  format 1 (with a checksum), the only format read; anything else reads as damaged. An unreleased
+  format 1 (with a checksum), the only format read; a later format reads as saved by a newer
+  Clicky, anything else as damaged. A later format keeps the first character as its number and the
+  checksum at the end: that's how an earlier release tells it from a damaged line. An unreleased
   format may change in place. Favorites' macro has no `#clicky` line.
 - **A release never breaks players' macros.** Every later version reads format 1 and the places in
-  `ToyList.lua`; a new format is read alongside format 1, never instead of it. Earlier formats read
-  as damaged, with no migration.
+  `ToyList.lua`; a new format is read alongside format 1, never instead of it.
 - An entry's number in a macro (a toy, mount, pet look, spell or item: Entries.lua) is its place in
   `ToyList.lua`, which only grows at the end (`tools/update_toys.py` appends;
-  `tests/check_toylist.py` checks against every tagged release). Never reorder it or remove from it.
+  `tests/check_toylist.py` checks against every release tag from v1.0.0 on). Never reorder it or
+  remove from it.
 - A macro Clicky can't read has no items and takes no changes. It must not read as other items.
 
 **Debuggability.** Log every state change with `ns.Trace(format, ...)` (guard costly arguments
@@ -80,7 +82,8 @@ the player put in it, from macros of a few items to dozens),
 Clicky uses checked against Blizzard's live UI source, and every `C_` or global function Clicky
 calls whose returns Blizzard marks secret against the list of those Clicky handles; `tests/fetch.sh` refreshes
 both) and
-`tests/check_toylist.py` (ToyList.lua against every tag the commit contains, so CI fetches tags).
+`tests/check_toylist.py` (ToyList.lua against every release tag from v1.0.0 on that the commit
+contains, so CI fetches tags).
 
 - Tests are named after the journeys and call what the UI is built on: the Macros API,
   `ns.PanelRows`, `ns.OpenEntryMenu`, `ns.GridSections`, `ns.GridRows`, `ns.GridView`, the grid's
@@ -154,7 +157,8 @@ README.md is for players, and short: about 100 lines. Review step 4 checks it ag
 ## Reviews
 
 Review before every commit of a change and before every release, against a base (the last
-release tag for a release, `HEAD` for a commit). Do every step; write each finding down; fix; then
+release tag from v1.0.0 on for a release, and none for 1.0.0 itself: the whole addon; `HEAD` for a
+commit). Do every step; write each finding down; fix; then
 start again from step 1. Done means one full pass with no findings.
 
 1. **What the player sees.** Make a list of every difference a player can see or do, by walking

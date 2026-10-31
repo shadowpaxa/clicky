@@ -59,12 +59,6 @@ local UNREADABLE = "Clicky can't read this macro's items. Delete it and make it 
 local NEWER = "This macro was saved by a newer version of Clicky. Update Clicky to use it."
 local UNKNOWN_TOY = "Clicky doesn't know this item yet. Update Clicky."
 
--- A macro as Clicky 0.4.0 wrote it (its /click line names ClickySet<number>), made by the real
--- 0.4.0 code: a worktree of this repository at tag v0.4.0-alpha1, MakeMacro("Illusion", 101), then
--- SetEntry for 201. Its /click line isn't a Clicky macro's.
-local V040_PIRATE_HAT = "/click [btn:2]ClickyP1;ClickySet1\n"
-	.. "#clicky gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c"
-
 -- The toys the grid lists.
 -- filters: those to change from the Toys tab's defaults (GridFilters.lua).
 local function GridToys(ns, filters, text)
@@ -246,7 +240,6 @@ local function Line(code)
 	return ("/click [btn:2]ClickyP%s;Clicky%s"):format(code, code)
 end
 local FAVORITES_LINE = Line("FVRT")
-local OLD_FAVORITES_LINE = "/click [btn:2]ClickyP0;ClickyButton" -- 0.4.0's; not a Clicky macro, not Favorites'
 local CODE_PATTERN = "Clicky(" .. ("[BCDFGHJKLMNPQRSTVWXZ]"):rep(4) .. ")%f[%W]"
 
 -- The code a body's /click line clicks, or nil.
@@ -257,16 +250,6 @@ end
 -- The macro's code, as Clicky holds it.
 local function Code(world, name)
 	return Macro(world, name).id
-end
-
--- An earlier Clicky's Codec.lua, from its release tag (CI fetches tags for tests/check_toylist.py).
-local function OldCodec(tag)
-	local pipe = assert(io.popen("git show " .. tag .. ":Codec.lua 2>/dev/null"))
-	local source = pipe:read("*a")
-	pipe:close()
-	local old = {}
-	assert(loadstring(source, tag .. ":Codec.lua"), "no Codec.lua at " .. tag)("Clicky", old)
-	return old
 end
 
 describe("journeys", function()
@@ -653,12 +636,10 @@ describe("journeys", function()
 			list({ ns.DecodePlaces(good:sub(1, i - 1) .. c .. good:sub(i + 1)) }, { nil, "damaged" }, "character " .. i .. " changed")
 		end
 		list({ ns.DecodePlaces(good:sub(1, 7) .. "|" .. good:sub(9)) }, { nil, "damaged" }, "not the alphabet")
-		list({ ns.DecodePlaces("x" .. good:sub(2)) }, { nil, "newer" }, "format 2")
-		list({ ns.DecodePlaces("/" .. good:sub(2)) }, { nil, "newer" }, "format 16 and later")
-		list({ ns.DecodePlaces("rAvTtd") }, { nil, "damaged" }, "0.5.0's format (an alpha), no longer read")
-		list({ ns.DecodePlaces("I" .. good:sub(2)) }, { nil, "damaged" }, "a development build's format")
-		list({ ns.DecodePlaces("Q" .. good:sub(2)) }, { nil, "damaged" }, "another development build's format")
-		list({ ns.DecodePlaces("g" .. good:sub(2)) }, { nil, "damaged" }, "0.4.0's format")
+		list({ ns.DecodePlaces(ns.MarkFormat(good, 2)) }, { nil, "newer" }, "format 2")
+		list({ ns.DecodePlaces(ns.MarkFormat(good, 63)) }, { nil, "newer" }, "format 63 and later")
+		list({ ns.DecodePlaces("C" .. good:sub(2)) }, { nil, "damaged" }, "format 2's mark, typed: its checksum doesn't hold")
+		list({ ns.DecodePlaces("A" .. good:sub(2)) }, { nil, "damaged" }, "0 is no format")
 	end)
 
 	it("5. See a macro: its toys listed alphabetically when open, with its toy count", function()
@@ -1073,47 +1054,11 @@ describe("journeys", function()
 		eq(#world.macros, 1, "it can be deleted")
 	end)
 
-	it("10. Update Clicky: a macro saved by 0.5.0 can't be read and is left as it is", function()
-		local world = World()
-		local ns = world.ns
-		-- 0.5.0's line for places 0, 3 and 40, as 0.5.0 wrote it.
-		local body = ns.NewBody("BCDF", "rAvTtd")
-		world.bars[1] = world:CreateMacroInUI("Old", body)
-		ExpectUnreadable(world, "Old", UNREADABLE, 1)
-		world:Fire("UPDATE_MACROS")
-		world:Advance(1)
-		eq(world.macros[1].body, body, "not rewritten")
-		assert(ns.DeleteMacro(Macro(world, "Old")))
-		MakeMacro(world, PIRATE, "Old")
-		PutOnBar(world, "Old", 1)
-		list(UsedToys(world, 1), { PIRATE }, "made again")
-	end)
-
-	it("10. Update Clicky: macros from 0.4.0 aren't Clicky macros: no row, left as they are", function()
-		local world = World({ macros = { { name = "Illusion", icon = 1001, body = V040_PIRATE_HAT },
-			{ name = "Illusion 2", icon = 1001, body = V040_PIRATE_HAT },
-			{ name = "Stars", icon = "x", body = OLD_FAVORITES_LINE } } })
-		world.bars[1] = world.macros[1]
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
-		eq(world.macros[1].body, V040_PIRATE_HAT, "not rewritten")
-		eq(world.macros[2].body, V040_PIRATE_HAT, "nor is its copy")
-		eq(world.macros[3].body, OLD_FAVORITES_LINE, "nor is the old Favorites macro")
-		eq(world.env.ClickySet1, nil, "no button for its line")
-		eq(world.env.ClickyButton, nil)
-		list(UsedToys(world, 1), {}, "it does nothing")
-		world.ns.PickupMacro(Favorites(world))
-		eq(#world.macros, 4, "Favorites gets a macro of its own")
-		eq(world.cursor.body, FAVORITES_LINE)
-		MakeMacro(world, PIRATE, "Illusion")
-		eq(world:FindMacroByName("Illusion").body, V040_PIRATE_HAT, "a new macro of the same name leaves it alone")
-		eq(#world:TakeErrors(), 0)
-	end)
-
 	it("11. Can't be read: a macro saved by a newer Clicky says to update", function()
 		local world = World()
 		local ns = world.ns
 		local data = ns.EncodePlaces({ 0 })
-		world:CreateMacroInUI("Future", ns.NewBody("FTRX", "x" .. data:sub(2)))
+		world:CreateMacroInUI("Future", ns.NewBody("FTRX", ns.MarkFormat(data, 2)))
 		ExpectUnreadable(world, "Future", NEWER)
 	end)
 
@@ -1235,48 +1180,19 @@ describe("journeys", function()
 	-- new format version needs a sample here before this test passes.
 	local WRITTEN_FORMATS = {
 		-- Format 1: places 0, 3 and 40.
-		[1] = { data = "wDAvT1t", positions = { 0, 3, 40 } },
+		[1] = { data = "BzAvT2C", positions = { 0, 3, 40 } },
 	}
 	it("Saved macros: every format Clicky writes still reads exactly as it did", function()
 		local ns = World().ns
 		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-		-- Codec.lua: a first character of 48 + n is format 1 + n.
-		local function Version(data) return alphabet:find(data:sub(1, 1), 1, true) - 1 - 47 end
+		-- Codec.lua: the first character is the format's number.
+		local function Version(data) return alphabet:find(data:sub(1, 1), 1, true) - 1 end
 		for version, sample in pairs(WRITTEN_FORMATS) do
 			local d = assert(ns.DecodePlaces(sample.data), "format " .. version .. " no longer reads")
 			list(d.positions, sample.positions, "format " .. version)
 			eq(ns.EncodePlaces(sample.positions), sample.data, "format " .. version .. " is still written the same")
 		end
 		ok(WRITTEN_FORMATS[Version(ns.EncodePlaces({ 0 }))], "the format written has a sample here")
-		-- 0.4.0's format is no longer read.
-		list({ ns.DecodePlaces("gAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf0c") }, { nil, "damaged" },
-			"0.4.0's format reads as damaged")
-		-- 0.3.0-alpha1's format had no checksum, so it could be edited into other toys.
-		list({ ns.DecodePlaces("YAAlgAwAPxGLWZkHzieCBNLWI3kaW85vYmpr/ir2Xv55+LVKiUvhpguo/vw3XSjf") }, { nil, "damaged" },
-			"0.3.0-alpha1's format reads as damaged")
-	end)
-
-	it("Saved macros: Clicky 0.5.0 reads this version's macros, and every later format's, as saved by a newer Clicky", function()
-		local ns = World().ns
-		local old = OldCodec("v0.5.0-alpha1")
-		eq(old.MACRO_TOY_CAP, 150, "0.5.0's Codec.lua")
-		-- And the other way: every line 0.5.0 writes reads as damaged here, short or long.
-		for k = 0, 150, 5 do
-			local positions = {}
-			for i = 1, k do positions[i] = (i - 1) * 80 end
-			list({ ns.DecodePlaces(old.EncodeToys(positions)) }, { nil, "damaged" }, k .. " toys saved by 0.5.0")
-		end
-		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-		local data = ns.EncodePlaces({ 0, 3, 40 })
-		-- 0.5.0's Macros.lua shows "newer" as "saved by a newer version of Clicky" (CantRead there).
-		list({ old.DecodeToys(data) }, { nil, "newer" }, "a macro this version writes")
-		for v = 48, 63 do
-			local later = alphabet:sub(v + 1, v + 1) .. data:sub(2)
-			list({ old.DecodeToys(later) }, { nil, "newer" }, "format " .. v - 42 .. " in 0.5.0")
-			if v > 48 then
-				list({ ns.DecodePlaces(later) }, { nil, "newer" }, "format " .. v - 42 .. " in this version")
-			end
-		end
 	end)
 
 	it("14. Use the drawer: a toy whose data hasn't loaded yet still has its icon", function()
@@ -1635,8 +1551,8 @@ describe("journeys", function()
 		local function Char(v) return alphabet:sub(v + 1, v + 1) end
 		for v = 0, 63 do
 			local first = Char(v) .. data:sub(2)
-			if v ~= 48 then
-				list({ ns.DecodePlaces(first) }, { nil, v > 48 and "newer" or "damaged" }, "first character " .. v)
+			if v ~= 1 then
+				list({ ns.DecodePlaces(first) }, { nil, "damaged" }, "first character " .. v)
 			end
 			local second = data:sub(1, 1) .. Char(v) .. data:sub(3)
 			if second ~= data then
@@ -1654,28 +1570,44 @@ describe("journeys", function()
 		end
 		local body = data:sub(1, -3)
 		eq(Sum(body), data, "the same checksum as Codec.lua's")
-		list({ ns.DecodePlaces(Sum("w")) }, { nil, "damaged" }, "no Rice parameter, even with a good checksum")
+		list({ ns.DecodePlaces(Sum("B")) }, { nil, "damaged" }, "no Rice parameter, even with a good checksum")
+		list({ ns.DecodePlaces(Sum("A" .. body:sub(2))) }, { nil, "damaged" },
+			"first character 0: no format, even with a good checksum")
+		list({ ns.DecodePlaces(Sum("C" .. body:sub(2))) }, { nil, "newer" }, "format 2, with a good checksum")
 		for v = 0, 63 do
-			if v < 48 then
-				list({ ns.DecodePlaces(Sum(Char(v) .. body:sub(2))) }, { nil, "damaged" },
-					"first character " .. v .. ": an earlier format's, even with a good checksum")
-			end
-			if v >= 16 then
-				list({ ns.DecodePlaces(Sum("w" .. Char(v) .. body:sub(3))) }, { nil, "damaged" },
-					"Rice parameter " .. v .. ", even with a good checksum")
+			if math.floor(v / 16) ~= #data % 4 then
+				list({ ns.DecodePlaces(Sum("B" .. Char(v) .. body:sub(3))) }, { nil, "damaged" },
+					"second character " .. v .. ": a length the line doesn't have, even with a good checksum")
 			end
 		end
 	end)
 
-	it("11. Can't be read: one character deleted or added never reads as other toys", function()
+	it("11. Can't be read: one character deleted, or any character added, never reads as other toys", function()
 		local ns = World().ns
-		local data, positions = RealisticData(ns)
-		local want = table.concat(positions, ",")
-		for i = 2, #data - 1 do
-			for _, edited in ipairs({ data:sub(1, i - 1) .. data:sub(i + 1), data:sub(1, i - 1) .. "A" .. data:sub(i) }) do
-				local d = ns.DecodePlaces(edited)
-				ok(d == nil or table.concat(d.positions, ",") == want,
-					("character %d deleted or an A added there reads as %s"):format(i, d and table.concat(d.positions, ",") or ""))
+		local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+		-- The realistic line, and lines of a few entries to a full macro over the whole list.
+		local samples = { (RealisticData(ns)) }
+		math.randomseed(11)
+		for _, k in ipairs({ 1, 3, 12, 40, 100 }) do
+			local seen, positions = {}, {}
+			while #positions < k do
+				local p = math.random(0, 140386)
+				if not seen[p] then seen[p], positions[#positions + 1] = true, p end
+			end
+			table.sort(positions)
+			samples[#samples + 1] = ns.EncodePlaces(positions)
+		end
+		for _, data in ipairs(samples) do
+			for i = 1, #data + 1 do
+				local edits = { data:sub(1, i - 1) .. data:sub(i + 1) }
+				for c = 1, 64 do
+					edits[#edits + 1] = data:sub(1, i - 1) .. alphabet:sub(c, c) .. data:sub(i)
+				end
+				for _, edited in ipairs(edits) do
+					if edited ~= data then
+						list({ ns.DecodePlaces(edited) }, { nil, "damaged" }, ("%s edited at %d as %s"):format(data, i, edited))
+					end
+				end
 			end
 		end
 	end)

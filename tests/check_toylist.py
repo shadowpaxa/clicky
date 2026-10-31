@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """ToyList.lua only grows at the end: an entry's number in players' macros is its place in it.
 
-With no arguments, compares ToyList.lua with the one at every tag this commit contains
-(`git tag --merged HEAD`): each of those lists must be a prefix of this one. Every tag, not just
-the newest, because the newest can be on this very commit (a release's own CI run, or
-tools/release.sh before its commit). Tags without a ToyList.lua are skipped. `--old FILE --new FILE` compares two
-files instead (tests/test_toylist.lua uses it). Compares the entries (toys are item IDs; spells,
-items and mounts are "s", "i" and "m" with an ID; pets are "p", a species and a display ID; old
-tags have only toys, or toys, spells and items), not the text.
+With no arguments, compares ToyList.lua with the one at every release tag from v1.0.0 on that
+this commit contains (`git tag --merged HEAD --list 'v[1-9]*'`): each of those lists must be a
+prefix of this one. Every such tag, not just the newest, because the newest can be on this very
+commit (a release's own CI run, or tools/release.sh before its commit). `--old FILE --new FILE`
+compares two files instead (tests/test_toylist.lua uses it). Compares the entries (toys are item
+IDs; spells, items and mounts are "s", "i" and "m" with an ID; pets are "p", a species and a
+display ID), not the text.
 """
 
 import argparse
@@ -60,10 +60,8 @@ def main():
         with open(args.old, encoding="utf-8") as f:
             olds.append(("the old list", read_entries(f.read())))
     else:
-        for tag in (git("tag", "--merged", "HEAD") or "").split():
-            text = git("show", "%s:ToyList.lua" % tag)
-            if text is not None:
-                olds.append((tag, read_entries(text)))
+        for tag in (git("tag", "--merged", "HEAD", "--list", "v[1-9]*") or "").split():
+            olds.append((tag, read_entries(git("show", "%s:ToyList.lua" % tag))))
     with open(args.new or os.path.join(ROOT, "ToyList.lua"), encoding="utf-8") as f:
         new = read_entries(f.read())
     if not olds:

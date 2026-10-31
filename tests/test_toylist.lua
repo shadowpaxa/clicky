@@ -1,5 +1,5 @@
 -- ToyList.lua only grows at the end (tests/check_toylist.py, which tests/run.sh also runs against
--- every tag the commit contains), and tools/update_toys.py keeps it that way. Both are Python, so these tests run
+-- every release tag from v1.0.0 on that the commit contains), and tools/update_toys.py keeps it that way. Both are Python, so these tests run
 -- them on small lists written to temporary files. An entry is a toy's item ID, or "s<spell ID>",
 -- "i<item ID>", "m<mount ID>" or "p<species ID>:<display ID>".
 
@@ -62,6 +62,32 @@ describe("ToyList.lua", function()
 		assert.is_true((Run(("python3 tests/check_toylist.py --old %s --new %s"):format(a, b))))
 		os.remove(a)
 		os.remove(b)
+	end)
+
+	it("is checked against the release tags from v1.0.0 on, not earlier ones", function()
+		-- A throwaway repository with the check, its list reader and a ToyList.lua at each tag.
+		local dir = os.tmpname()
+		os.remove(dir)
+		local function Commit(ids, tag)
+			local list = ListFile(ids)
+			assert(Run(("mv %s %s/ToyList.lua && cd %s && git add -A && git -c user.name=t -c user.email=t "
+				.. "commit -qm list && git tag %s"):format(list, dir, dir, tag)))
+		end
+		assert(Run(("mkdir -p %s/tests %s/tools && cp tests/check_toylist.py %s/tests && "
+			.. "cp tools/update_toys.py %s/tools && git -C %s init -q"):format(dir, dir, dir, dir, dir)))
+		Commit({ 5, 9, 7 }, "v0.9.0-alpha1")
+		Commit({ 7, 5 }, "v1.0.0")
+		local function CheckNow(ids)
+			local list = ListFile(ids)
+			assert(Run(("mv %s %s/ToyList.lua"):format(list, dir)))
+			return Run(("python3 %s/tests/check_toylist.py"):format(dir))
+		end
+		local passed, out = CheckNow({ 7, 5, 12 })
+		assert.is_true(passed, out)
+		passed, out = CheckNow({ 5, 7, 12 })
+		assert.is_false(passed)
+		assert.is_truthy(out:find("compared with v1.0.0", 1, true), out)
+		Run("rm -rf " .. dir)
 	end)
 
 	it("the shipped list is as the check reads it, and doesn't repeat an entry", function()

@@ -23,7 +23,7 @@ jobs:
       - name: Clone project
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # tests/check_toylist.py compares ToyList.lua with every tag's
+          fetch-depth: 0 # tests/check_toylist.py compares ToyList.lua with every release tag's from v1.0.0 on
 
       - name: Install LuaJIT
         uses: leafo/gh-actions-lua@v13

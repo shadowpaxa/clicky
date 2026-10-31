@@ -3,20 +3,23 @@
 --   ns.MACRO_ENTRY_CAP                  how many entries a macro holds
 --   ns.EncodePlaces(positions)          -> data (format 1); the positions of a macro's entries
 --   ns.DecodePlaces(data)               -> { positions } | nil, "newer" | "damaged"
+--   ns.MarkFormat(data, n)              -> data marked as format n, with its checksum; for tests
 --
 -- A macro stores its entries (toys, spells, items, mounts, pets) as positions (0-based) in Clicky's list
 -- (ToyList.lua), which only grows at the end, so an entry's position never changes.
 --
 -- data = characters in base64's alphabet (no "|", WoW's escape character, and no spaces), each a
--- number from 0 to 63. Format 1: the first is 48, the second the Rice parameter r (0 to 15), then
--- a bit string six bits per character: the positions as Rice-coded gaps, then two checksum
--- characters. Gaps are p1 and p(i) - p(i-1) - 1; each is q = gap >> r one-bits, a zero, then
+-- number from 0 to 63. The first is the format's number: 1 ("B"). The second is the Rice parameter r
+-- (0 to 15) plus 16 times the data's length mod 4, so a character added or removed after it reads
+-- as damaged. Then a bit string six bits per character: the positions as Rice-coded gaps, then two
+-- checksum characters. Gaps are p1 and p(i) - p(i-1) - 1; each is q = gap >> r one-bits, a zero, then
 -- gap's low r bits. The last character before the checksum is padded with one-bits, which read as
 -- an unfinished gap and end the list. A position past the end of the reader's list means the
 -- macro holds an entry it doesn't know yet (a newer list), which Macros.lua reads as a newer version.
 --
--- A first character above 48 is a later format (48 + n is format 1 + n; 63 is format 16 and any
--- after it), which reads as newer. Every other first character reads as damaged.
+-- Every format ends with the same two checksum characters, so a line whose first character is above
+-- 1 reads as a later format (63 is format 63 and any after it) only if its checksum holds; with a
+-- wrong one, as most hand edits leave it, it reads as damaged. 0 is no format and reads as damaged.
 -- Lua 5.1's numbers are doubles, exact to 2^53, and there are no bitwise operators.
 --
 -- The fixed rule every macro follows: at most MACRO_ENTRY_CAP = 100 entries, guaranteed to fit while
@@ -31,7 +34,7 @@
 local _, ns = ...
 
 local MACRO_ENTRY_CAP = 100
-local FORMAT_1 = 48 -- the first character's value
+local FORMAT_1 = 1 -- the first character's value
 local MAX_RICE = 15
 
 local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -43,9 +46,11 @@ end
 
 -- Two checksum characters for data (Fletcher's checksum, mod 64): the sum of the character values,
 -- and the sum of the running sums, which weighs each character by its place. Changing any one
--- character changes the first, since two characters' values differ by less than 64; adding,
--- removing or swapping characters changes the second, except by a 1-in-64 chance. A hand-edited
--- line then reads as damaged rather than as other entries.
+-- character changes the first, since two characters' values differ by less than 64; swapping
+-- characters changes the second, except by a 1-in-64 chance. One character added or removed after
+-- the header changes the length the header holds; in the header, the checksum or the format's
+-- number catches it (tests/test_journeys.lua tries each one). A hand-edited line then reads as
+-- damaged rather than as other entries.
 local function Checksum(data)
 	local a, b = 0, 0
 	for i = 1, #data do
@@ -110,7 +115,8 @@ local function EncodePlaces(positions)
 	while #bits % 6 ~= 0 do
 		bits[#bits + 1] = 1
 	end
-	local out = { CHAR[FORMAT_1], CHAR[best] }
+	local length = 2 + #bits / 6 + 2 -- the header, the positions and the checksum
+	local out = { CHAR[FORMAT_1], CHAR[best + 16 * (length % 4)] }
 	for i = 1, #bits, 6 do
 		out[#out + 1] = CHAR[(ReadNumber(bits, i, 6))]
 	end
@@ -123,21 +129,17 @@ local function DecodePlaces(data)
 		return nil, "damaged"
 	end
 	local first = VALUE[data:byte(1)]
-	if not first then
+	local body = data:sub(1, -3)
+	if not first or first < FORMAT_1 or Checksum(body) ~= data:sub(-2) then
 		return nil, "damaged"
 	elseif first > FORMAT_1 then
 		return nil, "newer"
-	elseif first < FORMAT_1 then
+	end
+	local second = VALUE[data:byte(2)]
+	if not second or math.floor(second / 16) ~= #data % 4 then
 		return nil, "damaged"
 	end
-	local r = VALUE[data:byte(2)]
-	if not r or r > MAX_RICE then
-		return nil, "damaged"
-	end
-	local body = data:sub(1, -3)
-	if Checksum(body) ~= data:sub(-2) then
-		return nil, "damaged"
-	end
+	local r = second % 16
 	local bits = {}
 	for i = 3, #body do
 		local v = VALUE[body:byte(i)]
@@ -170,3 +172,8 @@ end
 ns.MACRO_ENTRY_CAP = MACRO_ENTRY_CAP
 ns.EncodePlaces = EncodePlaces
 ns.DecodePlaces = DecodePlaces
+
+function ns.MarkFormat(data, n)
+	local body = CHAR[n] .. data:sub(2, -3)
+	return body .. Checksum(body)
+end
