@@ -22,9 +22,15 @@
 -- bar and list, a filter menu, tooltips, cooldown frames, the context menu's entries), as far as
 -- Clicky uses them, each citing Blizzard's source. The mouse reaches a button as WoW sends it:
 -- the clicks it registered for, the wheel and drags only if enabled (World:HoldMouse,
--- World:MouseWheel, World:Drag). UI behavior is shown by tests, or relies only on behavior Blizzard's source shows. A
--- context menu is kept as its generator builds it (world.menu) and a dialog as StaticPopup_Show sets it up
--- (world.dialog); what Blizzard draws for them isn't here.
+-- World:MouseWheel, World:Drag). UI behavior is shown by tests, or relies only on behavior
+-- Blizzard's source shows. A context menu is kept as its generator builds it (world.menu) and a
+-- dialog as StaticPopup_Show sets it up (world.dialog); what Blizzard draws for them isn't here.
+--
+-- A test changes the game with World:AddToy, AddSpell (on a skill line, in a flyout or a
+-- profession's), AddItem (in a bag or worn), AddMount, AddPet and LearnPet, and with the options
+-- below (toyList and toyHidden for Clicky's list); it answers the menu with World:ChooseMenuEntry
+-- and a dialog with World:TypeInDialog, PressEnterInDialog and ClickDialogButton; to see which menu
+-- opens, it can replace ns.OpenEntryMenu.
 -- tests/check_api.py checks every API Clicky calls exists.
 
 local wow = {}

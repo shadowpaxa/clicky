@@ -211,11 +211,15 @@ function ns.GetGridFilters()
 end
 
 ------------------------------------------------------------------------------------------
--- Buttons: secure entry buttons (EntryButton.lua), made once and re-pointed as the grid scrolls. In
--- combat nothing here sets a button's entry or moves, shows or hides a button, the board or the grid
--- (CLAUDE.md, WoW constraints). Their cooldown swipes and NEW labels still change: Cooldown frames
--- aren't protected (Blizzard_FrameXMLUtil/Mainline/Cooldown.xml:3), and SetCooldown's
--- IsProtectedFunction (FrameAPICooldownDocumentation.lua) applies only to protected frames.
+-- Buttons: secure entry buttons (EntryButton.lua), made once and re-pointed by whole rows as the grid
+-- scrolls. In combat nothing here sets a button's entry or moves, shows or hides a button, the board
+-- or the grid: the lock spreads from a protected frame to its parents and anchors (CLAUDE.md, WoW
+-- constraints), so to the board the buttons sit on, and, as warcraft.wiki.gg doesn't say how far it
+-- goes, to the grid. Their cooldown swipes and NEW labels still change: Cooldown frames aren't
+-- protected (Blizzard_FrameXMLUtil/Mainline/Cooldown.xml:3), SetCooldown's IsProtectedFunction
+-- (FrameAPICooldownDocumentation.lua) is the mark SetPoint carries
+-- (SimpleScriptRegionResizingAPIDocumentation.lua), which is blocked only on protected frames, and a
+-- NEW label is a font string.
 -- PostClick's menu, link and unwrap are unrestricted in combat (MenuUtil.lua:151-167,
 -- ChatFrameUtilOverrides.lua:14-77, ToyBoxInfoDocumentation.lua).
 
