@@ -127,7 +127,7 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
   "Clicky 0.5.0" if either changed, pushes, then pushes an annotated tag. It refuses to run off
   `main`.
   A tag with `alpha` or `beta` releases as that; any other tag as a full release (BigWigsMods
-  packager, release.sh). The tag runs CI, then `.github/workflows/release.yml` packages and uploads to Wago (project `j6jAEMNR`,
+  packager, release.sh). The tag runs CI, then `.github/workflows/release.yml` packages and uploads to Wago (project `mKOa3ENx`,
   secret `WAGO_API_TOKEN`). Check the run with `gh run list -R shadowpaxa/clicky`.
 - Compatibility: alpha releases may break players' macros; full releases must not.
 

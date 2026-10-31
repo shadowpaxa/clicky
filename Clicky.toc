@@ -3,7 +3,7 @@
 ## Notes: Turn groups of toys, mounts, pets, spells and items into action bar buttons.
 ## Author: shadowpaxa
 ## Version: @project-version@
-## X-Wago-ID: j6jAEMNR
+## X-Wago-ID: mKOa3ENx
 
 Core.lua
 Debug.lua
