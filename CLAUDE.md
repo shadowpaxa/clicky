@@ -6,8 +6,7 @@ a random one from the macro; a right-click opens a drawer of what it holds, and 
 uses it.
 
 - `docs/macros-user-journeys.md`: what players see and do. Check every change against it.
-- `README.md`: for players. `docs/architecture.md`: the design, for people reading the code.
-  Keep both true when behavior or design changes. Neither is repeated here.
+- `README.md`: for players. Keep it true when behavior changes; it isn't repeated here.
 - Each `.lua` file's header lists its `ns` API (and which functions are there only for tests).
   Keep those lists current; they're the code map.
 
@@ -182,7 +181,7 @@ start again from step 1. Done means one full pass with no findings.
    playing shows (labels, scrolling, combat edge cases, debug output) stay in README.md and the
    journeys, not the changelog. Every changelog sentence is true of the code being released,
    including what an older Clicky does with new macros (read that version's code at its tag).
-3. **The docs.** README.md, the journeys, docs/architecture.md, CLAUDE.md and each file's header
+3. **The docs.** README.md, the journeys, CLAUDE.md and each file's header
    say each item from step 1. Grep for every name, message, number and term the change removed
    or renamed: no stale mention is left.
 4. **Readable prose.** Read each changed passage of the changelog, README.md and the journeys as

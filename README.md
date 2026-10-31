@@ -357,5 +357,5 @@ again and they work as before.
 
 ## Development
 
-[docs/architecture.md](https://github.com/shadowpaxa/clicky/blob/main/docs/architecture.md) covers how the code fits together, running the
-tests, and making releases.
+[CLAUDE.md](https://github.com/shadowpaxa/clicky/blob/main/CLAUDE.md) has the rules the code follows, running the tests and
+making releases; each `.lua` file's header says what it does.

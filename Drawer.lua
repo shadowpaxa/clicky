@@ -15,7 +15,7 @@
 -- or on PLAYER_REGEN_DISABLED, whatever the entry's kind. Protected frames can't be created in combat or destroyed, so
 -- openers and drawers are made with the macro's button and their entry buttons are reused. Drawers
 -- are filled a few at a time after login and combat, when opened out of combat, and all on
--- PLAYER_REGEN_DISABLED, the last chance before combat (docs/architecture.md, Drawers).
+-- PLAYER_REGEN_DISABLED, the last chance before combat.
 
 local _, ns = ...
 

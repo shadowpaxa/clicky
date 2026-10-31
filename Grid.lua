@@ -1,4 +1,4 @@
--- Clicky's grid in place of the Toy Box's (journey 15; docs/architecture.md, "The grid"), with
+-- Clicky's grid in place of the Toy Box's (journey 15), with
 -- its own search and filters: the Toy Box's are the player's settings and are only hidden. It lists
 -- entries (Entries.lua) in sections: toys, mounts and pets as each tab's filters let them through,
 -- the spells the character knows, and the items carried or worn. A tab for each, with its count,
