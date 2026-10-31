@@ -1,10 +1,11 @@
 -- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyPFVRT for
--- Favorites), which opens a grid of the macro's entries (any kind; Entries.lua) the
--- player has, at the mouse, in the panel's order. Clicking one uses it. The drawer closes when an entry is chosen, on Escape, on a second
--- right-click, and when the mouse leaves it.
+-- Favorites), which opens a grid of the macro's entries (any kind; Entries.lua) the player has, at
+-- the mouse, in the panel's order. Clicking one uses it. The drawer closes when an entry is chosen,
+-- on Escape, on a second right-click, and when the mouse leaves it.
 --   ns.SetUpDrawer(m)   makes m's opener and drawer if they don't exist yet (out of combat only)
---   ns.FillDrawer(m)    fills m's drawer with its entries, once SetUpDrawer has made it (out of combat only)
---   ns.QueueDrawer(m)   fills m's drawer soon, a few drawers at a time
+--   ns.FillDrawer(m)    fills m's drawer with its entries, once SetUpDrawer has made it (out of
+--                       combat only)
+--   ns.QueueDrawer(m)   fills m's drawer soon, one drawer every FILL_DELAY
 --   ns.EmptyDrawer(id)  empties a deleted macro's drawer (out of combat only)
 --   ns.GetDrawer(id)    { frame, opener, buttons } for an id's drawer, or nil; for tests and
 --                       /clicky debug (frame's "count" attribute is how many entries it holds)
@@ -12,10 +13,10 @@
 -- It all works in combat, so it's secure: the opener's _onclick and each entry button's wrapped
 -- OnClick run in WoW's restricted environment, which may show and hide protected frames and set
 -- their attributes in combat. Each button's secure action is set when it is filled, out of combat
--- or on PLAYER_REGEN_DISABLED, whatever the entry's kind. Protected frames can't be created in combat or destroyed, so
--- openers and drawers are made with the macro's button and their entry buttons are reused. Drawers
--- are filled a few at a time after login and combat, when opened out of combat, and all on
--- PLAYER_REGEN_DISABLED, the last chance before combat.
+-- or on PLAYER_REGEN_DISABLED, whatever the entry's kind. Protected frames can't be created in
+-- combat or destroyed, so openers and drawers are made with the macro's button and their entry
+-- buttons are reused. Drawers are filled one at a time after login and combat, when opened out of
+-- combat, and all on PLAYER_REGEN_DISABLED, the last chance before combat.
 
 local _, ns = ...
 

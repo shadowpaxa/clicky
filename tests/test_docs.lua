@@ -44,7 +44,8 @@ describe("README.md", function()
 	end)
 
 	it("Limits: macro name length", function()
-		local limit = tonumber(Says("Macro names up to (%d+) characters", "the macro name limit"))
+		local limit = tonumber(Says("Macro names up to (%d+) characters%. A longer name is cut short%.",
+			"the macro name limit, and that a longer name is cut"))
 		local truncate = World().ns.TruncateMacroName
 		eq(#truncate(("x"):rep(limit)), limit, "a name of README's length is kept whole")
 		eq(#truncate(("x"):rep(limit + 1)), limit, "a longer name is cut to README's length")
@@ -58,6 +59,10 @@ describe("README.md", function()
 		for i = 1, slots do macros[i] = { name = "m" .. i, body = "/say " .. i } end
 		local full = wow.New({ macros = macros, toys = { { id = PIRATE } } })
 		eq((full.ns.MakeMacro("Illusion", PIRATE)), nil, "one more is refused")
+		Says("Full%? Delete%s+one you don't use in `/macro`%.", "what to do when they're full")
+		full.env.DeleteMacro(1)
+		full:Fire("UPDATE_MACROS")
+		truthy(full.ns.MakeMacro("Illusion", PIRATE), "with one deleted in /macro, the macro is made")
 	end)
 
 	it("Slash commands: the table lists exactly the commands /clicky handles", function()

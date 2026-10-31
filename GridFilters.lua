@@ -158,8 +158,8 @@ function ns.PassesGridFilters(tab, f, key, owned)
 end
 
 -- The Pet Journal's Sort by sets the player's own sort setting (Blizzard_PetCollection.lua:150-153),
--- which Clicky never changes, so Clicky sorts itself: by name, by level or rarity highest first, by family in its order;
--- then by name.
+-- which Clicky never changes, so Clicky sorts itself: by name, by level or rarity highest first, by
+-- family in its order; then by name.
 local PET_SORT = {
 	[LE_SORT_BY_LEVEL] = function(id) return -ns.PetLevel(id) end,
 	[LE_SORT_BY_RARITY] = function(id) return -ns.PetRarity(id) end,
@@ -191,12 +191,14 @@ local function Submenu(rootDescription, text, off, count, valid, label, changed)
 	local submenu = rootDescription:CreateButton(text)
 	submenu:CreateButton(CHECK_ALL, function()
 		wipe(off)
+		ns.Trace("[grid] filter %s: all ticked", text)
 		changed()
 	end)
 	submenu:CreateButton(UNCHECK_ALL, function()
 		for filterIndex = 1, count do
 			off[filterIndex] = true
 		end
+		ns.Trace("[grid] filter %s: all unticked", text)
 		changed()
 	end)
 	for filterIndex = 1, count do
@@ -205,6 +207,7 @@ local function Submenu(rootDescription, text, off, count, valid, label, changed)
 				return not off[filterIndex]
 			end, function()
 				off[filterIndex] = not off[filterIndex] or nil
+				ns.Trace("[grid] filter %s %d %s", text, filterIndex, off[filterIndex] and "unticked" or "ticked")
 				changed()
 			end)
 		end
@@ -283,6 +286,7 @@ function ns.AddGridFilterMenu(tab, f, rootDescription, changed)
 					return not f.typesOff[filterIndex]
 				end, function()
 					f.typesOff[filterIndex] = not f.typesOff[filterIndex] or nil
+					ns.Trace("[grid] filter type %d %s", filterIndex, f.typesOff[filterIndex] and "unticked" or "ticked")
 					changed()
 				end)
 			end
@@ -304,6 +308,7 @@ function ns.AddGridFilterMenu(tab, f, rootDescription, changed)
 				return f.sortBy == choice[2]
 			end, function()
 				f.sortBy = choice[2]
+				ns.Trace("[grid] pets sorted by %s", tostring(choice[2]))
 				changed()
 			end)
 		end

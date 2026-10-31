@@ -404,15 +404,10 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		local first = Code(world, "Illusion")
 		math.randomseed(12345) -- the same draws: the first is now taken
-		world.ns.SetTracing(true)
-		world.prints = {}
-		MakeMacro(world, HAT, "Hats")
+		-- A taken code written to the new macro would be found out and separated by the sync, which
+		-- gives the copy a new code: MakeMacro would then return the macro holding the drawn code.
+		eq(MakeMacro(world, HAT, "Hats").name, "Hats", "the macro made is the one returned")
 		local second = Code(world, "Hats")
-		for _, line in ipairs(world.ns.GetTraceLines()) do
-			-- A taken code written to the new macro would be found out and separated by the sync.
-			ok(not line:find("copy of", 1, true), "the new macro was made a copy: " .. line)
-		end
-		world.ns.SetTracing(false)
 		ok(second ~= first, "drew " .. first .. " again")
 		ok(CodeOf(world:FindMacroByName("Hats").body) == second, "and wrote it")
 		eq(CodeOf(world:FindMacroByName("Illusion").body), first, "the first keeps its own")
@@ -1452,7 +1447,8 @@ describe("journeys", function()
 			"SetAllExpansionTypeFilters", "SetFilterString", "ForceToyRefilter", "SetDefaultFilters",
 			"SetCVar", "ConsoleExec", "SaveBindings", "SetBinding(",
 			-- The Mount and Pet Journals' filters, search, sort, names and battle team
-			-- (MountJournalDocumentation.lua, PetJournalInfoDocumentation.lua, Blizzard_PetCollection.lua and .xml).
+			-- (MountJournalDocumentation.lua, PetJournalInfoDocumentation.lua,
+			-- Blizzard_PetCollection.lua and .xml).
 			"SetCollectedFilterSetting", "SetTypeFilter", "SetSourceFilter", "SetAllSourceFilters",
 			"SetAllTypeFilters", "SetSearch", "SetFilterChecked", "SetAllPetTypesChecked",
 			"SetAllPetSourcesChecked", "SetPetSortParameter", "SetCustomName", "SetPetLoadOutInfo" }
@@ -2263,24 +2259,21 @@ describe("journeys", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
 		local other = NextLogin(world)
-		assert(other.ns.MakeMacro("Hats", HAT))
 		local real, fired = world.env.GetMacroInfo, false
 		world.env.GetMacroInfo = function(...)
 			if not fired then
 				fired = true
+				-- Made on the other computer after this sync counted the macros, so its first pass
+				-- doesn't read it; listed after Illusion, so no index this pass reads moves.
+				assert(other.ns.MakeMacro("Wings", WINGS))
 				world:Fire("UPDATE_MACROS") -- announced while the sync is reading
 			end
 			return real(...)
 		end
-		world.ns.SetTracing(true)
-		world.prints = {}
 		world.ns.Sync("test")
 		ok(fired, "the event came during the sync")
-		local passes = 0
-		for _, line in ipairs(world.ns.GetTraceLines()) do
-			passes = tonumber(line:match("%[sync test%] (%d+) pass")) or passes
-		end
-		ok(passes >= 2, "a second pass ran: " .. passes)
+		ok(world.ns.HasEntry(Macro(world, "Wings"), WINGS), "the second pass read the new macro")
+		eq(world.ns.GetMacro(Code(world, "Illusion")).name, "Illusion", "and the first one stays")
 	end)
 
 	it("5. Pick a toy: a toy taken out of a macro and put back can come up on the next click", function()

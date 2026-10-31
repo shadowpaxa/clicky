@@ -1,8 +1,7 @@
--- The secure button that uses an entry (a toy, mount, pet, spell or item, Entries.lua), which the drawers
--- (Drawer.lua) and the grid (Grid.lua) are made of. Addon code can't use a toy (UseToy is
+-- The secure button that uses an entry (a toy, mount, pet, spell or item, Entries.lua), which the
+-- drawers (Drawer.lua) and the grid (Grid.lua) are made of. Addon code can't use a toy (UseToy is
 -- protected, warcraft.wiki.gg API UseToy), so the button's own secure action does, for the other
--- kinds too.
--- All three are out of combat only: the button is a protected frame.
+-- kinds too. All three are out of combat only: the button is a protected frame.
 --   ns.CreateEntryButton(parent, size, anchor, leftOnly)   icon, cooldown, highlight, the active
 --                                           mark (button.active), tooltip (at anchor, default
 --                                           "ANCHOR_RIGHT"); every click uses the entry, or only a

@@ -208,9 +208,10 @@ Each file's comments explain the constraints only it meets; these are met across
   runs (seen in play). `|` is WoW's escape character, so it never appears in data.
 - In combat, secure attributes can't be set from addon code, macros can't be created, edited or
   deleted (warcraft.wiki.gg API CreateMacro, EditMacro, DeleteMacro: nocombat), and protected
-  frames can't be created. Macro changes (items, name) are refused in combat; separating copies,
-  making or emptying buttons, making or filling drawers, and making the grid and refreshing it wait
-  for `PLAYER_REGEN_ENABLED`. Buttons can't be destroyed, so a deleted macro's button is emptied
+  frames can't be created. The player's macro changes (making, renaming or deleting a macro, adding
+  or removing an item, dragging it) are refused in combat; separating copies, making or emptying
+  buttons, making or filling drawers, and making the grid and refreshing it wait for
+  `PLAYER_REGEN_ENABLED`. Buttons can't be destroyed, so a deleted macro's button is emptied
   and drawer buttons are reused. Addon code can't set a protected frame's attributes or move,
   resize, show or hide it, and the lock spreads to its parents and to the frames it is anchored to
   (warcraft.wiki.gg Secure Execution and Tainting); Grid.lua says what that keeps still.

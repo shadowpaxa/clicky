@@ -46,8 +46,9 @@ from the drawer.
 - A click on a macro never picks gear that can be worn, because WoW would equip it instead. Pick
   it from the drawer: if you aren't wearing it, the first click puts it on, and after that clicks
   use it.
-- Pets go in by species and color, so a cat in three colors is three entries. A click summons one
-  of your pets in that color, a starred one first, and never the one that's already out.
+- Pets go in by species and color, so a cat you have in three colors shows three times on the Pets
+  tab. A click summons one of your pets in that color, a starred one first, and never the one
+  that's already out.
 - Buttons and drawers keep working in combat, but you can't change macros until the fight ends.
 - You can add your own lines to a Clicky macro in `/macro`. Just leave its `/click` and `#clicky`
   lines alone: one runs the button, the other is where Clicky keeps the list.
@@ -57,8 +58,9 @@ from the drawer.
 ## Limits
 
 - 100 items per macro. Need more? Make a second macro.
-- 120 general macros, shared by your whole account, and each Clicky macro uses one.
-- Macro names up to 16 characters.
+- 120 general macros, shared by your whole account, and each Clicky macro uses one. Full? Delete
+  one you don't use in `/macro`.
+- Macro names up to 16 characters. A longer name is cut short.
 
 ## Slash commands
 

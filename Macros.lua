@@ -1,9 +1,10 @@
 -- Clicky's macros: Favorites, plus every macro with a "#clicky" line. WoW keeps macros on its
 -- servers (warcraft.wiki.gg Macro), so a macro is the only copy of its entries that every computer
--- sees: they're read from it (ns.Sync) and written back to it on every change. Each macro has a hidden secure button its /click line clicks, and a
--- drawer its right-click opens (Drawer.lua). A click uses a random entry from the macro; the drawer
--- uses the entry clicked in it. An entry is a toy, a mount, a pet, a spell or an item, named by its key
--- (Entries.lua), and what uses it is the kind's secure action.
+-- sees: they're read from it (ns.Sync) and written back to it on every change. Each macro has a
+-- hidden secure button its /click line clicks, and a drawer its right-click opens (Drawer.lua). A
+-- click uses a random entry from the macro; the drawer uses the entry clicked in it. An entry is a
+-- toy, a mount, a pet, a spell or an item, named by its key (Entries.lua), and what uses it is the
+-- kind's secure action.
 --   ns.expanded
 --   ns.GetMacros(), ns.GetMacro(id)
 --   ns.HasEntry(m, key), ns.MacroEntries(m)  the macro's entries (key -> true), not to be changed
@@ -17,7 +18,8 @@
 --   ns.RenameMacro(m, name), ns.DeleteMacro(m)   -> true | nil, reason
 --   ns.PickupMacro(m)                      puts the macro on the cursor
 --   ns.COMBAT_ERROR                        why a change to a macro is refused in combat
---   ns.Unreadable(m)                       why m's entries can't be used or changed (for the player), or nil
+--   ns.Unreadable(m)                       why m's entries can't be used or changed (for the
+--                                          player), or nil
 --   ns.Sync(reason)                        re-reads every macro and does any waiting work
 --   ns.GetWaiting()                        what -> count of work waiting (for /clicky debug)
 --
@@ -131,8 +133,8 @@ function ns.Unreadable(m)
 	end
 end
 
--- Messages call what a macro holds "items": a toy, a mount, a pet, a spell or an item from the bags. Favorites
--- holds only toys (the Toy Box's stars), so its messages say "toys".
+-- Messages call what a macro holds "items": a toy, a mount, a pet, a spell or an item from the
+-- bags. Favorites holds only toys (the Toy Box's stars), so its messages say "toys".
 function ns.MacroNoun(m)
 	return m.builtin and "toys" or "items"
 end

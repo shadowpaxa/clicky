@@ -11,7 +11,8 @@
 --
 -- The windows read their settings so (Blizzard_ToyBox.lua:56-73, 109-138;
 -- Blizzard_MountCollection.lua:221-258, 964-986; Blizzard_PetCollection.lua:172-212, 1481-1510) and
--- walk their lists so (Blizzard_ToyBox.lua:186; Blizzard_MountCollection.lua:667; Blizzard_PetCollection.lua:876).
+-- walk their lists so (Blizzard_ToyBox.lua:186; Blizzard_MountCollection.lua:667;
+-- Blizzard_PetCollection.lua:876).
 
 local _, ns = ...
 

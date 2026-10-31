@@ -71,7 +71,8 @@ function ns.MountTypeFlags(mountID)
 	return mountTypeID and ns.GetToyList().mountType[mountTypeID] or 0
 end
 
--- GetNumDisplayedMounts is the Mount Journal's list as its filters have it (MountJournalDocumentation.lua).
+-- GetNumDisplayedMounts is the Mount Journal's list as its filters have it
+-- (MountJournalDocumentation.lua).
 function ns.GetMountState()
 	return ("the Mount Journal lists %d with its own filters"):format(C_MountJournal.GetNumDisplayedMounts())
 end

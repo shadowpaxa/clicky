@@ -14,14 +14,14 @@
 -- explicitly, so the toys' places don't move. A computer with an older or newer Clicky gets a
 -- shorter or longer toyList.
 --
--- Only game state is stubbed: toys, spells, items, mounts, pets, macros, action bars running /click lines (with macro
--- conditionals and the mouse button), secure buttons and their modified attributes, secure
--- snippets in a restricted-like environment, modifier keys, auto-hiding frames, timers, combat
--- lockdown and events, each following Blizzard's documentation or UI source (cited where it
--- matters), and the Blizzard frames and widgets Clicky relies on (the Toy Box's frames, a scroll
--- bar and list, a filter menu, tooltips, cooldown frames, the context menu's entries), as far as
--- Clicky uses them, each citing Blizzard's source. The mouse reaches a button as WoW sends it:
--- the clicks it registered for, the wheel and drags only if enabled (World:HoldMouse,
+-- Only game state is stubbed: toys, spells, items, mounts, pets, macros, action bars running /click
+-- lines (with macro conditionals and the mouse button), secure buttons and their modified
+-- attributes, secure snippets in a restricted-like environment, modifier keys, auto-hiding frames,
+-- timers, combat lockdown and events, each following Blizzard's documentation or UI source (cited
+-- where it matters), and the Blizzard frames and widgets Clicky relies on (the Toy Box's frames, a
+-- scroll bar and list, a filter menu, tooltips, cooldown frames, the context menu's entries), as
+-- far as Clicky uses them, each citing Blizzard's source. The mouse reaches a button as WoW sends
+-- it: the clicks it registered for, the wheel and drags only if enabled (World:HoldMouse,
 -- World:MouseWheel, World:Drag). UI behavior is shown by tests, or relies only on behavior
 -- Blizzard's source shows. A context menu is kept as its generator builds it (world.menu) and a
 -- dialog as StaticPopup_Show sets it up (world.dialog); what Blizzard draws for them isn't here.
@@ -298,9 +298,10 @@ local function CheckCombat(frame, what)
 end
 
 -- Cooldown frames (FrameAPICooldownDocumentation.lua): SetCooldown starts a swipe, Clear ends it.
--- Both carry IsProtectedFunction, the mark SetPoint and SetHeight carry
+-- Both carry IsProtectedFunction, the mark SetPoint carries
 -- (SimpleScriptRegionResizingAPIDocumentation.lua), so they are blocked in combat on a locked frame
--- only. A cooldown isn't protected (CooldownFrameTemplate, Blizzard_FrameXMLUtil/Mainline/Cooldown.xml:3).
+-- only. A cooldown isn't protected (CooldownFrameTemplate,
+-- Blizzard_FrameXMLUtil/Mainline/Cooldown.xml:3).
 Cooldown = {}
 function Cooldown:SetCooldown(start, duration)
 	CheckCombat(self, "SetCooldown")
@@ -394,11 +395,6 @@ function Frame:SetWidth(width)
 	self.width = width
 end
 
-function Frame:SetHeight(height)
-	CheckCombat(self, "SetHeight")
-	self.height = height
-end
-
 function Frame:GetWidth() return self.width end
 
 function Frame:GetParent() return self.parent end
@@ -417,7 +413,8 @@ function Frame:CreateTexture() return NewRegion(self, "texture") end
 function Frame:CreateFontString() return NewRegion(self, "fontstring") end
 TYPED.SetTexture = { class = "Texture", fn = function(self, texture) self.texture = texture end }
 TYPED.SetDesaturated = { class = "Texture", fn = function(self, desaturated) self.desaturated = desaturated end }
--- The texture SetHighlightTexture set, or one made for it (warcraft.wiki.gg API Button GetHighlightTexture).
+-- The texture SetHighlightTexture set, or one made for it (warcraft.wiki.gg API Button
+-- GetHighlightTexture).
 TYPED.GetHighlightTexture = { class = "Button", fn = function(self)
 	self.highlight = self.highlight or NewRegion(self, "texture")
 	return self.highlight
@@ -567,11 +564,11 @@ end
 
 -- A click: PreClick, the wrapped OnClick (each wrap's snippet first, Wrapped_Click in
 -- SecureHandlers.lua; a snippet returning false stops the click), the template's OnClick (or a
--- plain button's own), PostClick. SecureActionButton_OnClick acts on the down click when useOnKeyDown is on and the up
--- click otherwise; with the attribute unset it follows the ActionButtonUseKeyDown setting
--- (SecureTemplates.lua, SecureActionButton_ShouldUseOnKeyDown), and SECURE_ACTIONS.toy uses the
--- modified "toy" attribute. SecureHandlerClickTemplate's OnClick runs its _onclick snippet
--- (SecureHandler_OnClick).
+-- plain button's own), PostClick. SecureActionButton_OnClick acts on the down click when
+-- useOnKeyDown is on and the up click otherwise; with the attribute unset it follows the
+-- ActionButtonUseKeyDown setting (SecureTemplates.lua, SecureActionButton_ShouldUseOnKeyDown), and
+-- SECURE_ACTIONS.toy uses the modified "toy" attribute. SecureHandlerClickTemplate's OnClick runs
+-- its _onclick snippet (SecureHandler_OnClick).
 function Frame:Click(button, down)
 	local world = self.world
 	if self.scripts.PreClick then self.scripts.PreClick(self, button, down) end
@@ -756,9 +753,9 @@ World.__index = World
 -- options.toys: list of { id, name, icon, owned = true, usable = true, favorite, cooldown, loading,
 --   expansion }
 -- options.spells: list of { id, name, icon, known = true, usable = true, cooldown, loading, line = 1,
---   flyout, passive, offSpec, base }: line is its spellbook skill line; flyout (a flyout ID) puts it in that
---   flyout instead of on the line's own page; offSpec puts the line in a specialization the player
---   isn't in; base is the spell it overrides, which is then the spellbook item's actionID
+--   flyout, passive, offSpec, base }: line is its spellbook skill line; flyout (a flyout ID) puts it
+--   in that flyout instead of on the line's own page; offSpec puts the line in a specialization the
+--   player isn't in; base is the spell it overrides, which is then the spellbook item's actionID
 --   (SpellBookItemInfo: spellID is the overriding spell). A spell that isn't known is a FutureSpell
 --   on the line (SpellBookItemType). profession (1 to 5, its place in GetProfessions' returns: two
 --   primary professions, archaeology, fishing, cooking) puts it in that profession's spells, after
@@ -766,8 +763,8 @@ World.__index = World
 -- options.items: list of { id, name, icon, count = 1, usable = true, cooldown, equippable, equipped,
 --   loading, bag = 0, worn }: count in the bag bag (0 is the backpack), or worn in inventory slot worn
 -- options.mounts: list of { id, name, spell = id * 100, icon, collected = true, usable = true,
---   favorite, hidden, shown = true }: hidden is shouldHideOnChar (the game hides it on this character); shown is
---   whether the Mount Journal's filters list it
+--   favorite, hidden, shown = true }: hidden is shouldHideOnChar (the game hides it on this
+--   character); shown is whether the Mount Journal's filters list it
 -- options.pets: list of { guid, species, display = species * 10, name, icon, favorite,
 --   summonable = true }: one owned pet each; name and icon are its species'
 -- options.petSpecies: species ID -> { name, icon }, a species the game has that the player may own
@@ -1315,7 +1312,8 @@ function World:MouseClick(frame, button)
 	self:ReleaseMouse(frame, button)
 end
 
--- The wheel turning over a frame; delta is -1 for a notch down (warcraft.wiki.gg UIHANDLER OnMouseWheel).
+-- The wheel turning over a frame; delta is -1 for a notch down (warcraft.wiki.gg UIHANDLER
+-- OnMouseWheel).
 function World:MouseWheel(frame, delta)
 	assert(Visible(frame) and frame.mouseWheel, "the wheel only reaches a visible frame that enabled it")
 	RunScripts(frame, "OnMouseWheel", delta)
@@ -1523,17 +1521,6 @@ function World:BuildEnv()
 	self.env = env
 	env._G = env
 	env.strtrim = strtrim
-	-- TableUtil.lua:110-140, 218-228: tCompare (one level) and CopyTable (deep).
-	env.tCompare = function(a, b)
-		for k, v in pairs(a) do if b[k] ~= v then return false end end
-		for k in pairs(b) do if a[k] == nil then return false end end
-		return true
-	end
-	env.CopyTable = function(t)
-		local copy = {}
-		for k, v in pairs(t) do copy[k] = type(v) == "table" and env.CopyTable(v) or v end
-		return copy
-	end
 	-- WoW's xpcall passes its arguments on (FunctionUtil.lua:4).
 	env.xpcall = function(f, handler, ...)
 		local n, args = select("#", ...), { ... }
@@ -1562,17 +1549,9 @@ function World:BuildEnv()
 		table.insert(world.frames, frame)
 		return frame
 	end
-	-- C_Timer (UITimerDocumentation.lua): After, and NewTimer, whose timer Cancel stops (Blizzard calls
-	-- it so, TimedCallback.lua:7-20).
+	-- C_Timer.After (UITimerDocumentation.lua).
 	env.C_Timer = {
 		After = function(delay, fn) table.insert(world.timers, { at = world.time + delay, fn = fn }) end,
-		NewTimer = function(delay, fn)
-			local timer = { at = world.time + delay }
-			timer.fn = function() if not timer.cancelled then fn() end end
-			function timer.Cancel() timer.cancelled = true end
-			table.insert(world.timers, timer)
-			return timer
-		end,
 	}
 	env.SecureCmdOptionParse = function(msg) return world:OptionParse(msg) end
 	-- SecureHandlers.lua: the header must be explicitly protected; frame refs are stored as the
@@ -2114,7 +2093,6 @@ function World:BuildEnv()
 	env.DELETE = "Delete" -- the menu's entry is found by it
 	-- The toy menu's star entries are found by these; any two different texts do.
 	env.BATTLE_PET_FAVORITE, env.BATTLE_PET_UNFAVORITE = "Favorite", "Unfavorite"
-	env.NORMAL_FONT_COLOR = { r = 1, g = 0.82, b = 0 }
 	-- MenuUtil.CreateContextMenu calls the generator with the owner and a root description
 	-- (MenuUtil.lua:151-161). Each entry the generator makes on it is kept in world.menu for
 	-- World:ChooseMenuEntry; only the menu itself is stubbed, not what Blizzard draws.
@@ -2133,8 +2111,8 @@ function World:BuildEnv()
 	env.ButtonFrameTemplate_HidePortrait = function() end
 	env.ButtonFrameTemplate_HideButtonBar = function() end
 	env.ButtonFrameTemplate_HideAttic = function() end
-	-- EventRegistry (Blizzard_SharedXMLBase/GlobalCallbackRegistry.lua): Clicky only registers callbacks; none
-	-- is triggered here.
+	-- EventRegistry (Blizzard_SharedXMLBase/GlobalCallbackRegistry.lua): Clicky only registers
+	-- callbacks; none is triggered here.
 	env.EventRegistry = { RegisterCallback = function() end }
 	-- PanelTemplates (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.lua:369-480): the selected
 	-- tab and the count are kept on the frame; how the tabs look and their widths aren't here.

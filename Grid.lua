@@ -7,7 +7,8 @@
 -- buttons keep their entries until combat ends.
 --   ns.GridSections(filters, text)   the sections listed, in order: { name ("toys", "mounts", "pets",
 --                                    "spells" or "items"), keys }; filters is section name -> its
---                                    filters (GridFilters.lua), its defaults for one not given; for tests
+--                                    filters (GridFilters.lua), its defaults for one not given; for
+--                                    tests and BlizzardCheck.lua
 --   ns.GridRows(section, columns)    the grid's rows of a section's keys, { keys }; for tests
 --   ns.GridView(rows, from)          the rows in view from `from` (kept between 1 and the highest
 --                                    first row), each { index, row, offset }; then the first row

@@ -1,7 +1,8 @@
 -- ToyList.lua only grows at the end (tests/check_toylist.py, which tests/run.sh also runs against
--- every release tag from v1.0.0 on that the commit contains), and tools/update_toys.py keeps it that way. Both are Python, so these tests run
--- them on small lists written to temporary files. An entry is a toy's item ID, or "s<spell ID>",
--- "i<item ID>", "m<mount ID>" or "p<species ID>:<display ID>".
+-- every release tag from v1.0.0 on that the commit contains), and tools/update_toys.py keeps it
+-- that way. Both are Python, so these tests run them on small lists written to temporary files.
+-- An entry is a toy's item ID, or "s<spell ID>", "i<item ID>", "m<mount ID>" or
+-- "p<species ID>:<display ID>".
 
 local function Write(text)
 	local path = os.tmpname()

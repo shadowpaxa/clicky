@@ -17,7 +17,8 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
 - 2026-10-17: Favorites works like any other macro, with as few exceptions as possible.
 - 2026-10-30: A release never breaks players' macros: every later version reads format 1 and an
   entry's place in Clicky's list.
-- 2026-10-17: No license, and no bug-report route for now.
+- 2026-10-17: No license. Since 2026-10-29, help and bug reports go to the comments on Clicky's
+  Wago page.
 - 2026-10-18: No saved variables: a macro is the only copy of its items.
 - 2026-10-18: Nothing in the repo states what the code or a cited source doesn't confirm.
 - 2026-10-18: The launch bar is "not embarrassing", not best practice.

@@ -77,8 +77,8 @@ ns.RegisterEntryKind("item", {
 		GameTooltip:SetItemByID(itemID)
 		GameTooltip:Show()
 	end,
-	-- GetItemInfo's second value is the link (ItemDocumentation.lua); it may return nothing (MayReturnNothing),
-	-- so there may be no link.
+	-- GetItemInfo's second value is the link (ItemDocumentation.lua); it may return nothing
+	-- (MayReturnNothing), so there may be no link.
 	link = function(itemID) return (select(2, C_Item.GetItemInfo(itemID))) end,
 	pickup = function(itemID) C_Item.PickupItem(itemID) end,
 	action = function(itemID) return "item", "item", "item:" .. itemID end,
