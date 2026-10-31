@@ -97,6 +97,8 @@ read_globals = {
 	"GameTooltip_Hide",
 	"GetFlyoutInfo",
 	"GetFlyoutSlotInfo",
+	"GetProfessionInfo",
+	"GetProfessions",
 	"geterrorhandler",
 	"GetInventoryItemID",
 	"GetMacroInfo",

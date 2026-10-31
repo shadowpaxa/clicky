@@ -3660,6 +3660,35 @@ describe("journeys", function()
 			eq(#world:TakeErrors(), 0)
 		end)
 
+		it("the professions' active spells are on the Spells tab, from the Professions book, and go in macros", function()
+			local FIRE_COOK, FISH, SURVEY = "s520", "s521", "s522"
+			local world = GridWorld({
+				toyList = { PIRATE, HOME, FIRE_COOK, FISH, SURVEY, "s523" },
+				spells = {
+					{ id = 501, name = "Teleport: Home", icon = 5010 },
+					{ id = 520, name = "Cooking Fire", icon = 5200, profession = 5 },
+					{ id = 521, name = "Fishing", icon = 5210, profession = 4 },
+					{ id = 522, name = "Survey", icon = 5220, profession = 3 },
+					{ id = 523, name = "Herbalism Skills", icon = 5230, profession = 1, passive = true },
+					{ id = 524, name = "Not In The List", icon = 5240, profession = 2 },
+				},
+			})
+			list(world.ns.GridSections({}, "")[4].keys, { FIRE_COOK, FISH, SURVEY, HOME },
+				"every learned profession's active spells the list has, with the spellbook's: not a passive one or one the list lacks")
+			local m = assert(world.ns.MakeMacro("Camp", FIRE_COOK))
+			world.ns.OpenEntryMenu(world.env.UIParent, FISH)
+			world:ChooseMenuEntry("Camp")
+			PutOnBar(world, "Camp", 1)
+			local seen = {}
+			for _ = 1, 40 do
+				world:PressBar(1)
+				seen[world:LastUsed()] = true
+			end
+			list(seen, { [FIRE_COOK] = true, [FISH] = true }, "a click casts one of them")
+			ok(m.state == "ready")
+			eq(#world:TakeErrors(), 0)
+		end)
+
 		it("a tab for the toys, the spells and the items, each with its count; a click shows its own from the top", function()
 			local world = GridWorld()
 			local grid = world.env.ClickyGrid

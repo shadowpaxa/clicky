@@ -171,8 +171,8 @@ are listed, because a macro can't hold any other. A toy whose Flags in the Toy t
 (ToyList.lua's `TOY_HIDDEN`) is listed only when owned, which matches the Toy Box: with Not
 Collected on, its list and the grid were seen in play to hold the same 1076 toys. 72226, whose item
 has no name in the game's tables, is one. Spells are the spellbook's: the active spells on its skill
-lines and the known spells in its flyouts, not passive, not off-spec (`ns.KnownSpellEntries`,
-Spells.lua). Items are those in the bags (the backpack, the equipped bags and the reagent bag) and
+lines and the known spells in its flyouts, and the professions' spells, found as the Professions book
+finds them; none passive, none off-spec (`ns.KnownSpellEntries`, Spells.lua). Items are those in the bags (the backpack, the equipped bags and the reagent bag) and
 in the worn slots; the bank isn't looked at (`ns.CarriedItemEntries`, Items.lua). Mounts never
 include those the game hides on this character (Mounts.lua, from `GetMountIDs`, whatever the Mount
 Journal's filters); owned pets are one entry per look (Pets.lua, from `GetOwnedPetIDs`).

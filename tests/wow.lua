@@ -692,7 +692,9 @@ World.__index = World
 --   flyout instead of on the line's own page; offSpec puts the line in a specialization the player
 --   isn't in; base is the spell it overrides, which is then the spellbook item's actionID
 --   (SpellBookItemInfo: spellID is the overriding spell). A spell that isn't known is a FutureSpell
---   on the line (SpellBookItemType).
+--   on the line (SpellBookItemType). profession (1 to 5, its place in GetProfessions' returns: two
+--   primary professions, archaeology, fishing, cooking) puts it in that profession's spells, after
+--   every skill line's, instead of on a line.
 -- options.items: list of { id, name, icon, count = 1, usable = true, cooldown, equippable, equipped,
 --   loading, bag = 0, worn }: count in the bag bag (0 is the backpack), or worn in inventory slot worn
 -- options.mounts: list of { id, name, spell = id * 100, icon, collected = true, usable = true,
@@ -848,6 +850,7 @@ function World:AddSpell(spell)
 		passive = spell.passive or false,
 		offSpec = spell.offSpec or false,
 		base = spell.base,
+		profession = spell.profession,
 	}
 end
 
@@ -1371,11 +1374,16 @@ function World:SpellBook()
 	local ids = {}
 	for id in pairs(self.spells) do ids[#ids + 1] = id end
 	table.sort(ids)
-	local book, flyouts, flyoutSeen = { lines = {}, slots = {} }, {}, {}
+	local book, flyouts, flyoutSeen = { lines = {}, slots = {}, professions = {} }, {}, {}
 	book.flyouts = flyouts
-	local lines = {}
+	local lines, professions = {}, {}
 	for _, id in ipairs(ids) do
 		local t = self.spells[id]
+		if t.profession then
+			professions[t.profession] = professions[t.profession] or {}
+			table.insert(professions[t.profession], { actionID = id, spellID = id, itemType = 1, name = t.name,
+				subName = "", iconID = t.icon, isPassive = t.passive, isOffSpec = false })
+		else
 		lines[t.line] = lines[t.line] or { items = {}, offSpec = t.offSpec }
 		local items = lines[t.line].items
 		if t.flyout then
@@ -1390,6 +1398,7 @@ function World:SpellBook()
 			items[#items + 1] = { actionID = t.base or id, spellID = id, itemType = t.known and 1 or 2, name = t.name,
 				subName = "", iconID = t.icon, isPassive = t.passive, isOffSpec = t.offSpec }
 		end
+		end
 	end
 	local numbers = {}
 	for number in pairs(lines) do numbers[#numbers + 1] = number end
@@ -1399,6 +1408,12 @@ function World:SpellBook()
 		l.offset = #book.slots
 		for _, item in ipairs(l.items) do book.slots[#book.slots + 1] = item end
 		book.lines[#book.lines + 1] = l
+	end
+	for i = 1, 5 do
+		if professions[i] then
+			book.professions[i] = { offset = #book.slots, count = #professions[i] }
+			for _, item in ipairs(professions[i]) do book.slots[#book.slots + 1] = item end
+		end
 	end
 	return book
 end
@@ -1682,6 +1697,18 @@ function World:BuildEnv()
 	env.GetFlyoutInfo = function(flyoutID)
 		local flyout = world:SpellBook().flyouts[flyoutID]
 		if flyout then return "Flyout " .. flyoutID, "", #flyout, true end
+	end
+	-- The player's professions as the Professions book reads them (Blizzard_ProfessionsBook.lua:58,
+	-- 387): GetProfessions' five indexes, nil for one not learned, and GetProfessionInfo's fifth and
+	-- sixth, its spells' count and the slot before its first. The stubs' index is the place.
+	env.GetProfessions = function()
+		local professions = world:SpellBook().professions
+		local function At(i) return professions[i] and i or nil end
+		return At(1), At(2), At(3), At(4), At(5)
+	end
+	env.GetProfessionInfo = function(index)
+		local p = world:SpellBook().professions[index]
+		return "Profession " .. index, 1, 1, 100, p.count, p.offset
 	end
 	env.GetFlyoutSlotInfo = function(flyoutID, slot)
 		local id = world:SpellBook().flyouts[flyoutID][slot]

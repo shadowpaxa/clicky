@@ -82,7 +82,7 @@ The **Mounts** tab lists the mounts you've collected, and the **Pets** tab your 
 species and color you own. Each lists your favorites first, with the journal's star, then the rest
 by name. Click a mount or a pet to summon it; drag, shift-click and right-click work as on toys.
 
-The **Spells** tab lists the spells you know, and the **Items** tab the items in your bags or worn,
+The **Spells** tab lists the spells you know, your professions' included, and the **Items** tab the items in your bags or worn,
 each sorted by name. The Items tab lists only items with a "Use:" effect that Clicky's own list has
 (see "How it works"). Click a spell to cast it and an item to use it; gear you aren't wearing is
 worn when you click it. Drag, shift-click and right-click work as on toys.

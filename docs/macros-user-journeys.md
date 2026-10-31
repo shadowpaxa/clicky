@@ -35,8 +35,8 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
   pets (below).
 - 2026-10-25: A macro mixes toys, spells and bag items (entries), up to 100 of any mix. Players add
   them in the same grid, in sections after the toys: the spells the character knows that Clicky's
-  list has (the spellbook's flyouts included), then the usable items in the bags or worn that the
-  list has. The word for what a macro holds is "items" in messages, panel counts and the README;
+  list has (the spellbook's flyouts and the Professions book included), then the usable items in
+  the bags or worn that the list has. The word for what a macro holds is "items" in messages, panel counts and the README;
   Favorites holds only toys, so its messages say "toys". The grid has no "in a macro" filter or
   section; the check mark is the only sign. Favorites holds toys only: it is the Toy Box's stars,
   which only toys have. An item that can be worn is chosen only from the drawer: the game's item
@@ -277,7 +277,8 @@ same message as a left click (journey 2).
    (`shouldHideOnChar`),
    and the Pets tab one entry per species and look the player owns; each lists the starred ones
    first, with the journal's star, then the rest, by name. The Spells tab lists the spells the
-   character knows that Clicky has (the spellbook's flyouts included), the Items tab the items in
+   character knows that Clicky has (the spellbook's flyouts and the Professions book included), the
+   Items tab the items in
    the bags or worn that it has, each by name. A check mark shows an entry is in one of the
    player's Clicky macros; Favorites' toys have their star instead.
 2. Hover over a toy for its name. Click it to use it (a mount is summoned, a pet summoned, a spell

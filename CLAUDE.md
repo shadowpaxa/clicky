@@ -91,8 +91,8 @@ Clicky uses checked against Blizzard's live UI source; `tests/fetch.sh` refreshe
   stubs only the game state and the Blizzard frames and widgets Clicky relies on, citing Blizzard's
   documentation or source; keep it one file. A second computer on the same account is `wow.New({
   account = world.account })`; `world:AddToy` adds a toy to the game, `world:AddSpell` a spell (on a
-  spellbook skill line or in a flyout), `world:AddItem` an item (in a bag or worn), `world:AddMount`
-  a mount and `world:AddPet` (or `world:LearnPet`) a pet the player owns. Clicky's toy list
+  spellbook skill line, in a flyout or a profession's), `world:AddItem` an item (in a bag or worn),
+  `world:AddMount` a mount and `world:AddPet` (or `world:LearnPet`) a pet the player owns. Clicky's toy list
   (ToyList.lua) is `wow.New`'s `toyList` option: a toy's item ID, `"s<id>"` for a spell, `"i<id>"`
   for an item, `"m<id>"` for a mount, `"p<species>:<display>"` for a pet look; without it the list
   is the account's toys when the world is made; its `TOY_HIDDEN` is the `toyHidden` option. A test
@@ -246,7 +246,9 @@ start again from step 1. Done means one full pass with no findings.
   spellbook's: its skill lines' active spells and the known spells in its flyouts
   (`C_SpellBook.GetSpellBookSkillLineInfo` and `GetSpellBookItemInfo`; `GetFlyoutInfo` and
   `GetFlyoutSlotInfo`, which Blizzard's own spell search calls on flyouts,
-  Blizzard_SpellSearchTextFilter.lua), not passive and not off-spec. Items are those in the bags
+  Blizzard_SpellSearchTextFilter.lua), and the professions' spells, as the Professions book finds them
+  (`GetProfessions` and `GetProfessionInfo`'s spell count and offset, Blizzard_ProfessionsBook.lua),
+  not passive and not off-spec. Items are those in the bags
   (the backpack, the equipped bags and the reagent bag: `0` to `NUM_TOTAL_EQUIPPED_BAG_SLOTS`,
   Constants.lua) and the worn ones (`INVSLOT_FIRST_EQUIPPED` to `INVSLOT_LAST_EQUIPPED`); the bank
   isn't looked at. Spells and items change with `SPELLS_CHANGED`, `BAG_UPDATE_DELAYED` and
