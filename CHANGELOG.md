@@ -1,5 +1,15 @@
 # Clicky
 
+## 1.1.0
+
+- **Give a macro the icon of one of its items.** Click the macro in the panel to show its items,
+  right-click the one you want and choose **Use as icon for** your macro.
+- **Open a macro in `/macro` from the panel.** Right-click it and choose **Open in /macro** to
+  edit it there.
+- **Right-clicking an item under a macro in the panel is about that macro now.** It used to show
+  the star and every macro; now it offers **Use as icon for** and **Remove from** that macro. Use
+  the grid to star things or add them to other macros.
+
 ## 1.0.1
 
 - **Clicky is on CurseForge now,** as well as Wago, so addon managers that use CurseForge can
