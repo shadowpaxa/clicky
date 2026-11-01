@@ -1,5 +1,5 @@
--- The mount kind of entry (Entries.lua): a mount's name, icon, tooltip, owned and usable test, star
--- and secure action. A mount is the key "m" and its mount ID.
+-- The mount kind of entry (Entries.lua): a mount's name, icon, tooltip, owned and usable test,
+-- star, gift wrap and secure action. A mount is the key "m" and its mount ID.
 --   ns.ListedMountEntries(uncollected)   the mounts in Clicky's list the grid can list: the ones
 --                                collected, and with uncollected the rest, less those in
 --                                MOUNT_HIDDEN (ToyList.lua); none the game hides on this character
@@ -117,10 +117,12 @@ ns.RegisterEntryKind("mount", {
 	end,
 	active = function(mountID) return select(4, Info(mountID)) == true end,
 	favorite = function(mountID) return select(7, Info(mountID)) == true end,
-	-- As the Mount Journal's menu: GetIsFavorite's second value says whether it can be starred.
+	-- As the Mount Journal's menu: GetIsFavorite's second value says whether it can be starred, and a
+	-- wrapped mount's menu offers only Unwrap (Blizzard_MountCollection.lua:262-300).
 	canFavorite = function(mountID)
 		local at = DisplayIndex(mountID)
-		return at ~= nil and select(2, C_MountJournal.GetIsFavorite(at)) == true
+		return at ~= nil and not C_MountJournal.NeedsFanfare(mountID)
+			and select(2, C_MountJournal.GetIsFavorite(at)) == true
 	end,
 	setFavorite = function(mountID, favorite)
 		local at = DisplayIndex(mountID)
@@ -128,6 +130,12 @@ ns.RegisterEntryKind("mount", {
 			C_MountJournal.SetIsFavorite(at, favorite)
 		end
 	end,
+	-- The Mount Journal shows a wrapped mount as the gift (Blizzard_MountCollection.lua:330-335).
+	gift = true,
+	-- NeedsFanfare and ClearFanfare take the mount ID (MountJournalDocumentation.lua;
+	-- Blizzard_MountCollection.lua:330-335, 868-881).
+	wrapped = function(mountID) return C_MountJournal.NeedsFanfare(mountID) == true end,
+	unwrap = function(mountID) C_MountJournal.ClearFanfare(mountID) end,
 })
 
 -- A mount learned, and where the player is changing which mounts can be used.

@@ -37,7 +37,7 @@ local function DebugLines()
 	Add(("toy list: %d toys from build %s (game counts %d)"):format(
 		#list.ids, tostring(ns.TOY_LIST_BUILD), C_ToyBox.GetNumToys()))
 	Add(("a macro holds up to %d items"):format(ns.MACRO_ENTRY_CAP))
-	Add(("grid: %s; new toys this session: %d"):format(ns.GetGridState(), ns.CountNewToys()))
+	Add(("grid: %s"):format(ns.GetGridState()))
 	Add("toys: " .. ns.GetToyBoxState())
 	Add("mounts: " .. ns.GetMountState())
 	Add("pets: " .. ns.GetPetState())

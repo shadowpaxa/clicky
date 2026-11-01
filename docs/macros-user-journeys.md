@@ -318,18 +318,18 @@ same message as a left click (journey 2).
 *Result:* the entry is used, on a bar, or linked. A name that hasn't loaded yet (after logging in or
 a reload) moves its entry into place when it arrives. A spell learned or an item
 picked up, put away or worn, and a mount or pet learned, shows in the grid. Only toys, mounts and
-pets have a star, and only toys a NEW label or a gift wrap. The mount the player is on and the pet
-that's out are highlighted, in the grid and the drawers, as in the journals, and a pet shows its
-cooldown as in the Pet Journal. A
-toy learned this session says NEW until it's hovered over; one still in its gift wrap says NEW until
-it's clicked, and that click unwraps it (without the Toy Box's animation) instead of using it. In
-combat the grid's buttons still work. Shift-click and right-click work too, and a toy
-still in its gift wrap opens when it's clicked (to be used after the fight). A toy used shows its
-cooldown, and hovering over a toy learned this session clears NEW (a toy in its gift wrap keeps NEW
-until it's clicked). Otherwise the grid stays as it is: the scroll bar is off, the tabs don't
-change, and a search, a filter or something the player learns, picks up or stars shows when the
-fight ends. If the player first opens the Collections window in a fight, the Toy Box shows its own
-grid until the fight ends. The Toy Box's own filters are never changed; its progress bar is hidden,
+pets have a star and a gift wrap. The mount the player is on and the pet that's out are
+highlighted, in the grid and the drawers, as in the journals, and a pet shows its cooldown as in
+the Pet Journal. A toy, mount or pet still in its gift wrap says NEW until it's clicked (a mount or
+pet shows the gift in place of its icon, as the journals do), and that click opens it (without the
+journals' animation) instead of using it. A pet look says NEW while any of its pets is wrapped, and
+the click opens them all. Until it's opened, a wrapped mount or pet has no star in its menu. Only a
+gift wrap makes NEW: something learned without one doesn't say it. In combat the grid's buttons
+still work. Shift-click and right-click work too, and a toy, mount or pet still in its gift wrap
+opens when it's clicked (to be used after the fight). A toy used shows its cooldown. Otherwise the
+grid stays as it is: the scroll bar is off, the tabs don't change, and a search, a filter or
+something the player learns, picks up or stars shows when the fight ends. If the player first opens
+the Collections window in a fight, the Toy Box shows its own grid until the fight ends. The Toy Box's own filters are never changed; its progress bar is hidden,
 the Toys tab giving the count.
 
 ## 16. Portals: toys, spells and a cloak in one macro

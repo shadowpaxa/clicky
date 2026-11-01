@@ -6,7 +6,8 @@ local wow = require("wow")
 local function Toys()
 	local toys = {}
 	for i = 1, 30 do
-		toys[i] = { id = 100 + i, name = ("Toy %02d"):format(i), icon = 1000 + i, favorite = i % 7 == 0 }
+		toys[i] = { id = 100 + i, name = ("Toy %02d"):format(i), icon = 1000 + i, favorite = i % 7 == 0,
+			fanfare = i % 10 == 3 }
 	end
 	return toys
 end
@@ -30,24 +31,25 @@ local function Items()
 	return items
 end
 
--- Mounts: collected or not, one hidden on this character, one the Mount Journal's filters hide.
+-- Mounts: collected or not, one hidden on this character, one the Mount Journal's filters hide, two
+-- still in their gift wrap.
 local function Mounts()
 	local mounts = {}
 	for i = 1, 5 do
 		mounts[i] = { id = i, name = ("Mount %d"):format(i), spell = 900 + i, icon = 7000 + i, collected = i ~= 4,
-			hidden = i == 5, shown = i ~= 3, favorite = i == 2 }
+			hidden = i == 5, shown = i ~= 3, favorite = i == 2, fanfare = i <= 2 }
 	end
 	return mounts
 end
 
 -- Pets: two of species 1 in one look and one in another, species 2 in one look, one that can't be
--- summoned.
+-- summoned; the first of the cats and the dog are still in their gift wrap.
 local function Pets()
 	return {
-		{ guid = "BattlePet-0-000000000001", species = 1, display = 11, name = "Cat" },
+		{ guid = "BattlePet-0-000000000001", species = 1, display = 11, name = "Cat", fanfare = true },
 		{ guid = "BattlePet-0-000000000002", species = 1, display = 11, name = "Cat" },
 		{ guid = "BattlePet-0-000000000003", species = 1, display = 12, name = "Cat", favorite = true },
-		{ guid = "BattlePet-0-000000000004", species = 2, display = 21, name = "Dog" },
+		{ guid = "BattlePet-0-000000000004", species = 2, display = 21, name = "Dog", fanfare = true },
 		{ guid = "BattlePet-0-000000000005", species = 3, display = 31, name = "Frog", summonable = false },
 	}
 end
@@ -112,6 +114,18 @@ local function Run(seed, steps)
 			return "m" .. (tonumber(used:sub(2)) - 900)
 		end
 		return used
+	end
+	-- Whether the game has the entry in its gift wrap: a pet's look while any of its pets is.
+	local function Wrapped(key)
+		if type(key) == "number" then return world.toys[key].fanfare end
+		local id = tonumber(key:sub(2))
+		if key:sub(1, 1) == "m" then return world.mounts[id].fanfare end
+		if key:sub(1, 1) == "p" then
+			for _, pet in ipairs(PetsOf(key:sub(2))) do
+				if pet.fanfare then return true end
+			end
+		end
+		return false
 	end
 	local function Worn(key)
 		return type(key) == "string" and key:sub(1, 1) == "i" and world.items[tonumber(key:sub(2))].equippable
@@ -256,7 +270,16 @@ local function Run(seed, steps)
 						or kept and tostring(b:GetAttribute(attribute)):find("^/summonpet ") ~= nil),
 						where .. ": button shows " .. tostring(b.entry) .. " uses " .. t1 .. " " .. tostring(b:GetAttribute(attribute)))
 				end
-				assert(b.icon.texture == ns.EntryIcon(b.entry), where .. ": icon mismatch on button " .. i)
+				-- A wrapped mount or pet shows the gift. In combat, or with a mouse button held, the
+				-- buttons keep what they showed, so it may be either.
+				local own, gift = ns.EntryIcon(b.entry), world.env.COLLECTIONS_FANFARE_ICON
+				if world.combat or next(world.mouse) then
+					assert(b.icon.texture == own or type(b.entry) ~= "number" and b.icon.texture == gift, where .. ": icon mismatch on button " .. i)
+				else
+					local want = type(b.entry) ~= "number" and Wrapped(b.entry) and gift or own
+					assert(b.icon.texture == want, where .. ": icon mismatch on button " .. i)
+					assert(b.new:IsShown() == Wrapped(b.entry), where .. ": NEW on button " .. i .. " for " .. tostring(b.entry))
+				end
 			else
 				assert(b:GetAttribute("type1") == nil and b:GetAttribute("toy") == nil and b:GetAttribute("spell") == nil
 					and b:GetAttribute("item") == nil and b:GetAttribute("macrotext") == nil, where .. ": hidden button with action")
@@ -293,7 +316,7 @@ local function Run(seed, steps)
 			for _, b in ipairs(grid.buttons) do
 				if b:IsShown() then
 					local owned = Has(b.entry)
-					local wrapped = type(b.entry) == "number" and world.env.C_ToyBoxInfo.NeedsFanfare(b.entry)
+					local wrapped = Wrapped(b.entry)
 					local expectType = owned and not wrapped and ActionOf(b.entry) or nil
 					assert(b:GetAttribute("type1") == expectType, where .. ": button " .. tostring(b.entry) .. " type1 " .. tostring(b:GetAttribute("type1")) .. " owned " .. tostring(owned) .. " wrapped " .. tostring(wrapped))
 				end
@@ -401,6 +424,53 @@ local function Run(seed, steps)
 			local b = Pick(shown)
 			L("grid right click " .. tostring(b.entry))
 			world:MouseClick(b, "RightButton")
+		end,
+		function()
+			-- A gift: a wrapped entry in view is opened by a click, which doesn't use it, in combat too;
+			-- with none in view, something owned arrives wrapped (out of combat and with no mouse button
+			-- held, so the grid redraws at once).
+			local wrapped = {}
+			if grid:IsVisible() then
+				for _, b in ipairs(grid.buttons) do
+					if b:IsShown() and Wrapped(b.entry) then wrapped[#wrapped + 1] = b end
+				end
+			end
+			if #wrapped > 0 then
+				local b = Pick(wrapped)
+				local key = b.entry
+				local before, wornBefore, out = #world.used, #world.equipped, world.summonedPet
+				local riding = {}
+				for id, mount in pairs(world.mounts) do riding[id] = mount.active end
+				L("open gift " .. tostring(key) .. (world.combat and " (combat)" or ""))
+				world:MouseClick(b)
+				assert(not Wrapped(key), tostring(key) .. " is still wrapped\n" .. table.concat(log, "\n"))
+				-- In combat a button redrawn while hidden may still hold an action from before the gift
+				-- arrived (the grid redraws when combat ends); out of combat, opening never uses it.
+				if not world.combat then
+					assert(#world.used == before and #world.equipped == wornBefore and world.summonedPet == out,
+						"opening " .. tostring(key) .. " used it\n" .. table.concat(log, "\n"))
+					for id, mount in pairs(world.mounts) do
+						assert(mount.active == riding[id], "opening a gift rode a mount\n" .. table.concat(log, "\n"))
+					end
+				end
+			elseif not world.combat and not next(world.mouse) then
+				local key = Pick(list)
+				if type(key) == "number" or key:sub(1, 1) == "m" or key:sub(1, 1) == "p" then
+					if Has(key) and not Wrapped(key) then
+						L("wrap " .. tostring(key))
+						if type(key) == "number" then
+							world.toys[key].fanfare = true
+							world:Fire("TOYS_UPDATED", key, false, true)
+						elseif key:sub(1, 1) == "m" then
+							world.mounts[tonumber(key:sub(2))].fanfare = true
+							world:Fire("NEW_MOUNT_ADDED", tonumber(key:sub(2)))
+						else
+							PetsOf(key:sub(2))[1].fanfare = true
+							world:Fire("PET_JOURNAL_LIST_UPDATE")
+						end
+					end
+				end
+			end
 		end,
 		function()
 			local id = 100 + math.random(30)

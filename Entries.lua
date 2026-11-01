@@ -11,7 +11,10 @@
 --                                       action(id) -> type, attribute, value, and drawerOnly(id);
 --                                       a kind with a star (the game's favorite) also favorite(id),
 --                                       canFavorite(id) and setFavorite(id, favorite); a kind
---                                       the player can be on or have out also active(id); and
+--                                       the player can be on or have out also active(id); a kind
+--                                       the game gift-wraps (a toy, a mount, a pet) also
+--                                       wrapped(id) and unwrap(id), and gift = true if its
+--                                       journal shows a wrapped one as the gift; and
 --                                       tooltipData(id): its tooltip as data (C_TooltipInfo), or nil
 --   ns.EntryKind(key)                   "toy", "mount", "pet", "spell" or "item"; key's id is
 --                                       ns.EntryID(key)
@@ -25,6 +28,11 @@
 --   ns.IsEntryFavorite(key)             it has the game's star (a toy's, mount's or pet's)
 --   ns.CanFavoriteEntry(key)            the star can be set or cleared from Clicky's menu
 --   ns.SetEntryFavorite(key, favorite)  sets or clears the star (the player picked it in the menu)
+--   ns.IsEntryWrapped(key)              it is still in its gift wrap (the game's "fanfare"), not
+--                                       opened yet; false for a kind the game doesn't wrap
+--   ns.ShowsGift(key)                   wrapped, and shown as the gift in place of its icon
+--   ns.UnwrapEntry(key)                 opens it, without the journals' animation (the player
+--                                       clicked it in the grid)
 --   ns.IsEntryActive(key)               the mount the player is on, or a look whose pet is out
 --   ns.IsDrawerOnly(key)                an item that can be worn: its secure action wears it if it
 --                                       isn't worn, so a click on the macro never picks it
@@ -119,6 +127,23 @@ end
 function ns.IsEntryActive(key)
 	local kind, id = Of(key)
 	return kind.active ~= nil and kind.active(id) == true
+end
+
+function ns.IsEntryWrapped(key)
+	local kind, id = Of(key)
+	return kind.wrapped ~= nil and kind.wrapped(id) == true
+end
+
+function ns.ShowsGift(key)
+	local kind = Of(key)
+	return kind.gift == true and ns.IsEntryWrapped(key)
+end
+
+function ns.UnwrapEntry(key)
+	local kind, id = Of(key)
+	kind.unwrap(id)
+	ns.Trace("[entries] %s unwrapped", tostring(key))
+	ns.Changed()
 end
 
 function ns.SetEntryFavorite(key, favorite)

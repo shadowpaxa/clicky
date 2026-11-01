@@ -21,12 +21,9 @@
 --   ns.CountOwnedToys()
 --   ns.ToyIcon(itemID)
 --   ns.ToyName(itemID)         its name, or "" until the game has it (and asks the game for it)
---   ns.IsWrapped(itemID)       learned with a gift wrap not opened yet (C_ToyBoxInfo.NeedsFanfare)
---   ns.Unwrap(itemID)          opens it (C_ToyBoxInfo.ClearFanfare), without the animation
---   ns.IsNewToy(itemID)        learned this session and not hovered since, or still wrapped
---   ns.SeeToy(itemID)          hovered: no longer new unless still wrapped, as in the Toy Box
---                              (Blizzard_ToyBox.lua, ToySpellButton_OnEnter)
---   ns.CountNewToys()          for /clicky debug
+--
+-- As the toy kind of entry it also says whether a toy is still in its gift wrap
+-- (C_ToyBoxInfo.NeedsFanfare) and opens it (C_ToyBoxInfo.ClearFanfare), without the animation.
 --
 -- The list is the one Clicky ships (ToyList.lua, written by tools/update_toys.py from the game's
 -- tables): a toy's number is its place in it, and it only grows at the end, so patches can't
@@ -48,7 +45,6 @@ for i, entry in ipairs(list.entries) do
 	end
 	list.index[entry] = i - 1
 end
-local newToys = {} -- itemID -> true: learned this session (TOYS_UPDATED's isNew), not hovered since
 
 function ns.GetToyList()
 	return list
@@ -148,37 +144,9 @@ ns.RegisterEntryKind("toy", {
 	favorite = function(itemID) return C_ToyBox.GetIsFavorite(itemID) end,
 	canFavorite = function() return true end,
 	setFavorite = function(itemID, favorite) C_ToyBox.SetIsFavorite(itemID, favorite) end,
+	wrapped = function(itemID) return C_ToyBoxInfo.NeedsFanfare(itemID) == true end,
+	unwrap = function(itemID) C_ToyBoxInfo.ClearFanfare(itemID) end,
 })
-
-function ns.IsWrapped(itemID)
-	return C_ToyBoxInfo.NeedsFanfare(itemID) == true
-end
-
-function ns.Unwrap(itemID)
-	C_ToyBoxInfo.ClearFanfare(itemID)
-	newToys[itemID] = nil
-	ns.Trace("[toys] unwrapped %d", itemID)
-	ns.Changed()
-end
-
-function ns.IsNewToy(itemID)
-	return newToys[itemID] == true or ns.IsWrapped(itemID)
-end
-
-function ns.SeeToy(itemID)
-	if newToys[itemID] and not ns.IsWrapped(itemID) then
-		newToys[itemID] = nil
-		ns.Trace("[toys] %d seen, no longer new", itemID)
-	end
-end
-
-function ns.CountNewToys()
-	local n = 0
-	for _ in pairs(newToys) do
-		n = n + 1
-	end
-	return n
-end
 
 ------------------------------------------------------------------------------------------
 -- Events.
@@ -186,13 +154,7 @@ end
 -- Learning a toy or starring one changes what the panel shows and what can be picked, never the
 -- list.
 ns.RegisterEvent("NEW_TOY_ADDED", ns.Changed)
-ns.RegisterEvent("TOYS_UPDATED", function(itemID, isNew)
-	if itemID and isNew then
-		newToys[itemID] = true
-		ns.Trace("[toys] %d is new", itemID)
-	end
-	ns.Changed()
-end)
+ns.RegisterEvent("TOYS_UPDATED", ns.Changed)
 
 ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemID, success)
 	-- A toy's name may have just loaded. This fires for every item, so ignore the rest. A failed

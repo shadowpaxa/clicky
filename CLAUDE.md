@@ -17,11 +17,12 @@ messages say "toys" (`ns.MacroNoun`).
 ## Rules
 
 **Never change the player's settings.** Clicky changes only its own macros, its own buttons, a
-toy's, mount's or pet's star when the player picks that from its menu, and a toy's gift wrap when
-the player clicks the toy to open it, as the Toy Box does. Never Toy Box, Mount Journal or Pet
-Journal filters, CVars or any other game setting: they're the player's, saved by WoW, and outlive
-the addon. An earlier Clicky "restored" the Toy Box filters and left a player's Toy Box empty. The
-test "Never changes the player's settings" fails on any such call.
+toy's, mount's or pet's star when the player picks that from its menu, and a toy's, mount's or
+pet's gift wrap when the player clicks it in the grid to open it, as the Toy Box, Mount Journal and
+Pet Journal do. Never Toy Box, Mount Journal or Pet Journal filters, CVars or any other game
+setting: they're the player's, saved by WoW, and outlive the addon. An earlier Clicky "restored" the
+Toy Box filters and left a player's Toy Box empty. The test "Never changes the player's settings"
+fails on any such call.
 
 **One code path per behavior.**
 - Every change the player asks for goes through `SetEntry`, `MakeMacro`, `RenameMacro`,

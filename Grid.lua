@@ -2,8 +2,9 @@
 -- its own search and filters: the Toy Box's are the player's settings and are only hidden. It lists
 -- entries (Entries.lua) in sections: toys, mounts and pets as each tab's filters let them through,
 -- the spells the character knows, and the items carried or worn. A tab for each, with its count,
--- shows that section. A view (ns.RegisterView); its own redraws (search, filters, a tab, scrolling,
--- unwrap, held-mouse retry, the mount ridden or the pet out changing) skip ns.Changed. In combat the
+-- shows that section. A toy, mount or pet still in its gift wrap says NEW, and a click opens it
+-- instead of using it. A view (ns.RegisterView); its own redraws (search, filters, a tab, scrolling,
+-- held-mouse retry, the mount ridden or the pet out changing) skip ns.Changed. In combat the
 -- buttons keep their entries until combat ends.
 --   ns.GridSections(filters, text)   the sections listed, in order: { name ("toys", "mounts", "pets",
 --                                    "spells" or "items"), keys }; filters is section name -> its
@@ -154,16 +155,6 @@ function ns.GridView(allRows, from)
 	return view, from, highest
 end
 
--- A toy still in its gift wrap, or learned this session and not hovered over yet: only toys have
--- either (Toys.lua).
-local function IsWrapped(key)
-	return ns.EntryKind(key) == "toy" and ns.IsWrapped(key)
-end
-
-local function IsNew(key)
-	return ns.EntryKind(key) == "toy" and ns.IsNewToy(key)
-end
-
 -- As on the Toy Box's buttons (Blizzard_ToyBox.xml OnClick, ToySpellButton_OnClick/OnModifiedClick).
 -- "Modified" is shift, ctrl or alt, the keys the secure action reads (SecureTemplates.lua:70-90).
 local function GridClick(key, mouseButton, modified, chatLink)
@@ -172,7 +163,7 @@ local function GridClick(key, mouseButton, modified, chatLink)
 	elseif mouseButton == "RightButton" then
 		return ns.IsEntryOwned(key) and "menu" or nil
 	elseif mouseButton == "LeftButton" then
-		if IsWrapped(key) then
+		if ns.IsEntryWrapped(key) then
 			return "unwrap"
 		elseif ns.IsEntryOwned(key) then
 			return "use"
@@ -222,7 +213,9 @@ end
 -- (SimpleScriptRegionResizingAPIDocumentation.lua), which is blocked only on protected frames, and a
 -- NEW label is a font string.
 -- PostClick's menu, link and unwrap are unrestricted in combat (MenuUtil.lua:151-167,
--- ChatFrameUtilOverrides.lua:14-77, ToyBoxInfoDocumentation.lua).
+-- ChatFrameUtilOverrides.lua:14-77; ClearFanfare: ToyBoxInfoDocumentation.lua,
+-- MountJournalDocumentation.lua, and for pets, which Blizzard's documentation doesn't list,
+-- PetJournal_UnwrapPet calls it with no combat check, Blizzard_PetCollection.lua:1443-1455).
 
 -- Out of combat only (its callers check).
 local function ShowFrom(from)
@@ -239,7 +232,11 @@ local function ShowFrom(from)
 			button.icon:SetAlpha(ns.IsEntryOwned(key) and 1 or 0.5)
 			button.check:SetShown(inMacro[key] == true)
 			button.star:SetShown(ns.IsEntryFavorite(key))
-			button.new:SetShown(IsNew(key))
+			-- COLLECTIONS_FANFARE_ICON is Blizzard_Collections.lua's, loaded before the grid is made.
+			if ns.ShowsGift(key) then
+				button.icon:SetTexture(COLLECTIONS_FANFARE_ICON)
+			end
+			button.new:SetShown(ns.IsEntryWrapped(key))
 			button:Show()
 		end
 	end
@@ -463,20 +460,17 @@ local function CreateButton(board)
 				ChatFrameUtil.InsertLink(link)
 			end
 		elseif click == "unwrap" then
-			ns.Unwrap(key)
+			ns.UnwrapEntry(key)
 			Refresh() -- the next click on it uses it
 		end
 		ns.Trace("[grid] %s on %s: %s", mouseButton, key, click)
 	end)
-	-- Also UpdateTooltip, as in the Toy Box (Blizzard_ToyBox.lua:213-226): a NEW toy scrolled under
-	-- the mouse is seen.
+	-- Also UpdateTooltip, as in the Toy Box (Blizzard_ToyBox.lua:213-226): the NEW label follows the
+	-- button's entry, which may have changed under the mouse. Hovering doesn't open a gift.
 	local ShowTooltip = button:GetScript("OnEnter")
 	local function OnEnter(self)
 		-- A button emptied while the mouse is over it holds no entry.
-		if self.entry and ns.EntryKind(self.entry) == "toy" then
-			ns.SeeToy(self.entry)
-		end
-		self.new:SetShown(self.entry ~= nil and IsNew(self.entry))
+		self.new:SetShown(self.entry ~= nil and ns.IsEntryWrapped(self.entry))
 		ShowTooltip(self)
 	end
 	button:SetScript("OnEnter", OnEnter)

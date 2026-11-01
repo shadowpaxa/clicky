@@ -1329,7 +1329,7 @@ describe("journeys", function()
 		eq(Printed("Clicky @"), "Clicky @project-version@")
 		Says(Printed("toy list"), { "6 toys from build test", "game counts 6" })
 		Says(Printed("a macro holds"), { "up to 100 items" })
-		Says(Printed("grid"), { "not made", "new toys this session: 0" })
+		Says(Printed("grid"), { "not made" })
 		eq(Printed("waiting"), "waiting: nothing")
 		eq(Printed("views"), "views: panel hidden; grid hidden")
 		Says(Printed("Favorites ("), { "(ClickyFVRT): 2 items", "unusable: 0, on cooldown: 0", "drawer 2 items",
@@ -1681,7 +1681,7 @@ describe("journeys", function()
 		list(GridToys(world.ns, filters, ""), { WINGS, CHEST, GNOME, ORB, HAT, PIRATE, NEW_TOY }, "learned: listed")
 	end)
 
-	it("15. The toy grid: a toy learned this session says NEW until hovered; a gift-wrapped one until a click opens it", function()
+	it("15. The toy grid: a toy in its gift wrap says NEW until a click opens it; one learned unwrapped doesn't", function()
 		local GIFT, OLD_GIFT = 151, 152
 		local toys = Toys()
 		toys[#toys + 1] = { id = NEW_TOY, name = "Wand", owned = false }
@@ -1689,24 +1689,20 @@ describe("journeys", function()
 		toys[#toys + 1] = { id = OLD_GIFT, name = "Old gift", fanfare = true } -- still wrapped from an earlier session
 		local world = World({ toys = toys })
 		local ns = world.ns
-		ok(not ns.IsNewToy(PIRATE), "a toy owned before isn't new")
+		ok(not ns.IsEntryWrapped(PIRATE), "a toy owned before isn't wrapped")
 
 		world:LearnToy({ id = NEW_TOY })
-		ok(ns.IsNewToy(NEW_TOY), "new once learned")
-		ns.SeeToy(NEW_TOY)
-		ok(not ns.IsNewToy(NEW_TOY), "not new once hovered")
+		ok(not ns.IsEntryWrapped(NEW_TOY), "a toy learned unwrapped isn't NEW, though learned this session")
 
 		world:LearnToy({ id = GIFT, fanfare = true })
-		ns.SeeToy(GIFT)
-		ok(ns.IsNewToy(GIFT), "hovering doesn't open the wrap")
-		ns.Unwrap(GIFT)
-		ok(not ns.IsNewToy(GIFT), "opened: no longer new")
+		ok(ns.IsEntryWrapped(GIFT), "learned wrapped")
+		ns.UnwrapEntry(GIFT)
+		ok(not ns.IsEntryWrapped(GIFT), "opened")
 
-		ok(ns.IsNewToy(OLD_GIFT), "new, though not learned this session")
-		ns.SeeToy(OLD_GIFT)
-		ok(ns.IsNewToy(OLD_GIFT), "hovering doesn't open the wrap")
-		ns.Unwrap(OLD_GIFT)
-		ok(not ns.IsNewToy(OLD_GIFT), "opened: no longer new")
+		ok(ns.IsEntryWrapped(OLD_GIFT), "wrapped, though not learned this session")
+		ns.UnwrapEntry(OLD_GIFT)
+		ok(not ns.IsEntryWrapped(OLD_GIFT), "opened")
+		eq(ns.IsEntryWrapped("s500"), false, "a spell has no wrap")
 		eq(#world:TakeErrors(), 0)
 	end)
 
@@ -2413,7 +2409,12 @@ describe("journeys", function()
 			local GIFT = 151
 			local toys = Toys()
 			toys[#toys + 1] = { id = GIFT, name = "Gift", owned = false }
-			local world = World({ toys = toys })
+			local world = World({
+				toys = toys,
+				toyList = { PIRATE, ORB, GNOME, HAT, WINGS, CHEST, GIFT, "m6", "p40:300" },
+				mounts = { { id = 6, name = "Brown Horse", fanfare = true } },
+				pets = { { guid = "BattlePet-0-000000000A01", species = 40, display = 300, name = "Cat", fanfare = true } },
+			})
 			local ns = world.ns
 			local view = CountingView(ns, "test", 0)
 			-- Runs change, then lets time pass; true if the view refreshed.
@@ -2440,7 +2441,13 @@ describe("journeys", function()
 			end), "unstarring it")
 			ok(Refreshes(function() world:Fire("NEW_TOY_ADDED", GIFT) end), "a toy added")
 			ok(Refreshes(function() world:LearnToy({ id = GIFT, fanfare = true }) end), "learning a toy")
-			ok(Refreshes(function() ns.Unwrap(GIFT) end), "opening a gift-wrapped toy")
+			ok(Refreshes(function() ns.UnwrapEntry(GIFT) end), "opening a gift-wrapped toy")
+			ok(ns.IsEntryWrapped("m6"), "the Horse is wrapped")
+			ok(Refreshes(function() ns.UnwrapEntry("m6") end), "opening a gift-wrapped mount")
+			ok(not ns.IsEntryWrapped("m6"), "the Horse is open")
+			ok(ns.IsEntryWrapped("p40:300"), "the Cat is wrapped")
+			ok(Refreshes(function() ns.UnwrapEntry("p40:300") end), "opening a gift-wrapped pet")
+			ok(not ns.IsEntryWrapped("p40:300"), "the Cat is open")
 			ok(Refreshes(function() world:Fire("GET_ITEM_INFO_RECEIVED", HAT, true) end), "a toy's name arriving")
 			ok(Refreshes(function() world:LoadToys() end), "the player's toys arriving")
 			ok(Refreshes(function() assert(ns.DeleteMacro(macro)) end), "deleting a macro")
@@ -3234,11 +3241,13 @@ describe("journeys", function()
 		end
 
 		-- Clicks every button in view; each uses the toy it shows, and only that.
-		local function ClickAll(world, what)
+		-- wrapped is a toy whose click only opens it.
+		local function ClickAll(world, what, wrapped)
 			for _, button in ipairs(Shown(world)) do
 				world.used = {}
 				world:MouseClick(button)
-				list(world.used, { button.itemID }, ("%s: a click on %d"):format(what, button.itemID))
+				list(world.used, button.itemID ~= wrapped and { button.itemID } or {},
+					("%s: a click on %d"):format(what, button.itemID))
 			end
 		end
 
@@ -3561,7 +3570,7 @@ describe("journeys", function()
 			ok(button.new:IsShown(), "NEW until opened")
 			world:MouseClick(button)
 			list(world.used, {}, "the first click only opens it")
-			ok(not ns.IsWrapped(1003), "opened")
+			ok(not ns.IsEntryWrapped(1003), "opened")
 			button = ButtonFor(world, 1003) -- redrawn at once, not after the refresh delay
 			eq(button:GetAttribute("type1"), "toy")
 			ok(not button.new:IsShown(), "no longer NEW")
@@ -3670,16 +3679,20 @@ describe("journeys", function()
 			world:Drag(byToy[1002])
 			list(world.cursor, { toy = 1002 }, "dragged")
 
-			-- A toy learned this session says NEW until hovered over.
+			-- A toy learned this session says nothing until it comes in a gift wrap, and hovering over
+			-- a wrapped one doesn't open it.
 			world:LearnToy({ id = WAND })
 			world.env.ClickyGridSearch:SetText("Wand")
 			world:Advance(1)
 			local wand = Shown(world)[1]
 			eq(wand.itemID, WAND)
-			ok(wand.new:IsShown(), "NEW")
+			ok(not wand.new:IsShown(), "learned unwrapped: not NEW")
+			world:LearnToy({ id = WAND, fanfare = true })
+			world:Advance(1)
+			ok(wand.new:IsShown(), "wrapped: NEW")
 			wand.scripts.OnEnter(wand)
-			ok(not wand.new:IsShown(), "hovered")
-			ok(not ns.IsNewToy(WAND))
+			ok(wand.new:IsShown(), "hovering doesn't open it")
+			ok(ns.IsEntryWrapped(WAND))
 
 			-- A tooltip follows the button when the grid scrolls under the mouse.
 			world.env.ClickyGridSearch:SetText("")
@@ -3716,7 +3729,7 @@ describe("journeys", function()
 			local world = GridWorld(200)
 			local ns = world.ns
 			local bar = world.env.ClickyGridScrollBar
-			world:LearnToy({ id = 1020 }) -- in view, says NEW
+			world:LearnToy({ id = 1020, fanfare = true }) -- in view, says NEW
 			world:Advance(1)
 			ns.SetTracing(true)
 			bar:SetScript("OnUpdate", function() end) -- a thumb being dragged
@@ -3728,7 +3741,7 @@ describe("journeys", function()
 			eq(bar:IsScrollAllowed(), false, "scrolling is off")
 			eq(bar.scripts.OnUpdate, nil, "a drag is stopped")
 
-			ClickAll(world, "in combat")
+			ClickAll(world, "in combat", 1020)
 			local button = Shown(world)[2]
 			world:MouseClick(button, "RightButton")
 			list(menus, { { button, button.itemID } }, "the menu opens in combat")
@@ -3760,7 +3773,7 @@ describe("journeys", function()
 			eq(Refreshes(world, "grid"), 0, "no refresh yet")
 
 			-- What is inside a button isn't locked: a toy used in combat shows its cooldown, and
-			-- hovering over a NEW toy clears its label.
+			-- the label of a NEW toy opened by a click follows it.
 			local used = ButtonFor(world, 1021)
 			world:MouseClick(used)
 			eq(world:LastUsed(), 1021)
@@ -3768,9 +3781,9 @@ describe("journeys", function()
 			world:Fire("SPELL_UPDATE_COOLDOWN")
 			ok(used.cooldown.start ~= nil, "the toy used in combat shows its cooldown")
 			local new = ButtonFor(world, 1020)
-			ok(new.new:IsShown(), "NEW")
+			ok(new.new:IsShown(), "opened by the click above, but still NEW: the grid doesn't redraw in combat")
 			new.scripts.OnEnter(new)
-			ok(not new.new:IsShown(), "hovering over it in combat clears the label")
+			ok(not new.new:IsShown(), "hovering over it in combat updates the label: it's open")
 
 			world:LeaveCombat()
 			world:Advance(5)
@@ -3782,7 +3795,7 @@ describe("journeys", function()
 			eq(TopRow(world), 1, "the search goes to the top")
 			-- 1002 is a favorite now, and the toy learned in combat is in the list.
 			list(ShownToys(world), { 1002, 1007, 1050, 1120, unpack(Slice(Rest(200, { 1002, 1007, 1050, 1120 }), 1, 92)) })
-			ok(not ns.IsNewToy(1020), "and 1020 is no longer NEW")
+			ok(not ns.IsEntryWrapped(1020), "and 1020 stays opened")
 			ClickAll(world, "after combat")
 			Wheel(world, -1)
 			eq(TopRow(world), 4, "the wheel works again")
@@ -3811,7 +3824,7 @@ describe("journeys", function()
 			local button = ButtonFor(world, 1003)
 			world:EnterCombat()
 			world:MouseClick(button)
-			ok(not ns.IsWrapped(1003), "opened")
+			ok(not ns.IsEntryWrapped(1003), "opened")
 			world:Advance(1)
 			world:MouseClick(button)
 			list(world.used, {}, "not used in combat: its button can't be set then")
@@ -3905,20 +3918,24 @@ describe("journeys", function()
 			eq(Refreshes(world, "grid"), 1, "the grid draws when shown")
 			eq(Refreshes(world, "panel"), 1, "and so does the panel")
 		end)
-		it("a NEW toy that scrolls under the button the mouse is over stops saying NEW once its tooltip shows", function()
+		it("a NEW toy that scrolls under the button the mouse is over says NEW as its tooltip shows, until it is clicked", function()
 			local world = GridWorld(200)
 			local button = Shown(world)[1]
 			button.scripts.OnEnter(button)
 			local target = From(Listed(200), 4)[1] -- the toy this button holds after one notch down
-			world:LearnToy({ id = target })
+			world:LearnToy({ id = target, fanfare = true })
 			world:Advance(1)
 			Wheel(world, -1)
 			eq(button.itemID, target)
 			ok(button.new:IsShown(), "NEW as it arrives under the button")
 			world:UpdateTooltip()
 			eq(world.tooltip.toy, target, "the tooltip follows")
-			ok(not button.new:IsShown(), "and the toy is seen")
-			ok(not world.ns.IsNewToy(target))
+			ok(button.new:IsShown(), "and hovering doesn't open it")
+			ok(world.ns.IsEntryWrapped(target))
+			world:MouseClick(button)
+			ok(not world.ns.IsEntryWrapped(target), "a click does")
+			world:UpdateTooltip()
+			ok(not button.new:IsShown(), "and the label goes")
 		end)
 
 		it("the bar put on each row's position turns the grid to that row, for each of 27 first rows", function()
@@ -4531,6 +4548,134 @@ describe("journeys", function()
 			world:Advance(1)
 			list(Shown(world), { WHITE_CAT, OTHER_CAT, BLUE_CAT, DOG }, "a starred look first")
 			list(Starred(world), { WHITE_CAT })
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		-- The wrapped ones: the Horse, the Cat of the blue look in CAT1 (CAT2 of the same look isn't), and
+		-- the Pirate's Costume toy.
+		local function WrappedWorld(options)
+			options = options or {}
+			local toys = Toys()
+			toys[1].fanfare = true
+			options.toys = toys
+			options.mounts = {
+				{ id = 6, name = "Brown Horse", spell = 458, icon = 7006, fanfare = true },
+				{ id = 3, name = "Black Ram", spell = 6777, icon = 7003, favorite = true },
+			}
+			options.pets = {
+				{ guid = CAT1, species = 40, display = 300, name = "Cat", icon = 8040, fanfare = true },
+				{ guid = CAT2, species = 40, display = 300, name = "Cat", icon = 8040, fanfare = options.bothCats },
+				{ guid = CAT3, species = 40, display = 301, name = "Cat", icon = 8040 },
+				{ guid = DOG1, species = 7, display = 200, name = "Dog", icon = 8007 },
+			}
+			options.bothCats = nil
+			return PetWorld(options)
+		end
+
+		it("15. a mount or pet in its gift wrap shows the gift and NEW in the grid, a toy in its wrap its own icon and NEW", function()
+			local world = WrappedWorld()
+			local GIFT = world.env.COLLECTIONS_FANFARE_ICON
+			local toy = ButtonFor(world, PIRATE)
+			ok(toy.new:IsShown(), "the wrapped toy says NEW")
+			eq(toy.icon.texture, world.ns.EntryIcon(PIRATE), "and keeps its icon")
+			ClickTab(world, MOUNTS_TAB)
+			local horse, ram = ButtonFor(world, HORSE), ButtonFor(world, RAM)
+			ok(horse.new:IsShown(), "the wrapped Horse says NEW")
+			eq(horse.icon.texture, GIFT, "and shows the gift")
+			ok(not ram.new:IsShown(), "the Ram doesn't")
+			eq(ram.icon.texture, 7003, "and shows its icon")
+			ClickTab(world, PETS_TAB)
+			local cat, white, dog = ButtonFor(world, BLUE_CAT), ButtonFor(world, WHITE_CAT), ButtonFor(world, DOG)
+			ok(cat.new:IsShown(), "a look with one pet wrapped says NEW")
+			eq(cat.icon.texture, GIFT, "and shows the gift")
+			ok(not white.new:IsShown() and not dog.new:IsShown(), "the others don't")
+			eq(dog.icon.texture, 8007)
+			cat.scripts.OnEnter(cat)
+			ok(cat.new:IsShown(), "hovering doesn't open it")
+			ok(world.ns.IsEntryWrapped(BLUE_CAT))
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("15. the first click on a wrapped mount or pet opens it without summoning, the next click summons it", function()
+			local world = WrappedWorld()
+			ClickTab(world, MOUNTS_TAB)
+			eq(ButtonFor(world, HORSE):GetAttribute("type1"), nil, "a wrapped mount's button has no action")
+			world:MouseClick(ButtonFor(world, HORSE))
+			ok(not world.mounts[6].active, "not ridden")
+			ok(not world.ns.IsEntryWrapped(HORSE), "opened")
+			ok(not world.mounts[6].fanfare, "the game's wrap is cleared")
+			local horse = ButtonFor(world, HORSE)
+			ok(not horse.new:IsShown(), "no longer NEW")
+			eq(horse.icon.texture, 7006, "and its own icon")
+			world:MouseClick(horse)
+			ok(world.mounts[6].active, "the next click rides it")
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			eq(world.summonedPet, nil, "no pet out")
+			ok(not world.ns.IsEntryWrapped(BLUE_CAT), "opened")
+			ok(not world.pets[1].fanfare, "the game's wrap is cleared")
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			ok(world.summonedPet == CAT1 or world.summonedPet == CAT2, "the next click summons one")
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("15. one click opens every wrapped pet of a look, and only that look", function()
+			local world = WrappedWorld({ bothCats = true })
+			world.pets[3].fanfare = true -- the white Cat
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			ok(not world.pets[1].fanfare and not world.pets[2].fanfare, "both blue Cats are open")
+			ok(world.pets[3].fanfare, "the white Cat is still wrapped")
+			ok(ButtonFor(world, WHITE_CAT).new:IsShown())
+			eq(world.summonedPet, nil)
+			-- A look with one pet wrapped and the other not: the wrapped one opens.
+			world.pets[2].fanfare = true
+			world:Fire("PET_JOURNAL_LIST_UPDATE")
+			world:Advance(1)
+			ok(ButtonFor(world, BLUE_CAT).new:IsShown(), "wrapped while any pet is")
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			ok(not world.pets[2].fanfare and not world.ns.IsEntryWrapped(BLUE_CAT))
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("4. a wrapped mount or pet has no star in its menu until it is opened; a wrapped toy keeps its star", function()
+			local world = WrappedWorld()
+			list(MenuTexts(world, HORSE), { "Add to new macro..." }, "the Horse")
+			list(MenuTexts(world, BLUE_CAT), { "Add to new macro..." }, "the Cat")
+			eq(MenuTexts(world, PIRATE)[1], world.env.BATTLE_PET_FAVORITE, "the toy")
+			ClickTab(world, MOUNTS_TAB)
+			world:MouseClick(ButtonFor(world, HORSE))
+			list(MenuTexts(world, HORSE), { "Favorite", "Add to new macro..." }, "the Horse once open")
+			ClickTab(world, PETS_TAB)
+			world:MouseClick(ButtonFor(world, BLUE_CAT))
+			list(MenuTexts(world, BLUE_CAT), { "Favorite", "Add to new macro..." }, "the Cat once open")
+			eq(#world:TakeErrors(), 0)
+		end)
+
+		it("15. a wrapped mount or pet clicked in combat opens, and a click after combat uses it", function()
+			local world = WrappedWorld()
+			ClickTab(world, MOUNTS_TAB)
+			local horse = ButtonFor(world, HORSE)
+			world:EnterCombat()
+			world:MouseClick(horse)
+			ok(not world.ns.IsEntryWrapped(HORSE), "opened in combat")
+			world:MouseClick(horse)
+			ok(not world.mounts[6].active, "not ridden in combat: its button can't be set then")
+			world:LeaveCombat()
+			world:Advance(1)
+			world:MouseClick(horse)
+			ok(world.mounts[6].active, "ridden after combat")
+			ClickTab(world, PETS_TAB)
+			local cat = ButtonFor(world, BLUE_CAT)
+			world:EnterCombat()
+			world:MouseClick(cat)
+			ok(not world.ns.IsEntryWrapped(BLUE_CAT), "the pet opened in combat")
+			world:MouseClick(cat)
+			eq(world.summonedPet, nil, "not summoned in combat")
+			world:LeaveCombat()
+			world:Advance(1)
+			world:MouseClick(cat)
+			ok(world.summonedPet ~= nil, "summoned after combat")
 			eq(#world:TakeErrors(), 0)
 		end)
 

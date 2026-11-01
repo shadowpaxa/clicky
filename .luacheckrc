@@ -79,6 +79,7 @@ read_globals = {
 	"COLLECTED",
 	"CANCEL",
 	"COLLECTIONS_JOURNAL_TAB_INDEX_TOYS",
+	"COLLECTIONS_FANFARE_ICON",
 	"CollectionsJournal",
 	"Constants",
 	"CooldownFrame_Set",

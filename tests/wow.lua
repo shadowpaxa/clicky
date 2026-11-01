@@ -763,10 +763,12 @@ World.__index = World
 -- options.items: list of { id, name, icon, count = 1, usable = true, cooldown, equippable, equipped,
 --   loading, bag = 0, worn }: count in the bag bag (0 is the backpack), or worn in inventory slot worn
 -- options.mounts: list of { id, name, spell = id * 100, icon, collected = true, usable = true,
---   favorite, hidden, shown = true }: hidden is shouldHideOnChar (the game hides it on this
---   character); shown is whether the Mount Journal's filters list it
+--   favorite, hidden, shown = true, fanfare }: hidden is shouldHideOnChar (the game hides it on this
+--   character); shown is whether the Mount Journal's filters list it; fanfare: it is still in its
+--   gift wrap
 -- options.pets: list of { guid, species, display = species * 10, name, icon, favorite,
---   summonable = true }: one owned pet each; name and icon are its species'
+--   summonable = true, fanfare }: one owned pet each; name and icon are its species'; fanfare: it is
+--   still in its gift wrap
 -- options.petSpecies: species ID -> { name, icon }, a species the game has that the player may own
 --   none of (AddPet adds its pet's)
 -- options.petLooks: species ID -> the display IDs the game lists for it (GetDisplayIDByIndex), owned
@@ -946,6 +948,7 @@ function World:AddMount(mount)
 		favorite = mount.favorite or false,
 		hidden = mount.hidden or false,
 		shown = mount.shown ~= false,
+		fanfare = mount.fanfare or false,
 	}
 	table.insert(self.account.mountOrder, mount.id)
 end
@@ -960,6 +963,7 @@ function World:AddPet(pet)
 		display = pet.display or pet.species * 10,
 		favorite = pet.favorite or false,
 		summonable = pet.summonable ~= false,
+		fanfare = pet.fanfare or false,
 	})
 end
 
@@ -1919,6 +1923,17 @@ function World:BuildEnv()
 			assert(type(favorite) == "boolean", "SetIsFavorite takes a boolean")
 			world.mounts[Displayed()[index]].favorite = favorite
 		end,
+		-- Both take a mount ID, a number (MountJournalDocumentation.lua: mountID, Type number,
+		-- Nilable false); the journal clears a wrapped mount's fanfare when it's clicked
+		-- (Blizzard_MountCollection.lua:868-881).
+		NeedsFanfare = function(id)
+			assert(type(id) == "number", "NeedsFanfare takes a mount ID")
+			return world.mounts[id] ~= nil and world.mounts[id].fanfare
+		end,
+		ClearFanfare = function(id)
+			assert(type(id) == "number", "ClearFanfare takes a mount ID")
+			if world.mounts[id] then world.mounts[id].fanfare = false end
+		end,
 		Pickup = function(index) world.cursor = { mount = Displayed()[index] } end,
 		GetMountLink = function(spellID)
 			for id, m in pairs(world.mounts) do
@@ -1968,6 +1983,16 @@ function World:BuildEnv()
 		SetFavorite = function(guid, value)
 			assert(value == 0 or value == 1, "SetFavorite takes 1 or 0")
 			world:Pet(guid).favorite = value == 1
+		end,
+		-- Both take the pet's GUID (Blizzard_PetCollection.lua:770, 895-901, 1443-1455); Blizzard's
+		-- generated documentation doesn't list them.
+		PetNeedsFanfare = function(guid)
+			assert(type(guid) == "string", "PetNeedsFanfare takes a pet GUID")
+			return world:Pet(guid) ~= nil and world:Pet(guid).fanfare
+		end,
+		ClearFanfare = function(guid)
+			assert(type(guid) == "string", "ClearFanfare takes a pet GUID")
+			if world:Pet(guid) then world:Pet(guid).fanfare = false end
 		end,
 		PetIsSummonable = function(guid) return world:Pet(guid).summonable end,
 		GetSummonedPetGUID = function() return world.summonedPet end,
@@ -2096,6 +2121,8 @@ function World:BuildEnv()
 	for i = 0, 11 do env["EXPANSION_NAME" .. i] = "Expansion " .. i end
 	env.bit = bit
 	env.NEW_CAPS = "NEW"
+	-- Blizzard_Collections.lua:1
+	env.COLLECTIONS_FANFARE_ICON = "Interface/Icons/Item_Shop_GiftBox01"
 	env.DELETE = "Delete" -- the menu's entry is found by it
 	-- The toy menu's star entries are found by these; any two different texts do.
 	env.BATTLE_PET_FAVORITE, env.BATTLE_PET_UNFAVORITE = "Favorite", "Unfavorite"

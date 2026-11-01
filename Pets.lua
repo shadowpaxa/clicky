@@ -1,7 +1,7 @@
--- The pet kind of entry (Entries.lua): a pet's name, icon, tooltip, owned and usable test, star and
--- secure action. A pet is the key "p", its species ID, ":" and the display ID of its look: a species
--- can come in several looks (colors), and each is an entry, which stands for every pet the player
--- owns of that species and look. A pet can have a look no table gives its species (seen in play),
+-- The pet kind of entry (Entries.lua): a pet's name, icon, tooltip, owned and usable test, star,
+-- gift wrap and secure action. A pet is the key "p", its species ID, ":" and the display ID of its
+-- look: a species can come in several looks (colors), and each is an entry, which stands for every
+-- pet the player owns of that species and look. A pet can have a look no table gives its species (seen in play),
 -- so each species also has the look 0, which stands for its pets whose look Clicky's list doesn't
 -- have, or, when there are none, all its pets. A later list can add such a look (it only grows), and
 -- a macro holding the 0 then still has the species' pets rather than none.
@@ -84,6 +84,26 @@ local function Summonable(id)
 		end
 	end
 	return found
+end
+
+-- The annotations give these two no parameters; Blizzard passes the pet's GUID (see the pet kind).
+local function NeedsFanfare(guid)
+	---@diagnostic disable-next-line: redundant-parameter
+	return C_PetJournal.PetNeedsFanfare(guid)
+end
+
+local function ClearFanfare(guid)
+	---@diagnostic disable-next-line: redundant-parameter
+	C_PetJournal.ClearFanfare(guid)
+end
+
+local function IsWrapped(id)
+	for _, guid in ipairs(PetsOf(id)) do
+		if NeedsFanfare(guid) then
+			return true
+		end
+	end
+	return false
 end
 
 -- The pet the entry shows and uses: the one a click summons, else the look's pet that's out (using
@@ -284,7 +304,21 @@ ns.RegisterEntryKind("pet", {
 		end
 		return false
 	end,
-	canFavorite = function(id) return PetsOf(id)[1] ~= nil end,
+	-- A wrapped pet's menu offers only Unwrap (Blizzard_PetCollection.lua:895-901).
+	canFavorite = function(id) return PetsOf(id)[1] ~= nil and not IsWrapped(id) end,
+	-- A look is wrapped while any of its pets is; unwrapping opens each of them. PetNeedsFanfare and
+	-- ClearFanfare take the pet's GUID (Blizzard_PetCollection.lua:770-785, 895-901, 1443-1455); the
+	-- Blizzard documentation doesn't list them.
+	wrapped = IsWrapped,
+	-- The Pet Journal shows a wrapped pet as the gift (Blizzard_PetCollection.lua:770-785).
+	gift = true,
+	unwrap = function(id)
+		for _, guid in ipairs(PetsOf(id)) do
+			if NeedsFanfare(guid) then
+				ClearFanfare(guid)
+			end
+		end
+	end,
 	-- One of the look's pets is out, which the Pet Journal marks (PetJournal_InitPetButton,
 	-- Blizzard_PetCollection.lua:845).
 	active = function(id)
