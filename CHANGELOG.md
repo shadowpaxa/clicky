@@ -1,5 +1,14 @@
 # Clicky
 
+## 1.1.1
+
+- **Fixed: clicking a macro did nothing when it picked a pet.** The drawer worked, but the random
+  click didn't. Now it summons the pet, in combat too.
+- **Gift-wrapped mounts and pets show up as gifts in the grid,** like they do in the journals.
+  Click one to unwrap it, same as a toy.
+- **NEW only shows on things you haven't unwrapped yet.** Toys you learn without a gift wrap don't
+  get it anymore.
+
 ## 1.1.0
 
 - **Give a macro the icon of one of its items.** Click the macro in the panel to show its items,
