@@ -164,7 +164,9 @@ general macro slots are full, a message says so.
 To use a macro's items from a macro of the player's own, its right-click menu in the panel has
 **Copy /click line**, which shows `/click Clicky<code>` selected to copy. The code is four random
 capital letters (consonants only), different from every other macro's; Favorites' is `FVRT`, so
-its line is `/click ClickyFVRT`.
+its line is `/click ClickyFVRT`. In the player's own macro, that line uses a random item whichever
+mouse button the macro is clicked with (`/click` sends a left click when it names no button,
+SlashCommands.lua), and `/click ClickyP<code>` opens the macro's drawer, on either button too.
 
 ## 8. Rename or delete a macro
 *Goal: tidy up macros.*

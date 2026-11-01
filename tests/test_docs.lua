@@ -274,6 +274,37 @@ describe("README.md", function()
 		truthy(n > 0, "README has pictures")
 	end)
 
+	-- A player's own macro runs /click as Blizzard's SlashCommands.lua does: a left click when no
+	-- button is named, whichever button the macro itself was clicked with.
+	it("Using Clicky in other macros: the copied line picks on either click; with P it opens the drawer", function()
+		local label = Says("choose%s+%*%*([^*]+)%*%*%s+to%s+get%s+a%s+line", "the menu entry that copies the line")
+		local code = ("[BCDFGHJKLMNPQRSTVWXZ]"):rep(4)
+		local random = Says("a%s+line%s+like%s+`(/click Clicky" .. code .. ")`", "the copied line's form")
+		local drawer = Says("%(`(/click ClickyP" .. code .. ")`%)%s+and%s+it%s+opens%s+the%s+drawer",
+			"the drawer's line")
+		eq(drawer, (random:gsub("^/click Clicky", "/click ClickyP")), "README's drawer line is its random line with P")
+
+		local world = World()
+		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
+		world.ns.OpenMacroMenu(world.env.UIParent, m)
+		world:ChooseMenuEntry(label)
+		local line = world.dialog:GetEditBox():GetText()
+		world.dialog:Hide()
+		truthy(line:match("^/click Clicky" .. code .. "$"), "the menu gives a line of README's form")
+
+		world.bars[1] = world:CreateMacroInUI("Random", line)
+		world:PressBar(1, "RightButton")
+		eq(world:LastUsed(), PIRATE, "a right-click on your own macro uses an item")
+		eq(world.ns.GetDrawer(m.id).frame:IsShown(), false, "and doesn't open the drawer")
+
+		world.bars[2] = world:CreateMacroInUI("Pick", (line:gsub("^/click Clicky", "/click ClickyP")))
+		local used = #world.used
+		world:PressBar(2)
+		truthy(world.ns.GetDrawer(m.id).frame:IsShown(), "a left click on your own macro with P opens the drawer")
+		eq(#world.used, used, "and uses nothing")
+		assert.are.same({}, world:TakeErrors())
+	end)
+
 	it("Troubleshooting ends with where to get help: Wago's comments", function()
 		local troubleshooting = Section("Troubleshooting")
 		truthy(troubleshooting:match("Leave a comment on%s+%[Clicky's Wago page%]%(https://addons%.wago%.io/addons/clicky%)%.%s*$"),

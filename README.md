@@ -34,6 +34,27 @@ from the drawer.
 
 ![The Hearthstone macro's drawer, open above its button](https://raw.githubusercontent.com/shadowpaxa/clicky/main/docs/images/drawer.png)
 
+## Using Clicky in other macros
+
+Right-click a macro in the panel and choose **Copy /click line** to get a line like
+`/click ClickyBXTR`. In a macro of your own, that line uses a random item from the Clicky macro,
+whichever mouse button you click. Add a `P` after `Clicky` (`/click ClickyPBXTR`) and it opens the
+drawer instead.
+
+- **A button that's only random, or only the drawer:** make a macro with just that line and put it
+  on your bar in place of the Clicky macro.
+- **A random pick on something you already press:** make a macro that casts it and add the line.
+  For a random costume every time you cast Power Infusion:
+
+  ```
+  #showtooltip Power Infusion
+  /click ClickyBXTR
+  /cast Power Infusion
+  ```
+
+- **Lines of your own in a Clicky macro:** you can add them in `/macro`. Just leave its `/click`
+  and `#clicky` lines alone: one runs the button, the other is where Clicky keeps the list.
+
 ## Good to know
 
 - The grid has a tab each for **Toys**, **Mounts**, **Pets**, **Spells** and **Items**. Toys,
@@ -42,8 +63,7 @@ from the drawer.
 - The search matches names, sources, expansions, mount types, pet families and words in the
   tooltip.
 - A check mark in the grid means it's already in one of your macros.
-- Right-click a macro in the panel to rename it, delete it, or copy its `/click` line into a macro
-  of your own.
+- Right-click a macro in the panel to rename or delete it.
 - A click on a macro never picks gear that can be worn, because WoW would equip it instead. Pick
   it from the drawer: if you aren't wearing it, the first click puts it on, and after that clicks
   use it.
@@ -51,8 +71,6 @@ from the drawer.
   tab. A click summons one of your pets in that color, a starred one first, and never the one
   that's already out.
 - Buttons and drawers keep working in combat, but you can't change macros until the fight ends.
-- You can add your own lines to a Clicky macro in `/macro`. Just leave its `/click` and `#clicky`
-  lines alone: one runs the button, the other is where Clicky keeps the list.
 - Clicky only changes its own macros, plus the stars and gift wraps you click. If you uninstall it,
   its macros stay in `/macro` and do nothing.
 
