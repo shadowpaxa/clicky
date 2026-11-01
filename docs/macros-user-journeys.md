@@ -330,8 +330,8 @@ still work. Shift-click and right-click work too, and a toy, mount or pet still 
 opens when it's clicked (to be used after the fight). A toy used shows its cooldown. Otherwise the
 grid stays as it is: the scroll bar is off, the tabs don't change, and a search, a filter or
 something the player learns, picks up or stars shows when the fight ends. If the player first opens
-the Collections window in a fight, the Toy Box shows its own grid until the fight ends. The Toy Box's own filters are never changed; its progress bar is hidden,
-the Toys tab giving the count.
+the Collections window in a fight, the Toy Box shows its own grid until the fight ends. The Toy
+Box's own filters are never changed; its progress bar is hidden, the Toys tab giving the count.
 
 ## 16. Portals: toys, spells and a cloak in one macro
 *Goal: one button for everything that takes the player somewhere: portal toys, "Path of the ..."
