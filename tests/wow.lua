@@ -1228,6 +1228,24 @@ function World:UseToy(itemID)
 	table.insert(self.used, itemID)
 end
 
+-- C_PetJournal.SummonPetByGUID, which /summonpet calls with the GUID (SlashCommands.lua:1620-1634):
+-- it puts away the pet that's out when given it (/dismisspet, SlashCommands.lua:1659-1669). A pet
+-- that can't be summoned isn't (the Pet Journal's Summon button is off for it,
+-- Blizzard_PetCollection.lua:320). The pet that's out changing fires COMPANION_UPDATE with
+-- "CRITTER", on which the Pet Journal redraws its list and Summon button
+-- (Blizzard_PetCollection.lua:98, 271-275). Combat doesn't stop it: the Pet Journal's Summon button
+-- calls it from a plain button's OnClick with no combat check (Blizzard_PetCollection.xml:1602).
+function World:SummonPet(guid)
+	if self.summonedPet == guid then
+		self.summonedPet = nil
+		self:Fire("COMPANION_UPDATE", "CRITTER")
+	elseif self:Pet(guid) and self:Pet(guid).summonable then
+		self.summonedPet = guid
+		table.insert(self.used, guid)
+		self:Fire("COMPANION_UPDATE", "CRITTER")
+	end
+end
+
 -- A secure button's action (SECURE_ACTIONS in SecureTemplates.lua), as far as Clicky sets them:
 -- toy uses the toy in its "toy" attribute (a number: UseToy); spell casts the spell ID in "spell"
 -- (a number: CastSpellByID); item reads "item" and, for an item that can be worn and isn't,
@@ -1267,22 +1285,14 @@ function World:SecureAction(frame, button)
 		end
 		if id then table.insert(self.used, "s" .. id) end
 	elseif action == "macro" then
-		-- Only /summonpet: it calls SummonPetByGUID with the GUID (SlashCommands.lua:1620-1634), which
-		-- puts away the pet that's out when given it (/dismisspet, SlashCommands.lua:1659-1669). A pet
-		-- that can't be summoned isn't (the Pet Journal's Summon button is off for it,
-		-- Blizzard_PetCollection.lua:320). The pet that's out changing fires COMPANION_UPDATE with
-		-- "CRITTER", on which the Pet Journal redraws its list and Summon button
-		-- (Blizzard_PetCollection.lua:98, 271-275).
+		-- Only /summonpet, which World:SummonPet does.
+		-- While the player's macro's /click is running (PressBar), /summonpet summons nothing: seen in
+		-- play, on a macro's button; the same text on a drawer button clicked with the mouse did.
 		local text = ModifiedAttribute(frame, "macrotext", button)
 		if text then
 			local guid = assert(text:match("^/summonpet (%S+)$"), "macro text the stubs don't run: " .. text)
-			if self.summonedPet == guid then
-				self.summonedPet = nil
-				self:Fire("COMPANION_UPDATE", "CRITTER")
-			elseif self:Pet(guid) and self:Pet(guid).summonable then
-				self.summonedPet = guid
-				table.insert(self.used, guid)
-				self:Fire("COMPANION_UPDATE", "CRITTER")
+			if not self.inBarMacro then
+				self:SummonPet(guid)
 			end
 		end
 	elseif action == "item" then
@@ -1448,6 +1458,7 @@ function World:PressBar(slot, mouseButton)
 		return false
 	end
 	self.clickedWith = mouseButton or "LeftButton"
+	self.inBarMacro = true
 	for line in macro.body:gmatch("[^\n]+") do
 		local msg = line:match("^/click%s+(.*)$")
 		local action = msg and self:OptionParse(msg)
@@ -1460,6 +1471,7 @@ function World:PressBar(slot, mouseButton)
 			end
 		end
 	end
+	self.inBarMacro = nil
 	self.clickedWith = nil
 	return true
 end
@@ -2006,6 +2018,10 @@ function World:BuildEnv()
 		end,
 		GetBattlePetLink = function(guid) return "|cff0070dd|Hbattlepet:" .. guid .. "|h[Pet]|h|r" end,
 		PickupPet = function(guid) world.cursor = { pet = guid } end,
+		SummonPetByGUID = function(guid)
+			assert(type(guid) == "string", "SummonPetByGUID takes a pet GUID")
+			world:SummonPet(guid)
+		end,
 		-- numPets, numOwned: the Pet Journal's list as its filters have it (world.blizzard.pets.list).
 		GetNumPets = function() return #world.blizzard.pets.list, #world.pets end,
 		-- petID, speciesID: the Pet Journal's list (Blizzard_PetCollection.lua:876-877).

@@ -4,7 +4,7 @@
 -- hidden secure button its /click line clicks, and a drawer its right-click opens (Drawer.lua). A
 -- click uses a random entry from the macro; the drawer uses the entry clicked in it. An entry is a
 -- toy, a mount, a pet, a spell or an item, named by its key (Entries.lua), and what uses it is the
--- kind's secure action.
+-- kind's secure action, except a pet, which PostClick summons from addon code (ns.UseEntry).
 --   ns.expanded
 --   ns.GetMacros(), ns.GetMacro(id)
 --   ns.HasEntry(m, key), ns.MacroEntries(m)  the macro's entries (key -> true), not to be changed
@@ -53,10 +53,11 @@ local EMPTY_FAVORITES_MESSAGE = "%s has no toys. Star toys in the Toy Box to add
 -- Runs inside the button's click, before the entry is used, in WoW's restricted environment. In
 -- combat Clicky's own code can't set the button's action, so this picks an entry with random from
 -- the list handed over on PLAYER_REGEN_DISABLED (readycount, and for each entry ready<i> its key
--- and readytype<i>, readyattr<i> and readyvalue<i> its secure action), avoiding the last entry,
--- and sets the button's type and the attribute that type reads, as ns.SetButtonAction does. Out of
--- combat it does nothing: PreClick has already picked an entry, skipping cooldowns. (The list
--- isn't called toy1..n: a left click reads "toy1" before "toy".)
+-- and readytype<i>, readyattr<i> and readyvalue<i> its secure action, none for an entry used from
+-- code, ns.UsedFromCode), avoiding the last entry, and sets the button's type and the attribute
+-- that type reads, as ns.SetButtonAction does (no type for an entry used from code: PostClick
+-- uses it). Out of combat it does nothing: PreClick has already picked an entry, skipping
+-- cooldowns. (The list isn't called toy1..n: a left click reads "toy1" before "toy".)
 local COMBAT_PICK = [[
 	local n = self:GetAttribute("readycount")
 	if not n or SecureCmdOptionParse("[combat]1") ~= "1" then
@@ -77,8 +78,11 @@ local COMBAT_PICK = [[
 			i = i + 1
 		end
 		entry = self:GetAttribute("ready" .. i)
-		self:SetAttribute("type", self:GetAttribute("readytype" .. i))
-		self:SetAttribute(self:GetAttribute("readyattr" .. i), self:GetAttribute("readyvalue" .. i))
+		local action = self:GetAttribute("readytype" .. i)
+		self:SetAttribute("type", action)
+		if action then
+			self:SetAttribute(self:GetAttribute("readyattr" .. i), self:GetAttribute("readyvalue" .. i))
+		end
 	else
 		self:SetAttribute("type", nil)
 	end
@@ -201,7 +205,8 @@ ns.GetCandidates = GetCandidates
 -- Buttons. Attributes on a secure button are locked in combat; every caller checks first.
 
 -- PLAYER_REGEN_DISABLED, the last moment attributes can be set: the drawer gets the entries the
--- player has now, and the button the entries ready now, each with its secure action, for COMBAT_PICK.
+-- player has now, and the button the entries ready now, each with its secure action (none for an
+-- entry used from code), for COMBAT_PICK.
 local function ReadyForCombat(m)
 	if not m.button or not m.setUp then
 		return
@@ -215,7 +220,10 @@ local function ReadyForCombat(m)
 	ns.FillDrawer(m)
 	local ready = GetCandidates(m, true)
 	for i, key in ipairs(ready) do
-		local action, attribute, value = ns.EntryAction(key)
+		local action, attribute, value
+		if not ns.UsedFromCode(key) then
+			action, attribute, value = ns.EntryAction(key)
+		end
 		button:SetAttribute("ready" .. i, key)
 		button:SetAttribute("readytype" .. i, action)
 		button:SetAttribute("readyattr" .. i, attribute)
@@ -259,14 +267,15 @@ local function CreateButton(id)
 		if not InCombatLockdown() then
 			local candidates = GetCandidates(m)
 			local key = #candidates > 0 and candidates[math.random(#candidates)] or nil
-			ns.SetButtonAction(button, key, "type")
+			-- An entry used from code has no secure action: PostClick uses it.
+			ns.SetButtonAction(button, key and not ns.UsedFromCode(key) and key or nil, "type")
 			button:SetAttribute("entry", key)
 			ns.Trace("[%s] %d candidates, picked %s", m.name, #candidates, key)
 		end
 	end)
 	SecureHandlerWrapScript(button, "OnClick", button, COMBAT_PICK)
 	-- The entry used is the button's entry after the click: in combat, COMBAT_PICK chose it.
-	button:SetScript("PostClick", function(self)
+	button:SetScript("PostClick", function(self, _, down)
 		local m = macros[id]
 		if not m then
 			return
@@ -278,6 +287,12 @@ local function CreateButton(id)
 			return
 		end
 		m.lastUsed = used
+		-- Only on the up click, the one a macro's /click sends (SlashCommands.lua): the button takes
+		-- down clicks too (RegisterForClicks above), and a second summon would put the pet away.
+		if not down and ns.UsedFromCode(used) then
+			ns.Trace("[%s] using %s from code", m.name, used)
+			ns.UseEntry(used)
+		end
 	end)
 	ns.Trace("[button] created %s", ns.ButtonName(id))
 	return button

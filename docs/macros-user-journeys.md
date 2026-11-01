@@ -49,11 +49,12 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
   Mounts, Pets, Spells, Items). A mount is one entry. A pet entry is a species and one of its looks
   (colors), not one particular pet: three Cats in three colors are three entries, two Cats of one
   color are one. A click summons one of the player's pets of that look that isn't out, a starred one
-  first; the pet that's out isn't picked, as summoning it again would put it away (in combat, a pet
-  that came out mid-fight can be). A pet can have a look no game table gives its species (seen in
-  play), so each species also has one entry for its pets whose look Clicky's list doesn't have. Once
-  the player has none left (a Clicky update listed their look), that entry stands for all the
-  species' pets, so a macro holding it keeps working. A species whose pets take a random look each
+  first, in combat too; the pet that's out isn't summoned, as summoning it again would put it away
+  (in combat, a look whose only pet came out mid-fight can still be picked, and then the click
+  does nothing). A pet can have a look no game table gives its species (seen in play), so each
+  species also has one entry for its pets whose look Clicky's list doesn't have. Once the player
+  has none left (a Clicky update listed their look), that entry stands for all the species' pets,
+  so a macro holding it keeps working. A species whose pets take a random look each
   summon has only that one entry. The tabs list starred first, with the journal's star, which the
   menu can set as it can a toy's. Favorites stays the Toy Box's stars, toys only: the game has its
   own random favorite mount and pet buttons.
@@ -106,7 +107,7 @@ In combat macros keep working, picking from the items that were ready when the f
 That list can't change until the fight ends: an item that comes off cooldown during the fight waits
 until it's over, and one that goes on cooldown during the fight can still come up, and that
 click shows WoW's error. A pet that comes out during the fight can still come up too, and that
-click puts it away.
+click does nothing when it's the look's only pet.
 
 ## 3. Make a macro
 *Goal: start an "Illusion" macro.*

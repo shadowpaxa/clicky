@@ -5219,15 +5219,74 @@ describe("journeys", function()
 				ready[button:GetAttribute("ready" .. i)] = { button:GetAttribute("readytype" .. i),
 					button:GetAttribute("readyattr" .. i), button:GetAttribute("readyvalue" .. i) }
 			end
-			list(ready, { [HORSE] = { "spell", "spell", "Brown Horse" }, [BLUE_CAT] = { "macro", "macrotext", "/summonpet " .. CAT1 } })
+			list(ready, { [HORSE] = { "spell", "spell", "Brown Horse" }, [BLUE_CAT] = {} },
+				"the pet stays in the list, with no secure action: the button summons it from code")
 			local used = {}
 			for _ = 1, 30 do
 				world:PressBar(1)
 				used[world:LastUsed()] = true
 				world.summonedPet = nil
 			end
-			list(used, { s458 = true, [CAT1] = true })
+			list(used, { s458 = true, [CAT1] = true }, "both are picked")
+			list(world:TakeErrors(), {})
 			world:LeaveCombat()
+		end)
+
+		it("2. a click on a macro of pets summons one, in combat and out", function()
+			local world = PetWorld()
+			MakeMacro(world, BLUE_CAT, "Pets")
+			AddTo(world, DOG, "Pets")
+			PutOnBar(world, "Pets", 1)
+			local button = world.env["Clicky" .. Code(world, "Pets")]
+			eq(button:GetAttribute("type"), nil, "a pet picked out of combat has no secure action")
+			local summoned = {}
+			for _ = 1, 20 do
+				world:PressBar(1)
+				ok(world.summonedPet, "out of combat a click summoned a pet")
+				eq(button:GetAttribute("type"), nil, "and the button has no secure action for it")
+				summoned[world:LastUsed()] = true
+				world.summonedPet = nil
+			end
+			list(summoned, { [CAT1] = true, [DOG1] = true })
+			world:EnterCombat()
+			summoned = {}
+			for _ = 1, 20 do
+				world:PressBar(1)
+				ok(world.summonedPet, "in combat too")
+				summoned[world:LastUsed()] = true
+				world.summonedPet = nil
+			end
+			list(summoned, { [CAT1] = true, [DOG1] = true })
+			list(world:TakeErrors(), {})
+			world:LeaveCombat()
+		end)
+
+		it("2. in combat a click doesn't put away the only pet of the look it picked", function()
+			local world = PetWorld()
+			MakeMacro(world, DOG, "Dog")
+			PutOnBar(world, "Dog", 1)
+			world:EnterCombat()
+			world:PressBar(1)
+			eq(world.summonedPet, DOG1, "summoned")
+			local before = #world.used
+			world:PressBar(1)
+			eq(world.summonedPet, DOG1, "the next click leaves it out: it's the look's only pet")
+			eq(#world.used, before)
+			list(world:TakeErrors(), {})
+			world:LeaveCombat()
+		end)
+
+		it("2. a down click then an up click on a macro's button summon one pet, not one each", function()
+			local world = PetWorld()
+			MakeMacro(world, BLUE_CAT, "Pets")
+			local button = world.env["Clicky" .. Code(world, "Pets")]
+			local before = #world.used
+			button:Click("LeftButton", true)
+			eq(#world.used, before, "the down click summons nothing")
+			button:Click("LeftButton", false)
+			eq(#world.used, before + 1, "the up click summons one")
+			ok(world.summonedPet == CAT1 or world.summonedPet == CAT2, "and it's still out")
+			list(world:TakeErrors(), {})
 		end)
 
 		it("11. a macro with mounts and pets reads on a Clicky whose list has them, and as newer on one whose list doesn't", function()

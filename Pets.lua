@@ -24,9 +24,10 @@
 -- GetOwnedPetIDs lists every pet the player owns, whatever the Pet Journal's filters (they're the
 -- player's settings), and GetPetInfoByPetID gives a pet's species and look (its displayID). A pet is
 -- summoned by the secure "macro" action running "/summonpet" with its GUID (SECURE_ACTIONS.macro,
--- SecureTemplates.lua), which calls C_PetJournal.SummonPetByGUID (SlashCommands.lua). Summoning the
--- pet that's out puts it away, as /dismisspet does with the same call (SlashCommands.lua), so a
--- click on a macro doesn't pick it: of a look's pets, the one used is one that isn't out and can be
+-- SecureTemplates.lua), which calls C_PetJournal.SummonPetByGUID (SlashCommands.lua), on a drawer
+-- button; a macro's button calls SummonPetByGUID itself (the kind's use). Summoning the pet that's
+-- out puts it away, as /dismisspet does with the same call (SlashCommands.lua), so a click on a
+-- macro doesn't pick it: of a look's pets, the one used is one that isn't out and can be
 -- summoned (C_PetJournal.PetIsSummonable), a starred one first. The drawer uses the one that's out
 -- when there's no other, which puts it away, as the Pet Journal's Summon button does
 -- (Blizzard_PetCollection.lua).
@@ -286,6 +287,17 @@ ns.RegisterEntryKind("pet", {
 	action = function(id)
 		local guid = Shown(id)
 		return "macro", "macrotext", guid and ("/summonpet " .. guid)
+	end,
+	-- A macro's button summons from addon code, after the click (Entries.lua's use): /summonpet
+	-- run by the secure "macro" action summoned nothing on a button the player's macro clicked, and
+	-- did on a drawer button clicked with the mouse (seen in play). C_PetJournal.SummonPetByGUID
+	-- puts away the pet that's out when given it, so with no pet of the look that isn't out nothing
+	-- is summoned.
+	use = function(id)
+		local guid = Summonable(id)
+		if guid then
+			C_PetJournal.SummonPetByGUID(guid)
+		end
 	end,
 	drawerOnly = function() return false end,
 	-- The tooltip of the pet the entry uses; a look not owned has none.

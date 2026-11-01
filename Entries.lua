@@ -14,8 +14,10 @@
 --                                       the player can be on or have out also active(id); a kind
 --                                       the game gift-wraps (a toy, a mount, a pet) also
 --                                       wrapped(id) and unwrap(id), and gift = true if its
---                                       journal shows a wrapped one as the gift; and
---                                       tooltipData(id): its tooltip as data (C_TooltipInfo), or nil
+--                                       journal shows a wrapped one as the gift;
+--                                       tooltipData(id): its tooltip as data (C_TooltipInfo), or nil;
+--                                       and use(id) if a macro's button uses it from addon code after
+--                                       the click, with no secure action (a pet)
 --   ns.EntryKind(key)                   "toy", "mount", "pet", "spell" or "item"; key's id is
 --                                       ns.EntryID(key)
 --   ns.EntryID(key)                     a number, or for a pet its "species:display" string
@@ -46,6 +48,10 @@
 --   ns.SortEntries(keys, names)         sorts keys by name, then kind, then ID, in place; names
 --                                       (key -> name) is what the caller has looked up already
 --   ns.EntryAction(key)                 -> type, attribute, value: what a secure button sets to use it
+--   ns.UsedFromCode(key)                whether a macro's button uses it with ns.UseEntry, after the
+--                                       click, instead of a secure action: a secure action runs
+--                                       inside the player's macro's /click, where a pet's didn't work
+--   ns.UseEntry(key)                    uses it from addon code (the kind's use)
 --   ns.SetButtonAction(button, key, typeAttribute)   sets the button's secure action to use key
 --                                       (typeAttribute "type", or "type1" for a plain left click
 --                                       only), or to nothing if key is nil; out of combat only
@@ -209,6 +215,16 @@ end
 function ns.EntryAction(key)
 	local kind, id = Of(key)
 	return kind.action(id)
+end
+
+function ns.UsedFromCode(key)
+	local kind = Of(key)
+	return kind.use ~= nil
+end
+
+function ns.UseEntry(key)
+	local kind, id = Of(key)
+	kind.use(id)
 end
 
 function ns.SortEntries(keys, names)

@@ -219,9 +219,13 @@ Each file's comments explain the constraints only it meets; these are met across
   (warcraft.wiki.gg Secure Execution and Tainting); Grid.lua says what that keeps still.
 - Macros and drawers work in combat through secure snippets: a macro's button picks with
   `random` from a list handed to it as attributes (each entry's key and its secure action's type,
-  attribute and value), and the drawer opens and hides in secure code. `PLAYER_REGEN_DISABLED` is
-  the last chance to hand those lists over and fill the drawers (it's synchronous,
-  UnitDocumentation.lua, and SecureStateDriver.lua sets attributes on it).
+  attribute and value; a pet has none, see below), and the drawer opens and hides in secure code.
+  `PLAYER_REGEN_DISABLED` is the last chance to hand those lists over and fill the drawers (it's
+  synchronous, UnitDocumentation.lua, and SecureStateDriver.lua sets attributes on it).
+- A pet's secure action (`/summonpet` macro text) summoned nothing on a macro's button clicked by
+  the player's macro, and did on a drawer button clicked with the mouse (seen in play). So a
+  macro's button summons a pet from addon code after the click (Entries.lua's `use`, called from
+  PostClick on the up click), in or out of combat.
 - Some functions return secret values when the game restricts addons (Blizzard's documentation
   marks them, as `C_Spell.GetSpellCooldown`'s `SecretWhenCooldownsRestricted`). Clicky doesn't
   compare them or hand them to a widget that refuses them; `tests/check_api.py`'s `HANDLED_SECRET`
