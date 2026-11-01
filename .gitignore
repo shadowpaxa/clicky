@@ -4,3 +4,6 @@ tests/.cache/
 .luarocks/
 __pycache__/
 .DS_Store
+# BigWigs packager: its tokens file and its output folder, for a local run.
+.env
+.release/

@@ -10,8 +10,9 @@ are ordinary WoW macros, so they follow you to every computer you play on.
 ## Installation
 
 Clicky is for World of Warcraft Retail (Midnight). Install it from
-[Wago](https://addons.wago.io/addons/clicky) with your addon manager, or download it there and
-unzip it into `World of Warcraft/_retail_/Interface/AddOns`.
+[Wago](https://addons.wago.io/addons/clicky) or
+[CurseForge](https://www.curseforge.com/wow/addons/clicky) with your addon manager, or download it
+there and unzip it into `World of Warcraft/_retail_/Interface/AddOns`.
 
 ## Getting started
 

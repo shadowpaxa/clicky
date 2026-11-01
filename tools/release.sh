@@ -2,9 +2,9 @@
 # Releases Clicky: tools/release.sh v1.1.0
 # Updates ToyList.lua from the live game build, checks CHANGELOG.md's top section is this
 # version's, runs the tests, commits ToyList.lua and CHANGELOG.md if either changed, pushes, then
-# tags and pushes the tag, which makes GitHub run CI and upload to Wago
-# (.github/workflows/release.yml). Runs only on main, and stops at the first failure. Write the
-# CHANGELOG.md section and commit everything else first.
+# tags and pushes the tag, which makes GitHub run CI and upload to Wago and
+# CurseForge (.github/workflows/release.yml). Runs only on main, and stops at the first failure.
+# Write the CHANGELOG.md section and commit everything else first.
 set -e
 cd "$(dirname "$0")/.."
 

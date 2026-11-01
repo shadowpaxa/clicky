@@ -4,6 +4,7 @@
 ## Author: shadowpaxa
 ## Version: @project-version@
 ## X-Wago-ID: mKOa3ENx
+## X-Curse-Project-ID: 1777128
 
 Core.lua
 Debug.lua

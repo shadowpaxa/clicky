@@ -114,7 +114,8 @@ WoW runs Lua 5.1: no `goto`, `//`, bitwise operators or other 5.2+ syntax.
   what it does; it runs only on `main`). A tag with `alpha` or `beta` releases as that; any other
   tag as a full release (BigWigsMods packager, release.sh). The tag runs CI, then
   `.github/workflows/release.yml` packages and uploads to Wago (project `mKOa3ENx`, secret
-  `WAGO_API_TOKEN`). Check the run with `gh run list -R shadowpaxa/clicky`.
+  `WAGO_API_TOKEN`) and CurseForge (project `1777128`, secret `CF_API_TOKEN`). Check the run
+  with `gh run list -R shadowpaxa/clicky`.
 
 ## README
 
