@@ -24,17 +24,17 @@ the addon. An earlier Clicky "restored" the Toy Box filters and left a player's 
 test "Never changes the player's settings" fails on any such call.
 
 **One code path per behavior.**
-- Every change the player asks for goes through `SetEntry`, `MakeMacro`, `RenameMacro` or
-  `DeleteMacro` (and `PickupMacro`, which makes Favorites' macro), and every automatic write
-  (separating copies) through `ns.Sync` (Macros.lua); every macro read or write through
-  MacroStore.lua; every UI refresh through `ns.Changed()` (a view registers its refresh with
+- Every change the player asks for goes through `SetEntry`, `MakeMacro`, `RenameMacro`,
+  `SetMacroIcon` or `DeleteMacro` (and `PickupMacro`, which makes Favorites' macro), and every
+  automatic write (separating copies) through `ns.Sync` (Macros.lua); every macro read or write
+  through MacroStore.lua; every UI refresh through `ns.Changed()` (a view registers its refresh with
   `ns.RegisterView`, Core.lua), except the grid's own redraws (Grid.lua's header lists them),
-  which redraw only the grid. The menu of an entry, in the grid and the panel, is `ns.OpenEntryMenu`
-  (Menu.lua). An entry's (a toy's, mount's, pet's, spell's or item's) name, sort order, icon,
-  tooltip, cooldown, owned and usable test, star and secure action are its kind's owner file's
-  (Toys.lua, Mounts.lua, Pets.lua, Spells.lua, Items.lua), reached through Entries.lua, for the
-  panel, the drawers, the macro buttons and the grid alike; which entries a macro holds is
-  `ns.MacroEntries` (Macros.lua).
+  which redraw only the grid. An entry's menu is `ns.OpenEntryMenu` in the grid and
+  `ns.OpenMacroEntryMenu` for an item under a macro in the panel (Menu.lua). An entry's (a toy's,
+  mount's, pet's, spell's or item's) name, sort order, icon, tooltip, cooldown, owned and usable
+  test, star and secure action are its kind's owner file's (Toys.lua, Mounts.lua, Pets.lua,
+  Spells.lua, Items.lua), reached through Entries.lua, for the panel, the drawers, the macro
+  buttons and the grid alike; which entries a macro holds is `ns.MacroEntries` (Macros.lua).
 - Refusals return `nil, reason`; the caller shows the reason.
 - Extend the owning file's `ns` API rather than reaching into another file's locals. A new
   concern gets a new file, added to the `.toc`.
@@ -82,13 +82,13 @@ handles; `tests/fetch.sh` refreshes both) and `tests/check_toylist.py` (ToyList.
 release tag from v1.0.0 on that the commit contains, so CI fetches tags).
 
 - Tests are named after the journeys and call what the UI is built on: the Macros API,
-  `ns.PanelRows`, `ns.OpenEntryMenu`, `ns.GridSections`, `ns.GridRows`, `ns.GridView`, the grid's
-  buttons (`world.env.ClickyGrid.buttons`), the panel's rows (`world.scrollList.rows`) and the
-  drawers' buttons, clicked through `World:MouseClick` or by calling their scripts. `tests/wow.lua`
-  stubs only the game state and the Blizzard frames and widgets Clicky relies on, citing Blizzard's
-  documentation or source; keep it one file. Its header says how a test builds a world (a second
-  computer, Clicky's toy list as an older or newer Clicky has it), changes the game and answers
-  menus and dialogs.
+  `ns.PanelRows`, `ns.OpenEntryMenu`, `ns.OpenMacroEntryMenu`, `ns.GridSections`, `ns.GridRows`,
+  `ns.GridView`, the grid's buttons (`world.env.ClickyGrid.buttons`), the panel's rows
+  (`world.scrollList.rows`) and the drawers' buttons, clicked through `World:MouseClick` or by
+  calling their scripts. `tests/wow.lua` stubs only the game state and the Blizzard frames and
+  widgets Clicky relies on, citing Blizzard's documentation or source; keep it one file. Its
+  header says how a test builds a world (a second computer, Clicky's toy list as an older or newer
+  Clicky has it), changes the game and answers menus and dialogs.
 - UI behavior is shown by tests or relies only on behavior Blizzard's source shows. A widget method
   no stub defines is missing, so calling one is an error, as in the game; one Clicky calls only for
   looks goes in `LOOKS`.

@@ -1,6 +1,11 @@
 -- Right-click menus: an entry's menu (a toy's, mount's, pet's, spell's or item's, in Clicky's grid
 -- and its panel), the macro menu, and the dialogs they open.
---   ns.OpenEntryMenu(owner, key), ns.OpenMacroMenu(owner, m)   key is an entry's key (Entries.lua);
+--   ns.OpenEntryMenu(owner, key), ns.OpenMacroEntryMenu(owner, m, key), ns.OpenMacroMenu(owner, m)
+--                                 key is an entry's key (Entries.lua). The grid's entry menu: the
+--                                 star and a checkbox per macro. The panel's menu for an entry
+--                                 listed under macro m is about that item in m only: "Use as icon
+--                                 for <m>" (once m exists in /macro and the icon is loaded) and
+--                                 "Remove from <m>";
 --                                 a macro's menu: Rename, Delete, Copy /click line, and Open in
 --                                 /macro once the macro exists there (Favorites' may not yet).
 --                                 Only toys, mounts and pets have the star (Entries.lua), and
@@ -54,6 +59,27 @@ function ns.OpenEntryMenu(owner, key)
 			end)
 		end
 		AddMacroEntries(rootDescription, key)
+	end)
+end
+
+-- The menu of an item listed under macro m in the panel. For Favorites, SetEntry takes the
+-- toy's star off.
+function ns.OpenMacroEntryMenu(owner, m, key)
+	MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
+		if ns.InMacroUI(m) and ns.EntryIcon(key) then
+			rootDescription:CreateButton("Use as icon for " .. m.name, function()
+				local ok, err = ns.SetMacroIcon(m, key)
+				if not ok then
+					ns.ShowError(err)
+				end
+			end)
+		end
+		rootDescription:CreateButton("Remove from " .. m.name, function()
+			local ok, err = ns.SetEntry(m, key, false)
+			if not ok then
+				ns.ShowError(err)
+			end
+		end)
 	end)
 end
 

@@ -146,13 +146,23 @@ not known, an item not carried) greyed out (they can still be removed), and hove
 its tooltip. Every macro's items are hidden by default; each macro shows its item count. An open
 macro with nothing in it says "Right-click a toy, mount, pet, spell or item to add it." (Favorites:
 "Star toys to add them."). Hovering over a macro's icon says to drag it to a bar and right-click it
-there.
+there, and, for a macro that has items and exists in /macro, that right-clicking one of its items
+changes the icon.
+
+Right-clicking an item in an open macro offers only what concerns that macro: **Use as icon for
+Illusion** and **Remove from Illusion** (journey 6); the grid's menu holds the star and every
+macro. **Use as icon for Illusion** sets the macro's icon to that item's. The icon is the macro's
+own in /macro, so later changes to the macro keep it and other computers get it with the macro. It
+is refused in combat. Favorites offers it once its macro exists.
 
 ## 6. Remove an item from a macro
 *Goal: take a toy (or mount, pet, spell or item) the player is tired of out of Illusion.*
-1. Right-click it in the panel (or in the grid) and untick **Illusion**.
+1. Right-click it in the panel and choose **Remove from Illusion** (or right-click it in the grid
+   and untick **Illusion**).
 
-*Result:* it is gone from Illusion and stays in any other macros it's in.
+*Result:* it is gone from Illusion and stays in any other macros it's in. For Favorites, **Remove
+from Favorites** takes the toy's star off, as unstarring it in the Toy Box does, and works in
+combat like the star.
 
 ## 7. Put a macro on an action bar
 *Goal: get an Illusion button.*

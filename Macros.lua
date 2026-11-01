@@ -13,9 +13,12 @@
 --   ns.MacroNoun(m)                        what the player's messages call m's entries: "toys" for
 --                                          Favorites, which holds only toys, "items" for the rest
 --   ns.GetCandidates(m, allowRepeat)       the keys a click can pick from now
---   ns.SetEntry(m, key, inMacro)           -> true | nil, reason
+--   ns.SetEntry(m, key, inMacro)           -> true | nil, reason   Favorites: a toy's star is set or
+--                                          cleared (works in combat); anything else is refused
 --   ns.MakeMacro(name, key)                -> macro | nil, reason
 --   ns.RenameMacro(m, name), ns.DeleteMacro(m)   -> true | nil, reason
+--   ns.SetMacroIcon(m, key)                -> true | nil, reason   m's icon in /macro becomes entry
+--                                          key's; the macro's items and name stay as they are
 --   ns.PickupMacro(m)                      puts the macro on the cursor
 --   ns.OpenMacroInUI(m)                    opens /macro on General with the macro selected
 --   ns.InMacroUI(m)                        whether the macro exists in /macro (Favorites' only
@@ -605,10 +608,18 @@ local function Record(m)
 end
 
 function ns.SetEntry(m, key, inMacro)
-	if m.builtin then
-		return nil, "Favorites' toys are the toys you star in the Toy Box."
-	end
 	inMacro = inMacro and true or false
+	if m.builtin then
+		if ns.EntryKind(key) ~= "toy" then
+			return nil, "Favorites' toys are the toys you star in the Toy Box."
+		end
+		-- Favorites is the Toy Box's stars, so this is a star, not a macro write: it works in
+		-- combat, as the grid's star does.
+		if ns.IsEntryFavorite(key) ~= inMacro then
+			ns.SetEntryFavorite(key, inMacro)
+		end
+		return true
+	end
 	local ok, err = Changeable(m)
 	if not ok then
 		return nil, err
@@ -690,6 +701,39 @@ function ns.RenameMacro(m, name)
 	ns.Trace("[%s] renamed to %s", m.name, name)
 	m.name = name
 	ns.Sync("rename")
+	return true
+end
+
+-- The icon is the macro's own in /macro, which every later write keeps (rec.icon), so other
+-- computers see it too. Favorites' macro is looked for, not made: its entry exists only once it does.
+function ns.SetMacroIcon(m, key)
+	if InCombatLockdown() then
+		return nil, ns.COMBAT_ERROR
+	end
+	local icon = ns.EntryIcon(key)
+	if not icon then
+		ns.Trace("[%s] icon %s refused: not loaded", m.name, key)
+		return nil, "That item's icon hasn't loaded yet."
+	end
+	local rec, err
+	if m.builtin then
+		rec, err = ns.FindFavoritesMacro(), "That macro is gone."
+	else
+		rec, err = FindRecord(m)
+	end
+	if not rec then
+		return nil, err
+	end
+	if rec.icon == icon then
+		return true
+	end
+	local index
+	index, err = ns.EditMacroAt(rec.index, rec.name, icon, rec.body)
+	if not index then
+		return nil, err
+	end
+	ns.Trace("[%s] icon set to %s's, %s", m.name, key, icon)
+	ns.Sync("icon")
 	return true
 end
 

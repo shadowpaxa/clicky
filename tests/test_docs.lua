@@ -49,6 +49,23 @@ describe("README.md", function()
 		eq(world.env.MacroFrame:GetSelectedIndex(), 1, "and the last opens /macro on the macro")
 	end)
 
+	it("Good to know: an item of an open macro has Use as icon for its macro", function()
+		local label = Says("choose%s+%*%*([^*]-) Illusion%*%*%s+%(with%s+your%s+macro's%s+name%)",
+			"the menu entry that changes a macro's icon")
+		local world = World()
+		local ns = world.ns
+		local m = assert(ns.MakeMacro("Illusion", PIRATE))
+		assert(ns.SetEntry(m, ORB, true))
+		local entryRow
+		for _, row in ipairs(ns.PanelRows()) do
+			if row.kind == "entry" and row.key == ORB then entryRow = row end
+		end
+		truthy(entryRow and entryRow.macro == m, "the panel lists the item under its macro")
+		ns.OpenMacroEntryMenu(world.env.UIParent, entryRow.macro, entryRow.key)
+		world:ChooseMenuEntry(label .. " Illusion")
+		eq(world.macros[1].icon, 1002, "choosing it gives the macro that item's icon")
+	end)
+
 	it("Limits: items per macro", function()
 		local cap = tonumber(Says("\n%- (%d+) items per macro", "the items-per-macro limit"))
 		local world = World()

@@ -64,7 +64,7 @@ end
 --   { kind = "macro", macro = m, count = n,   a macro, with its expand arrow, drag icon and entry
 --     unreadable = why }                      count; why is ns.Unreadable(m), and the count "?"
 --   { kind = "entry", key = key,              an entry (any kind, Entries.lua) in an
---     owned = bool }                          expanded macro, greyed if the player doesn't have it
+--     macro = m, owned = bool }               expanded macro m, greyed if the player doesn't have it
 --   { kind = "note", text = text }            a line of help text
 
 local function Row_OnClick(row, mouseButton)
@@ -82,7 +82,7 @@ local function Row_OnClick(row, mouseButton)
 			ns.Changed()
 		end
 	elseif data.kind == "entry" and mouseButton == "RightButton" then
-		ns.OpenEntryMenu(row, data.key)
+		ns.OpenMacroEntryMenu(row, data.macro, data.key)
 	end
 end
 
@@ -97,6 +97,10 @@ local function ShowMacroTooltip(owner, data)
 		-- Favorites holds only toys (ns.MacroNoun).
 		GameTooltip:AddLine(("On the bar, right-click it to choose %s."):format(data.macro.builtin and "a toy" or "an item"),
 			1, 1, 1)
+		if ns.InMacroUI(data.macro) and #ns.GetMacroEntries(data.macro, true) > 0 then
+			GameTooltip:AddLine(("To change this icon, right-click one of its %s."):format(ns.MacroNoun(data.macro)),
+				1, 1, 1)
+		end
 	end
 	GameTooltip:Show()
 end
@@ -208,7 +212,7 @@ local function PanelRows()
 		data[#data + 1] = { kind = "macro", macro = m, count = unreadable and "?" or #entries, unreadable = unreadable }
 		if ns.expanded[m.id] and not unreadable then
 			for _, key in ipairs(entries) do
-				data[#data + 1] = { kind = "entry", key = key, owned = ns.IsEntryOwned(key) }
+				data[#data + 1] = { kind = "entry", key = key, macro = m, owned = ns.IsEntryOwned(key) }
 			end
 			if #entries == 0 then
 				data[#data + 1] = { kind = "note", text = m.builtin and "Star toys to add them."

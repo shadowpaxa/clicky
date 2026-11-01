@@ -2549,7 +2549,7 @@ describe("journeys", function()
 			local world = World({ toys = toys })
 			local ns = world.ns
 			local menus = {}
-			ns.OpenEntryMenu = function(owner, itemID) menus[#menus + 1] = { owner, itemID } end
+			ns.OpenMacroEntryMenu = function(owner, m, itemID) menus[#menus + 1] = { owner, itemID, m.name } end
 			ns.OpenMacroMenu = function(owner, m) menus[#menus + 1] = { owner, m.name } end
 			MakeMacro(world, PIRATE, "Illusion")
 			AddTo(world, ORB, "Illusion")
@@ -2564,8 +2564,8 @@ describe("journeys", function()
 			ok(shown[2].row.macroIcon:IsShown() and not shown[2].row.toyIcon:IsShown())
 			ok(not shown[2].row.macroIcon.warning:IsShown(), "no warning on a macro Clicky can read")
 			shown[2].row.macroIcon.scripts.OnEnter(shown[2].row.macroIcon)
-			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose an item." },
-				"the macro icon's tooltip")
+			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose an item.",
+				"To change this icon, right-click one of its items." }, "the macro icon's tooltip")
 			shown[1].row.macroIcon.scripts.OnEnter(shown[1].row.macroIcon)
 			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose a toy." },
 				"Favorites holds only toys")
@@ -2586,7 +2586,7 @@ describe("journeys", function()
 			orb.scripts.OnClick(orb, "LeftButton")
 			list(menus, {}, "a left click on a toy does nothing")
 			orb.scripts.OnClick(orb, "RightButton")
-			list(menus, { { orb, ORB } }, "a right click opens the toy's menu")
+			list(menus, { { orb, ORB, "Illusion" } }, "a right click opens the toy's menu for that macro")
 			shown[2].row.scripts.OnClick(shown[2].row, "RightButton")
 			list(menus[2], { shown[2].row, "Illusion" }, "and on a macro, the macro's")
 
@@ -2623,6 +2623,226 @@ describe("journeys", function()
 			eq(world.cursor, world:FindMacroByName("Illusion"), "the drag picks up the macro itself")
 		end)
 
+		-- The panel's row for an entry, as a player right-clicks it.
+		local function EntryRow(world, key, macroName)
+			for _, row in ipairs(world.scrollList.rows) do
+				if row:IsShown() and row.data and row.data.kind == "entry" and row.data.key == key
+					and (not macroName or row.data.macro.name == macroName) then
+					return row
+				end
+			end
+			error("no panel row for " .. tostring(key), 2)
+		end
+
+		local function MenuTexts(world)
+			local texts = {}
+			for _, entry in ipairs(world.menu.entries) do texts[#texts + 1] = entry.text end
+			return texts
+		end
+
+		local function Has(texts, text)
+			for _, t in ipairs(texts) do
+				if t == text then return true end
+			end
+			return false
+		end
+
+		-- Right-click key's row in the panel and choose "Use as icon for Illusion".
+		local function UseAsIcon(world, key)
+			world:MouseClick(EntryRow(world, key), "RightButton")
+			world:ChooseMenuEntry("Use as icon for Illusion")
+			world:Advance(1)
+		end
+
+		it("5. See a macro: an item's menu in the panel sets the macro's icon to the item's, and later changes keep it", function()
+			local world = World()
+			local ns = world.ns
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			OpenPanel(world)
+			local body = world:FindMacroByName("Illusion").body
+			eq(world:FindMacroByName("Illusion").icon, 1001, "the first item's icon at first")
+			UseAsIcon(world, ORB)
+			local macro = world:FindMacroByName("Illusion")
+			eq(macro.icon, 1002, "the orb's icon, in /macro")
+			eq(macro.name, "Illusion")
+			eq(macro.body, body, "the items and the line are as they were")
+			eq(Macro(world, "Illusion").icon, 1002, "and in Clicky's panel")
+			AddTo(world, HAT, "Illusion")
+			eq(world:FindMacroByName("Illusion").icon, 1002, "kept when an item is added")
+			assert(ns.SetEntry(Macro(world, "Illusion"), ORB, false))
+			eq(world:FindMacroByName("Illusion").icon, 1002, "kept when its own item is taken out")
+			assert(ns.RenameMacro(Macro(world, "Illusion"), "Dress up"))
+			eq(world:FindMacroByName("Dress up").icon, 1002, "kept when renamed")
+			-- A copy made in /macro starts with the same icon and gets a code of its own; the
+			-- original keeps its icon.
+			local original = world:FindMacroByName("Dress up")
+			world:CreateMacroInUI("Aardvark", original.body)
+			ok(Code(world, "Aardvark") ~= Code(world, "Dress up"), "the copy was separated")
+			eq(world:FindMacroByName("Dress up").icon, 1002, "kept when a copy is separated")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("5. See a macro: the icon is refused in combat, and a macro deleted in /macro since the menu opened is gone", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			OpenPanel(world)
+			world:MouseClick(EntryRow(world, ORB), "RightButton")
+			world:EnterCombat()
+			world:ChooseMenuEntry("Use as icon for Illusion")
+			list(world:TakeErrors(), { COMBAT })
+			eq(world:FindMacroByName("Illusion").icon, 1001, "the icon is as it was")
+			world:LeaveCombat()
+			world:Advance(1)
+			world:MouseClick(EntryRow(world, ORB), "RightButton")
+			world.env.DeleteMacro(Macro(world, "Illusion").index)
+			world:Fire("UPDATE_MACROS")
+			world:ChooseMenuEntry("Use as icon for Illusion")
+			list(world:TakeErrors(), { "That macro is gone." })
+			eq(#world.macros, 0, "and nothing was made")
+		end)
+
+		it("5. See a macro: choosing the icon the macro already has changes nothing", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			OpenPanel(world)
+			local updates = 0
+			world.ns.RegisterEvent("UPDATE_MACROS", function() updates = updates + 1 end)
+			UseAsIcon(world, PIRATE)
+			eq(updates, 0, "the macro wasn't written")
+			eq(world:FindMacroByName("Illusion").icon, 1001)
+			list(world:TakeErrors(), {})
+		end)
+
+		it("5. See a macro: Favorites offers the icon only once its macro exists", function()
+			local world = World()
+			local ns = world.ns
+			ns.expanded[ns.FAVORITES_ID] = true
+			ns.Changed()
+			OpenPanel(world)
+			world:MouseClick(EntryRow(world, WINGS), "RightButton")
+			eq(Has(MenuTexts(world), "Use as icon for Favorites"), false, "no macro to change yet")
+			eq(#world.macros, 0, "and opening the menu made none")
+			list({ ns.SetMacroIcon(Favorites(world), WINGS) }, { nil, "That macro is gone." }, "asking anyway is refused")
+			eq(#world.macros, 0, "and makes none")
+			ns.PickupMacro(Favorites(world))
+			world:Advance(1)
+			world:MouseClick(EntryRow(world, WINGS), "RightButton")
+			world:ChooseMenuEntry("Use as icon for Favorites")
+			eq(world.macros[1].icon, 2002, "Fairy Wings' icon")
+			eq(world.macros[1].body, FAVORITES_LINE, "Favorites' line is as it was")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("5. See a macro: an item's menu in the panel holds Use as icon for and Remove from its macro, and nothing else", function()
+			local world = World()
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			OpenPanel(world)
+			world:MouseClick(EntryRow(world, ORB), "RightButton")
+			list(MenuTexts(world), { "Use as icon for Illusion", "Remove from Illusion" })
+			world.ns.EntryIcon = function() return nil end
+			world:MouseClick(EntryRow(world, ORB), "RightButton")
+			list(MenuTexts(world), { "Remove from Illusion" }, "only Remove while the icon isn't loaded")
+		end)
+
+		it("6. Remove an item from a macro: Remove from Illusion takes it out of Illusion only", function()
+			local world = World()
+			local ns = world.ns
+			MakeMacro(world, PIRATE, "Illusion")
+			MakeMacro(world, PIRATE, "Costumes")
+			AddTo(world, ORB, "Illusion")
+			AddTo(world, ORB, "Costumes")
+			OpenPanel(world)
+			world:MouseClick(EntryRow(world, ORB, "Illusion"), "RightButton")
+			world:ChooseMenuEntry("Remove from Illusion")
+			world:Advance(1)
+			eq(ns.HasEntry(Macro(world, "Illusion"), ORB), false, "gone from Illusion")
+			eq(ns.HasEntry(Macro(world, "Costumes"), ORB), true, "still in Costumes")
+			eq(ns.HasEntry(Macro(world, "Illusion"), PIRATE), true, "and Illusion keeps its other item")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("6. Remove an item from a macro: refused in combat, and for a macro deleted since the menu opened", function()
+			local world = World()
+			local ns = world.ns
+			MakeMacro(world, PIRATE, "Illusion")
+			AddTo(world, ORB, "Illusion")
+			OpenPanel(world)
+			world:MouseClick(EntryRow(world, ORB), "RightButton")
+			world:EnterCombat()
+			world:ChooseMenuEntry("Remove from Illusion")
+			list(world:TakeErrors(), { COMBAT })
+			eq(ns.HasEntry(Macro(world, "Illusion"), ORB), true, "still there")
+			world:LeaveCombat()
+			world:Advance(1)
+			world:MouseClick(EntryRow(world, ORB), "RightButton")
+			world.env.DeleteMacro(Macro(world, "Illusion").index)
+			world:Fire("UPDATE_MACROS")
+			world:ChooseMenuEntry("Remove from Illusion")
+			eq(#world:TakeErrors(), 1, "the macro is gone, so it is refused")
+			eq(#world.macros, 0, "and nothing was made")
+		end)
+
+		it("6. Remove an item from a macro: Remove from Favorites unstars the toy, in combat too, and makes no macro", function()
+			local world = World()
+			local ns = world.ns
+			ns.expanded[ns.FAVORITES_ID] = true
+			ns.Changed()
+			OpenPanel(world)
+			eq(ns.IsEntryFavorite(WINGS), true)
+			world:MouseClick(EntryRow(world, WINGS), "RightButton")
+			list(MenuTexts(world), { "Remove from Favorites" }, "Favorites' macro doesn't exist yet")
+			world:EnterCombat()
+			world:ChooseMenuEntry("Remove from Favorites")
+			list(world:TakeErrors(), {})
+			eq(ns.IsEntryFavorite(WINGS), false, "unstarred")
+			world:LeaveCombat()
+			world:Advance(1)
+			for _, row in ipairs(ns.PanelRows()) do
+				ok(not (row.kind == "entry" and row.key == WINGS), "it left Favorites' rows")
+			end
+			eq(#world.macros, 0, "and no macro was made")
+		end)
+
+		it("6. Remove an item from a macro: SetEntry on Favorites stars a toy, and still refuses anything else", function()
+			local world = World()
+			local ns = world.ns
+			eq(ns.IsEntryFavorite(HAT), false)
+			eq(ns.SetEntry(Favorites(world), HAT, true), true)
+			eq(ns.IsEntryFavorite(HAT), true, "starred")
+			eq(ns.SetEntry(Favorites(world), HAT, true), true, "again is fine")
+			eq(ns.SetEntry(Favorites(world), HAT, false), true)
+			eq(ns.IsEntryFavorite(HAT), false)
+			eq(#world.macros, 0, "no macro was made")
+		end)
+
+		it("5. See a macro: hovering a macro's icon says how to change it, for a macro with items that exists in /macro", function()
+			local world = World()
+			local ns = world.ns
+			MakeMacro(world, PIRATE, "Illusion")
+			ns.expanded[ns.FAVORITES_ID] = true
+			ns.Changed()
+			OpenPanel(world)
+			local function Hint(name)
+				for _, shown in ipairs(PanelShown(world)) do
+					if shown.name == name then
+						shown.row.macroIcon.scripts.OnEnter(shown.row.macroIcon)
+						return world.tooltip.lines[#world.tooltip.lines]
+					end
+				end
+			end
+			eq(Hint("Illusion"), "To change this icon, right-click one of its items.")
+			ok(not Hint("Favorites"):find("change this icon", 1, true), "Favorites has no macro yet")
+			ns.PickupMacro(Favorites(world))
+			world:Advance(1)
+			eq(Hint("Favorites"), "To change this icon, right-click one of its toys.")
+			assert(ns.SetEntry(Macro(world, "Illusion"), PIRATE, false))
+			world:Advance(1)
+			ok(not Hint("Illusion"):find("change this icon", 1, true), "an empty macro has none")
+		end)
+
 		it("14. The panel: a macro Clicky can't read has a greyed icon, a warning and a ? and says why when hovered or clicked", function()
 			local world = World()
 			local ns = world.ns
@@ -2641,6 +2861,7 @@ describe("journeys", function()
 			eq(world.tooltip.lines[1], UNREADABLE)
 			row.macroIcon.scripts.OnEnter(row.macroIcon)
 			eq(world.tooltip.owner, row.macroIcon, "the icon says it too")
+			list(world.tooltip.lines, { UNREADABLE, "Drag to an action bar." }, "and offers no way to change the icon")
 			row.scripts.OnClick(row, "LeftButton")
 			list(world:TakeErrors(), { UNREADABLE }, "a click shows the reason")
 			ok(not ns.expanded[ns.GetMacros()[1].id], "and doesn't open it")
@@ -3346,6 +3567,21 @@ describe("journeys", function()
 			ok(not button.new:IsShown(), "no longer NEW")
 			world:MouseClick(button)
 			list(world.used, { 1003 }, "the next click uses it")
+		end)
+
+		it("a right click opens the toy's menu without \"Use as icon for\" or \"Remove from\"", function()
+			local world = GridWorld(20)
+			local button = Shown(world)[1]
+			assert(world.ns.MakeMacro("Mine", button.itemID))
+			world:MouseClick(button, "RightButton")
+			local texts = {}
+			for _, entry in ipairs(world.menu.entries) do texts[#texts + 1] = entry.text end
+			for _, text in ipairs(texts) do
+				ok(not text:find("^Use as icon for") and not text:find("^Remove from"), "the grid's menu has " .. text)
+			end
+			has(texts, "Mine", "a checkbox for the macro")
+			has(texts, "Add to new macro...")
+			ok(#texts > 3, "the star, the macros and the rest")
 		end)
 
 		it("a right click opens the toy's menu, a shift-click links it, and no other click uses the toy or does anything", function()
