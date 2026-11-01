@@ -37,6 +37,18 @@ local function Section(heading)
 end
 
 describe("README.md", function()
+	it("Good to know: the macro menu renames, deletes and opens /macro", function()
+		Says("rename it, delete it, or open it in `/macro` to edit it%.", "what the macro menu does")
+		local world = World()
+		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
+		world.ns.OpenMacroMenu(world.env.UIParent, m)
+		local labels = {}
+		for _, entry in ipairs(world.menu.entries) do labels[entry.text] = true end
+		truthy(labels["Rename"] and labels[world.env.DELETE] and labels["Open in /macro"], "the menu has those entries")
+		world:ChooseMenuEntry("Open in /macro")
+		eq(world.env.MacroFrame:GetSelectedIndex(), 1, "and the last opens /macro on the macro")
+	end)
+
 	it("Limits: items per macro", function()
 		local cap = tonumber(Says("\n%- (%d+) items per macro", "the items-per-macro limit"))
 		local world = World()

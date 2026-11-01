@@ -63,7 +63,7 @@ drawer instead.
 - The search matches names, sources, expansions, mount types, pet families and words in the
   tooltip.
 - A check mark in the grid means it's already in one of your macros.
-- Right-click a macro in the panel to rename or delete it.
+- Right-click a macro in the panel to rename it, delete it, or open it in `/macro` to edit it.
 - A click on a macro never picks gear that can be worn, because WoW would equip it instead. Pick
   it from the drawer: if you aren't wearing it, the first click puts it on, and after that clicks
   use it.

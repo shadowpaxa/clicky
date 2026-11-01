@@ -1155,6 +1155,12 @@ function World:EditMacroInUI(index, name, body)
 	self:Fire("UPDATE_MACROS")
 end
 
+-- The player typing in the /macro window's text box, which marks the text changed
+-- (Blizzard_MacroUI.xml, MacroFrameText OnTextChanged).
+function World:TypeInMacroWindow(text)
+	self.env.MacroFrameText:SetText(text)
+end
+
 function World:CreateMacroInUI(name, body, perCharacter)
 	assert(not self.combat, "/macro can't save in combat: CreateMacro is nocombat (warcraft.wiki.gg API CreateMacro)")
 	local macros = perCharacter and self.characterMacros or self.macros
@@ -2214,6 +2220,7 @@ function World:BuildEnv()
 	env.EditMacro = function(i, name, icon, body)
 		NoCombat("EditMacro")
 		local m = assert(MacroAt(i), "no macro " .. tostring(i))
+		name = name or m.name -- nil keeps the name (Blizzard_MacroUI.lua, MacroFrameMixin:SaveMacro)
 		assert(Letters(name) <= 16, "macro name longer than 16 characters: " .. name)
 		m.name, m.icon, m.body = name, icon or m.icon, body and body:sub(1, 255) or m.body
 		local perCharacter = i > MAX_ACCOUNT
@@ -2229,6 +2236,64 @@ function World:BuildEnv()
 	end
 	env.PickupMacro = function(i)
 		world.cursor = assert(MacroAt(i), "no macro " .. tostring(i))
+	end
+
+	-- The /macro window (Blizzard_MacroUI.lua, MacroFrameMixin), as far as Clicky drives it.
+	-- Blizzard_MacroUI is load-on-demand: ShowMacroFrame loads it and shows MacroFrame
+	-- (Blizzard_MacroUI_Bootstrap.lua), and showing it runs OnShow: ChangeTab(1).
+	-- MacroFrameText's OnTextChanged sets MacroFrame.textChanged for any SetText, so SelectMacro
+	-- marks the text changed too (Blizzard_MacroUI.xml).
+	local function ChangeTab(frame, tabID)
+		env.PanelTemplates_SetTab(frame, tabID)
+		frame:SaveMacro()
+		frame.macroBase = tabID == 1 and 0 or MAX_ACCOUNT
+		frame:SelectMacro(1, true)
+	end
+	local function NewMacroFrame()
+		local frame = { shown = false, macroBase = 0, selectedIndex = 1, ChangeTab = ChangeTab }
+		frame.GetSelectedIndex = function(f) return f.selectedIndex end
+		frame.SaveMacro = function(f)
+			if f.textChanged and f.selectedIndex ~= nil then
+				env.EditMacro(f.macroBase + f.selectedIndex, nil, nil, env.MacroFrameText:GetText())
+				f:SelectMacro(f.selectedIndex)
+				f.textChanged = nil
+			end
+		end
+		frame.SelectMacro = function(f, index)
+			if index then
+				local general, character = env.GetNumMacros()
+				if (f.macroBase == 0 and general or character) < index then
+					index = nil
+				end
+			end
+			f.selectedIndex = index or 1
+			if index then
+				local name, _, body = env.GetMacroInfo(f.macroBase + index)
+				if name then
+					env.MacroFrameText:SetText(body)
+				end
+			end
+		end
+		return frame
+	end
+	env.ShowMacroFrame = function()
+		if not env.MacroFrame then
+			env.MacroFrame = NewMacroFrame()
+			env.MacroPopupFrame = { Hide = function() end }
+			env.MacroFrameText = {
+				text = "",
+				GetText = function(t) return t.text end,
+				SetText = function(t, text)
+					t.text = text
+					env.MacroFrame.textChanged = 1
+				end,
+				ClearFocus = function() end,
+			}
+		end
+		if not env.MacroFrame.shown then
+			env.MacroFrame.shown = true
+			ChangeTab(env.MacroFrame, 1)
+		end
 	end
 end
 

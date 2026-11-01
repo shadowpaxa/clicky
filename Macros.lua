@@ -17,6 +17,9 @@
 --   ns.MakeMacro(name, key)                -> macro | nil, reason
 --   ns.RenameMacro(m, name), ns.DeleteMacro(m)   -> true | nil, reason
 --   ns.PickupMacro(m)                      puts the macro on the cursor
+--   ns.OpenMacroInUI(m)                    opens /macro on General with the macro selected
+--   ns.InMacroUI(m)                        whether the macro exists in /macro (Favorites' only
+--                                          once made)
 --   ns.COMBAT_ERROR                        why a change to a macro is refused in combat
 --   ns.Unreadable(m)                       why m's entries can't be used or changed (for the
 --                                          player), or nil
@@ -725,6 +728,40 @@ function ns.PickupMacro(m)
 	end
 	ns.Trace("[%s] picked up %d", m.name, rec.index)
 	PickupMacro(rec.index)
+end
+
+function ns.InMacroUI(m)
+	return m.index ~= nil
+end
+
+-- Opens /macro as Blizzard's /macro does, then selects the macro as clicking it there does
+-- (Blizzard_MacroUI.lua, MacroFrameMacroButtonSelectedCallback), so edits to the macro that was
+-- selected are saved first, as Blizzard saves them. That save is an EditMacro, refused in combat.
+-- Favorites' macro isn't made for this.
+function ns.OpenMacroInUI(m)
+	if InCombatLockdown() then
+		ns.ShowError(ns.COMBAT_ERROR)
+		return
+	end
+	local rec, err
+	if m.builtin then
+		rec, err = ns.FindFavoritesMacro(), "That macro is gone."
+	else
+		rec, err = FindRecord(m)
+	end
+	if not rec then
+		ns.ShowError(err)
+		return
+	end
+	ns.Trace("[%s] opening in /macro at %d", m.name, rec.index)
+	ShowMacroFrame()
+	if PanelTemplates_GetSelectedTab(MacroFrame) ~= 1 then
+		MacroFrame:ChangeTab(1)
+	end
+	MacroFrame:SaveMacro()
+	MacroFrame:SelectMacro(rec.index, true)
+	MacroPopupFrame:Hide()
+	MacroFrameText:ClearFocus()
 end
 
 ------------------------------------------------------------------------------------------

@@ -2755,6 +2755,94 @@ describe("journeys", function()
 			list(world:TakeErrors(), { COMBAT, COMBAT, COMBAT })
 		end)
 
+		-- The index of the macro named name in /macro's General tab.
+		local function GeneralIndex(world, name)
+			for i, macro in ipairs(world.macros) do
+				if macro.name == name then return i end
+			end
+			error("no macro " .. name)
+		end
+		local function MenuHas(world, text)
+			for _, entry in ipairs(world.menu.entries) do
+				if entry.text == text then return true end
+			end
+			return false
+		end
+		local function OpenInMacro(world, m)
+			world.ns.OpenMacroMenu(world.env.UIParent, m)
+			world:ChooseMenuEntry("Open in /macro")
+		end
+
+		it("8. Open in /macro: opens the window on General with the macro selected, wherever it sorts now", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			world:CreateMacroInUI("Aardvark", "/say hi") -- sorts before Illusion: its index moves
+			OpenInMacro(world, m)
+			local frame = world.env.MacroFrame
+			eq(frame.shown, true)
+			eq(frame.selectedTab, 1)
+			eq(frame:GetSelectedIndex(), GeneralIndex(world, "Illusion"))
+			eq(world.env.MacroFrameText:GetText(), world.macros[frame:GetSelectedIndex()].body)
+			eq(world.macros[1].name, "Aardvark")
+			eq(frame:GetSelectedIndex(), 2)
+		end)
+
+		it("8. Open in /macro: unsaved text in the macro that was selected is saved into it first", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			world:CreateMacroInUI("Aardvark", "/say hi")
+			world.env.ShowMacroFrame() -- selects the first macro, Aardvark
+			world:TypeInMacroWindow("/say changed")
+			OpenInMacro(world, m)
+			eq(world.macros[GeneralIndex(world, "Aardvark")].body, "/say changed", "the edit isn't lost")
+			eq(world.env.MacroFrame:GetSelectedIndex(), GeneralIndex(world, "Illusion"))
+			ok(world.macros[GeneralIndex(world, "Illusion")].body:find("#clicky", 1, true), "ours is untouched")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("8. Open in /macro: from the Character tab it switches to General", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			world.env.ShowMacroFrame()
+			world.env.MacroFrame:ChangeTab(2)
+			eq(world.env.MacroFrame.selectedTab, 2)
+			OpenInMacro(world, m)
+			eq(world.env.MacroFrame.selectedTab, 1)
+			eq(world.env.MacroFrame:GetSelectedIndex(), GeneralIndex(world, "Illusion"))
+		end)
+
+		it("8. Open in /macro: refused in combat, with the reason, and the window stays closed", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			world.ns.OpenMacroMenu(world.env.UIParent, m)
+			world:EnterCombat()
+			world:ChooseMenuEntry("Open in /macro")
+			list(world:TakeErrors(), { COMBAT })
+			eq(world.env.MacroFrame, nil)
+		end)
+
+		it("8. Open in /macro: a macro deleted in /macro since the menu opened says it is gone", function()
+			local world = World()
+			local m = MakeMacro(world, PIRATE, "Illusion")
+			world.ns.OpenMacroMenu(world.env.UIParent, m)
+			world.env.DeleteMacro(GeneralIndex(world, "Illusion"))
+			world:Fire("UPDATE_MACROS")
+			world:ChooseMenuEntry("Open in /macro")
+			list(world:TakeErrors(), { "That macro is gone." })
+			eq(world.env.MacroFrame, nil)
+		end)
+
+		it("8. Open in /macro: Favorites has it only once its macro is made", function()
+			local world = World()
+			world.ns.OpenMacroMenu(world.env.UIParent, Favorites(world))
+			eq(MenuHas(world, "Open in /macro"), false)
+			eq(MenuHas(world, "Rename"), true)
+			eq(#world.macros, 0)
+			world.ns.PickupMacro(Favorites(world))
+			OpenInMacro(world, Favorites(world))
+			eq(world.env.MacroFrame:GetSelectedIndex(), GeneralIndex(world, Favorites(world).name))
+		end)
+
 		it("3, 8. The menus' dialogs: a new macro from a toy, Rename, Copy /click line and Delete do what they say; a refused name keeps the dialog open", function()
 			local world = World()
 			local ns = world.ns

@@ -1,7 +1,9 @@
 -- Right-click menus: an entry's menu (a toy's, mount's, pet's, spell's or item's, in Clicky's grid
--- and its panel), the macro menu (Rename, Delete, Copy /click line), and the dialogs they open.
+-- and its panel), the macro menu, and the dialogs they open.
 --   ns.OpenEntryMenu(owner, key), ns.OpenMacroMenu(owner, m)   key is an entry's key (Entries.lua);
---                                 only toys, mounts and pets have the star (Entries.lua), and
+--                                 a macro's menu: Rename, Delete, Copy /click line, and Open in
+--                                 /macro once the macro exists there (Favorites' may not yet).
+--                                 Only toys, mounts and pets have the star (Entries.lua), and
 --                                 Favorites is the Toy Box's stars
 
 local _, ns = ...
@@ -67,6 +69,11 @@ function ns.OpenMacroMenu(owner, m)
 		rootDescription:CreateButton("Copy /click line", function()
 			StaticPopup_Show("CLICKY_COPY_LINE", nil, nil, { line = "/click " .. ns.ButtonName(m.id) })
 		end)
+		if ns.InMacroUI(m) then
+			rootDescription:CreateButton("Open in /macro", function()
+				ns.OpenMacroInUI(m)
+			end)
+		end
 	end)
 end
 

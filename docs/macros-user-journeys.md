@@ -168,9 +168,9 @@ its line is `/click ClickyFVRT`. In the player's own macro, that line uses a ran
 mouse button the macro is clicked with (`/click` sends a left click when it names no button,
 SlashCommands.lua), and `/click ClickyP<code>` opens the macro's drawer, on either button too.
 
-## 8. Rename or delete a macro
+## 8. Rename, delete or edit a macro
 *Goal: tidy up macros.*
-1. Right-click the macro in the panel and choose **Rename** or **Delete**.
+1. Right-click the macro in the panel and choose **Rename**, **Delete** or **Open in /macro**.
 
 *Result:* a renamed macro keeps working on the bars. Deleting asks for confirmation, then removes
 the macro and its bar buttons. Favorites can be renamed and deleted too; once its macro is
@@ -178,6 +178,10 @@ deleted, Favorites stays in the panel, called Favorites again, and its macro is 
 it's next dragged.
 Renaming or deleting the macro in /macro does the same, and the panel follows. A menu or dialog
 left open on a macro deleted in /macro refuses to change it with "That macro is gone."
+**Open in /macro** opens the /macro window on its General tab with the macro selected, for the
+player to edit it there. Text the player typed in the macro selected there before is saved first,
+as clicking another macro in /macro does. It's refused in combat, and Favorites has it once its
+macro has been made.
 
 ## 9. Play on another computer
 *Goal: use Illusion on a laptop.*
