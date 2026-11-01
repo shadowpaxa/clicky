@@ -1,5 +1,11 @@
 # Clicky
 
+## 1.0.1
+
+- **Clicky is on CurseForge now,** as well as Wago, so addon managers that use CurseForge can
+  install and update it.
+- **Clicky is open source,** under the MIT license.
+
 ## 1.0.0
 
 - **Clicky's first release.** Put toys, mounts, pets, spells and items together in a macro: click
