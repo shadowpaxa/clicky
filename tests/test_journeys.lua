@@ -2065,6 +2065,31 @@ describe("journeys", function()
 			eq(world:LastUsed(), FIRE)
 		end)
 
+		it("14. Use the drawer: an item shows how many the player carries when more than one, in combat too", function()
+			local world = MixedWorld({ items = { { id = 600, name = "Hearth Ring", icon = 6000, count = 3 } } })
+			Write(world, "Portal", "PRTL", { PIRATE, FIRE, RING })
+			world.bars[1] = world:FindMacroByName("Portal")
+			local function Counts()
+				local drawer = world.ns.GetDrawer(Macro(world, "Portal").id)
+				local counts = {}
+				for i, key in ipairs(DrawerToys(world, "Portal")) do
+					counts[key] = drawer.buttons[i].count:GetText()
+				end
+				return counts
+			end
+			world:PressBar(1, "RightButton")
+			list(Counts(), { [PIRATE] = "", [FIRE] = "", [RING] = "3" }, "a toy and a spell have none")
+			world:PressBar(1, "RightButton")
+			world.items[600].count = 1
+			world:PressBar(1, "RightButton")
+			list(Counts(), { [PIRATE] = "", [FIRE] = "", [RING] = "" }, "the last one shows none, as in the bags")
+			world:PressBar(1, "RightButton")
+			world:EnterCombat()
+			world.items[600].count = 2
+			world:PressBar(1, "RightButton")
+			eq(Counts()[RING], "2", "read again when it opens in combat, where it isn't filled again")
+		end)
+
 		it("2. Entries: in combat a macro picks from the list handed over, with each entry's action", function()
 			local world = MixedWorld()
 			Write(world, "Portal", "PRTL", { PIRATE, FIRE, RING, CLOAK })

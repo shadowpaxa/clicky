@@ -61,10 +61,13 @@ REVIEWED_EVENTS = {
         "ACTION_WILL_BIND_ITEM", "BIND_ENCHANT", "CONFIRM_BEFORE_USE", "CONVERT_TO_BIND_TO_ACCOUNT_CONFIRM",
         "DELETE_ITEM_CONFIRM", "END_BOUND_TRADEABLE", "MERCHANT_CONFIRM_TRADE_TIMER_REMOVAL", "REPLACE_ENCHANT",
         "REPLACE_TRADESKILL_ENCHANT", "TRADE_REPLACE_ENCHANT", "USE_BIND_CONFIRM", "USE_NO_REFUND_CONFIRM",
-        # Clicky shows no item conversion, character fixup, weapon enchant, count or changed link; it
-        # reads an item's link when it is shift-clicked and whether it is owned on a redraw (Items.lua).
+        # Clicky shows no item conversion, character fixup, weapon enchant or changed link; it reads an
+        # item's link when it is shift-clicked and whether it is owned on a redraw (Items.lua).
         "CHARACTER_ITEM_FIXUP_NOTIFICATION", "ITEM_CONVERSION_DATA_READY", "WEAPON_ENCHANT_CHANGED",
-        "ITEM_CHANGED", "ITEM_COUNT_CHANGED",
+        "ITEM_CHANGED",
+        # No Blizzard window handles it. The drawer reads an item's count each time it opens
+        # (Drawer.lua), and closes when one is used.
+        "ITEM_COUNT_CHANGED",
     ],
     "MountJournal": [
         "MOUNT_EQUIPMENT_APPLY_RESULT",  # Clicky applies no mount equipment

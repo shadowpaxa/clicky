@@ -1,5 +1,5 @@
 -- The item kind of entry (Entries.lua): a bag or worn item's name, icon, tooltip, cooldown, owned
--- and usable test and secure action. An item is the key "i" and its item ID.
+-- and usable test, count and secure action. An item is the key "i" and its item ID.
 --   ns.CarriedItemEntries()   the keys of the items in the bags or worn that are in Clicky's list,
 --                             in no order; the grid lists these (Grid.lua)
 --
@@ -68,6 +68,7 @@ ns.RegisterEntryKind("item", {
 	icon = Icon,
 	owned = Owned,
 	usable = function(itemID) return (C_Item.IsUsableItem(itemID)) end,
+	count = function(itemID) return C_Item.GetItemCount(itemID) end,
 	onCooldown = IsOnCooldown,
 	updateCooldown = function(cooldown, itemID)
 		CooldownFrame_Set(cooldown, C_Container.GetItemCooldown(itemID))

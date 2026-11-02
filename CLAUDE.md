@@ -32,8 +32,8 @@ fails on any such call.
   `ns.RegisterView`, Core.lua), except the grid's own redraws (Grid.lua's header lists them),
   which redraw only the grid. An entry's menu is `ns.OpenEntryMenu` in the grid and
   `ns.OpenMacroEntryMenu` for an item under a macro in the panel (Menu.lua). An entry's (a toy's,
-  mount's, pet's, spell's or item's) name, sort order, icon, tooltip, cooldown, owned and usable
-  test, star and secure action are its kind's owner file's (Toys.lua, Mounts.lua, Pets.lua,
+  mount's, pet's, spell's or item's) name, sort order, icon, tooltip, cooldown, count, owned and
+  usable test, star and secure action are its kind's owner file's (Toys.lua, Mounts.lua, Pets.lua,
   Spells.lua, Items.lua), reached through Entries.lua, for the panel, the drawers, the macro
   buttons and the grid alike; which entries a macro holds is `ns.MacroEntries` (Macros.lua).
 - Refusals return `nil, reason`; the caller shows the reason.

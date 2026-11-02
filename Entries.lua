@@ -16,8 +16,9 @@
 --                                       wrapped(id) and unwrap(id), and gift = true if its
 --                                       journal shows a wrapped one as the gift;
 --                                       tooltipData(id): its tooltip as data (C_TooltipInfo), or nil;
---                                       and use(id) if a macro's button uses it from addon code after
---                                       the click, with no secure action (a pet)
+--                                       use(id) if a macro's button uses it from addon code after
+--                                       the click, with no secure action (a pet); and count(id) if
+--                                       the player can carry more than one (an item)
 --   ns.EntryKind(key)                   "toy", "mount", "pet", "spell" or "item"; key's id is
 --                                       ns.EntryID(key)
 --   ns.EntryID(key)                     a number, or for a pet its "species:display" string
@@ -26,6 +27,7 @@
 --   ns.IsEntryOwned(key)                the player has the toy, the mount or a pet of the look,
 --                                       knows the spell, has the item
 --   ns.IsEntryUsable(key)
+--   ns.EntryCount(key)                  how many the player carries; nil for a kind with no count
 --   ns.IsEntryOnCooldown(key)
 --   ns.IsEntryFavorite(key)             it has the game's star (a toy's, mount's or pet's)
 --   ns.CanFavoriteEntry(key)            the star can be set or cleared from Clicky's menu
@@ -114,6 +116,11 @@ end
 function ns.IsEntryUsable(key)
 	local kind, id = Of(key)
 	return kind.usable(id)
+end
+
+function ns.EntryCount(key)
+	local kind, id = Of(key)
+	return kind.count and kind.count(id)
 end
 
 function ns.IsEntryOnCooldown(key)

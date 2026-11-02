@@ -1,7 +1,8 @@
 -- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyPFVRT for
 -- Favorites), which opens a grid of the macro's entries (any kind; Entries.lua) the player has, at
--- the mouse, in the panel's order. Clicking one uses it. The drawer closes when an entry is chosen,
--- on Escape, on a second right-click, and when the mouse leaves it.
+-- the mouse, in the panel's order, an item with how many the player carries when more than one.
+-- Clicking one uses it. The drawer closes when an entry is chosen, on Escape, on a second
+-- right-click, and when the mouse leaves it.
 --   ns.SetUpDrawer(m)   makes m's opener and drawer if they don't exist yet (out of combat only)
 --   ns.FillDrawer(m)    fills m's drawer with its entries, once SetUpDrawer has made it (out of
 --                       combat only)
@@ -60,16 +61,32 @@ local function Count(drawer)
 	return drawer.frame:GetAttribute("count") or 0
 end
 
--- Cooldowns change while the drawer is closed. Shown by secure code, so this only reads.
+-- How many the player carries, when more than one, as Select's flyout buttons show it (its
+-- secure/button.lua) and the bags do (SetItemButtonCount, ItemButtonTemplate.lua).
+local function UpdateItemCount(button)
+	local count = button.entry and ns.EntryCount(button.entry)
+	button.count:SetText(count and count > 1 and tostring(count) or "")
+end
+
+-- Cooldowns and counts change while the drawer is closed. Shown by secure code, so this only reads.
 local function Drawer_OnShow(frame)
 	for i = 1, Count(frame.drawer) do
 		local button = frame.drawer.buttons[i]
 		ns.UpdateEntryCooldown(button.cooldown, button.entry)
+		UpdateItemCount(button)
 	end
 end
 
 local function CreateDrawerButton(drawer)
 	local button = ns.CreateEntryButton(drawer.frame, BUTTON_SIZE, "ANCHOR_LEFT")
+	-- An action button's count, on a frame above the cooldown so its swipe and countdown don't cover
+	-- it (ActionButtonTemplate.xml: TextOverlayContainer, frameLevel 500, and Count).
+	local overlay = CreateFrame("Frame", nil, button)
+	overlay:SetAllPoints()
+	overlay:SetFrameLevel(500)
+	button.count = overlay:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	button.count:SetJustifyH("RIGHT")
+	button.count:SetPoint("BOTTOMRIGHT", -3, 3)
 	SecureHandlerSetFrameRef(button, "drawer", drawer.frame)
 	SecureHandlerWrapScript(button, "OnClick", button, CLOSE)
 	return button
@@ -136,6 +153,7 @@ function ns.FillDrawer(m)
 			drawer.buttons[i] = button
 		end
 		ns.SetEntryButton(button, key)
+		UpdateItemCount(button)
 		button:ClearAllPoints()
 		button:SetPoint("TOPLEFT", PADDING + (i - 1) % columns * step, -(PADDING + math.floor((i - 1) / columns) * step))
 		button:Show()

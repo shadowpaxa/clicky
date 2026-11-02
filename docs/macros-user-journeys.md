@@ -265,7 +265,8 @@ panel.
 *Goal: use a particular item from a macro: a hearthstone that's off cooldown, or the portal toy to
 where the player is going.*
 1. Right-click the Hearthstones button on the action bar. A drawer opens at the mouse with every
-   item in Hearthstones the player has, in the panel's order, showing their cooldowns.
+   item in Hearthstones the player has, in the panel's order, showing their cooldowns. A thing from
+   the bags shows how many the player carries, when it's more than one (a stack of flasks).
 2. Click one to use it right away; if it's on cooldown or can't be used here, the player sees
    the game's error, as with any toy.
 
