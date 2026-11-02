@@ -31,6 +31,7 @@ read_globals = {
 	"LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED",
 	"LE_MOUNT_JOURNAL_FILTER_COLLECTED",
 	"debugprofilestop",
+	"hooksecurefunc",
 	"C_TooltipInfo",
 	"bit",
 	"CHECK_ALL",

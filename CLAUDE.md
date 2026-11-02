@@ -79,8 +79,13 @@ and that each macro made through Clicky holds what the player put in it, from ma
 items to dozens), `tests/check_api.py` (lua-language-server with Ketho's annotations, plus every
 Blizzard name Clicky uses checked against Blizzard's live UI source, and every `C_` or global
 function Clicky calls whose returns Blizzard marks secret against the list of those Clicky
-handles; `tests/fetch.sh` refreshes both) and `tests/check_toylist.py` (ToyList.lua against every
-release tag from v1.0.0 on that the commit contains, so CI fetches tags).
+handles, and every event of a system Clicky calls into that it doesn't register against the list
+of those reviewed. The secret and event checks cover only what Blizzard's generated API docs
+list: not C_ToyBox, most C_PetJournal functions Clicky calls or the macro API, whose Blizzard
+windows (Blizzard_ToyBox.lua, Blizzard_PetCollection.lua, Blizzard_MacroUI) were compared by hand.
+`tests/fetch.sh` refreshes the UI source and the annotations) and `tests/check_toylist.py`
+(ToyList.lua against every release tag from v1.0.0 on that the commit contains, so CI fetches
+tags).
 
 - Tests are named after the journeys and call what the UI is built on: the Macros API,
   `ns.PanelRows`, `ns.OpenEntryMenu`, `ns.OpenMacroEntryMenu`, `ns.GridSections`, `ns.GridRows`,
@@ -181,7 +186,13 @@ start again from step 1. Done means one full pass with no findings.
    - Tests read state through Clicky's `ns` API, not `/clicky debug` or trace text, unless that
      text is what's tested.
    - Each stub behavior a test relies on cites Blizzard's source, and a stub added or changed does
-     what that source does, not less (a click that skipped the button's `OnClick` hid a bug).
+     what that source does, not less (a click that skipped the button's `OnClick` hid a bug). The
+     citation shows that this action fires this event, or returns this: a window that does the
+     action and redraws only on the event, Blizzard's UI announcing the action on it (a new-toy
+     alert), or the event's documentation saying so; not only that the event or function exists, or
+     that some handler for it does. Where no source shows it, Clicky doesn't depend on it if that's
+     cheap (it also handles every event Blizzard's own window does), and the stub's comment says
+     so plainly ("No Blizzard source shows X fires Y"), so every reviewer sees the assumption.
    - No stub, helper or test that nothing needs. A test of an improbable case goes if it breaks on
      unrelated changes and getting the case wrong would lose no items, break no bar and raise no
      Lua error.
@@ -233,6 +244,11 @@ Each file's comments explain the constraints only it meets; these are met across
 - The grid (Grid.lua) lists only entries in ToyList.lua, since a macro can't hold any other; each
   kind's file says which of its entries a player can add and what changes them.
 - If macros aren't readable at `ADDON_LOADED`, nothing is read or written until `UPDATE_MACROS`.
+- An item's or toy's name the game hasn't cached is asked for with `C_Item.RequestLoadItemDataByID`
+  and arrives with `ITEM_DATA_LOAD_RESULT` (Blizzard's async loader waits for it after that call,
+  AsyncCallbackSystem.lua:18) or `GET_ITEM_INFO_RECEIVED` (Blizzard's item buttons wait for it
+  after `GetItemInfo` returns nothing, ItemButtonTemplate.lua:162-164). No source says which the
+  request fires, so Toys.lua, Items.lua and Search.lua take either.
 - Clicky's toy list is shipped (ToyList.lua), written from the game's tables for the live build via
   wago.tools (`tools/update_toys.py` names them), not read from the game at login.
 - `Blizzard_Collections` (the Toy Box) is load-on-demand: Panel.lua and Grid.lua wait for it with

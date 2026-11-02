@@ -86,14 +86,17 @@ ns.RegisterEntryKind("item", {
 	tooltipData = function(itemID) return C_TooltipInfo.GetItemByID(itemID) end,
 })
 
--- A name that was loading has arrived. This fires for every item, so only the ones asked for count.
-ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemID, success)
+-- A name that was loading has arrived, with either event (CLAUDE.md, WoW constraints). They also
+-- come for items others asked for, so only the ones asked for here count.
+local function ItemLoaded(itemID, success)
 	if requested[itemID] then
 		requested[itemID] = nil
 		if success then
 			ns.Changed()
 		end
 	end
-end)
+end
+ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", ItemLoaded)
+ns.RegisterEvent("ITEM_DATA_LOAD_RESULT", ItemLoaded)
 ns.RegisterEvent("BAG_UPDATE_DELAYED", ns.Changed)
 ns.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", ns.Changed)

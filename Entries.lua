@@ -42,7 +42,8 @@
 --   ns.ShowEntryTooltip(owner, key, anchor)   anchor is "ANCHOR_RIGHT" if not given
 --   ns.EntryLink(key)                   its chat link, or nil if the game has none yet
 --   ns.EntryTooltipText(key)            its tooltip's text, lines joined by newlines, or nil if the
---                                       game has no text for it yet
+--                                       game has no text for it yet; then the tooltip data's
+--                                       dataInstanceID, which TOOLTIP_DATA_UPDATE names
 --   ns.PickupEntry(key)                 puts it on the cursor, to drop on an action bar
 --   ns.UpdateEntryCooldown(cooldown, key)     the cooldown swipe, empty if not owned
 --   ns.SortEntries(keys, names)         sorts keys by name, then kind, then ID, in place; names
@@ -204,7 +205,7 @@ function ns.EntryTooltipText(key)
 			end
 		end
 	end
-	return #parts > 0 and table.concat(parts, "\n") or nil
+	return #parts > 0 and table.concat(parts, "\n") or nil, data.dataInstanceID
 end
 
 function ns.PickupEntry(key)

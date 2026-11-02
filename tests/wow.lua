@@ -794,6 +794,8 @@ function wow.New(options)
 		cvars = { ActionButtonUseKeyDown = true },
 		time = 1000,
 		eventFrames = {},
+		tooltipInstances = {}, -- an entry's table -> its tooltip's dataInstanceID
+		lastTooltipInstance = 0,
 		errors = {},
 		prints = {},
 		used = {},
@@ -860,22 +862,28 @@ function wow.New(options)
 	world:BuildEnv()
 	world:LoadAddon()
 	world:Fire("ADDON_LOADED", ADDON)
-	-- Clicky can't count on macros being readable at ADDON_LOADED, so they arrive afterwards,
-	-- announced by UPDATE_MACROS, before PLAYER_ENTERING_WORLD.
+	-- Clicky can't count on macros being readable at ADDON_LOADED, so they arrive afterwards.
+	-- No Blizzard source shows login fires UPDATE_MACROS before PLAYER_ENTERING_WORLD; Clicky also
+	-- syncs on PLAYER_ENTERING_WORLD (Macros.lua), so it doesn't hinge on the first.
 	world.macrosLoaded = true
 	world:Fire("UPDATE_MACROS")
 	world:Fire("PLAYER_ENTERING_WORLD", true, false)
 	return world
 end
 
--- The player's toys arriving after login, with a TOYS_UPDATED.
+-- The player's toys arriving after login, with a TOYS_UPDATED (ToyBoxInfoDocumentation.lua). No
+-- Blizzard source shows toys arriving fires it; the Toy Box redraws on it with no arguments
+-- (Blizzard_ToyBox.lua:144, 153).
 function World:LoadToys()
 	self.toysLoaded = true
 	self:Fire("TOYS_UPDATED")
 end
 
 -- Learning a toy: NEW_TOY_ADDED, then TOYS_UPDATED with itemID, isNew and hasFanfare
--- (ToyBoxInfoDocumentation.lua). toy.fanfare: it arrives gift-wrapped.
+-- (ToyBoxInfoDocumentation.lua). Blizzard treats both as a toy just collected: a new-toy alert on
+-- NEW_TOY_ADDED (AlertFrames.lua:719), and on TOYS_UPDATED with isNew the Toy Box pages to the
+-- toy (Blizzard_ToyBox.lua:144-150) and the Collections button shows its tutorial
+-- (MainMenuBarMicroButtons.lua:1425-1430). toy.fanfare: it arrives gift-wrapped.
 function World:LearnToy(toy)
 	if not self.toys[toy.id] then
 		self:AddToy(toy)
@@ -986,24 +994,30 @@ function World:Pet(guid)
 	end
 end
 
--- Learning a pet, or caging one: the Pet Journal's list changes, PET_JOURNAL_LIST_UPDATE
--- (PetJournalInfoDocumentation.lua; Blizzard_PetCollection.lua redraws its list on it).
+-- Learning a pet: NEW_PET_ADDED with its GUID (PetJournalInfoDocumentation.lua). Blizzard treats it
+-- as a pet just collected, as NEW_TOY_ADDED is for a toy: a new-pet alert (AlertFrames.lua:699).
 function World:LearnPet(pet)
 	self:AddPet(pet)
-	self:Fire("PET_JOURNAL_LIST_UPDATE")
+	self:Fire("NEW_PET_ADDED", pet.guid)
 end
 
+-- Caging a pet: the Pet Journal asks C_PetJournal.CagePetByID (Blizzard_PetCollection.lua:54), and
+-- on PET_JOURNAL_PET_DELETED with the pet's GUID clears its pending cage and redraws its list
+-- (:246-252): that event is what caging fires ("Fired when a pet in the journal is caged",
+-- warcraft.wiki.gg PET_JOURNAL_PET_DELETED).
 function World:CagePet(guid)
 	for i, pet in ipairs(self.pets) do
 		if pet.guid == guid then table.remove(self.pets, i) break end
 	end
 	if self.summonedPet == guid then self.summonedPet = nil end
-	self:Fire("PET_JOURNAL_LIST_UPDATE")
+	self:Fire("PET_JOURNAL_PET_DELETED", guid)
 end
 
--- A spell's or item's data arriving after Clicky asked for it: SPELL_DATA_LOAD_RESULT
--- (SpellDocumentation.lua) and GET_ITEM_INFO_RECEIVED (ItemDocumentation.lua), each with the ID
--- and success.
+-- A spell's or item's data arriving after Clicky asked for it (C_Spell.RequestLoadSpellData,
+-- C_Item.RequestLoadItemDataByID): SPELL_DATA_LOAD_RESULT and ITEM_DATA_LOAD_RESULT, each with the
+-- ID and success, the events Blizzard's async loader waits for after those calls
+-- (AsyncCallbackSystem.lua:18-19). A test fires GET_ITEM_INFO_RECEIVED itself for the other way an
+-- item's data arrives (CLAUDE.md, WoW constraints).
 function World:LoadSpell(id)
 	self.spells[id].loading = false
 	self:Fire("SPELL_DATA_LOAD_RESULT", id, true)
@@ -1011,7 +1025,20 @@ end
 
 function World:LoadItem(id)
 	self.items[id].loading = false
-	self:Fire("GET_ITEM_INFO_RECEIVED", id, true)
+	self:Fire("ITEM_DATA_LOAD_RESULT", id, true)
+end
+
+function World:NextTooltipInstance()
+	self.lastTooltipInstance = self.lastTooltipInstance + 1
+	return self.lastTooltipInstance
+end
+
+-- A lookup a tooltip waited on resolving: the entry (world.toys[id], world.items[id], ...) gains
+-- text, and TOOLTIP_DATA_UPDATE names its tooltip's dataInstanceID ("a sparse or cache lookup has
+-- resolved", TooltipInfoDocumentation.lua). No item or spell data event comes with it.
+function World:ResolveTooltip(t, text)
+	t.tooltip = (t.tooltip or "") .. text
+	self:Fire("TOOLTIP_DATA_UPDATE", self.tooltipInstances[t])
 end
 
 -- A patch taking a toy out of the game's data.
@@ -1149,14 +1176,15 @@ function World:GridFilterMenu()
 	return entries
 end
 
--- The player editing macros in /macro, which saves through EditMacro and CreateMacro; bodies are
+-- The player editing macros in /macro, which saves through EditMacro and CreateMacro, so their
+-- hooks run (no Blizzard source shows they fire UPDATE_MACROS, see the Macros stubs below); bodies are
 -- cut to 255 characters, which can be more than 255 bytes (MacroFrameText letters="255").
 function World:EditMacroInUI(index, name, body)
 	assert(not self.combat, "/macro can't save in combat: EditMacro is nocombat (warcraft.wiki.gg API EditMacro)")
 	local m = assert(self.macros[index], "no macro " .. tostring(index))
 	m.name, m.body = name or m.name, FirstLetters(body or m.body, 255)
 	SortMacros(self.macros, m)
-	self:Fire("UPDATE_MACROS")
+	self:RunHooks("EditMacro", index, name, nil, body) -- MacroFrameMixin:SaveMacro
 end
 
 -- The player typing in the /macro window's text box, which marks the text changed
@@ -1172,8 +1200,12 @@ function World:CreateMacroInUI(name, body, perCharacter)
 	m.body = FirstLetters(body, 255) -- MacroFrameText letters="255" (Blizzard_MacroUI.xml)
 	table.insert(macros, m)
 	SortMacros(macros, m)
-	self:Fire("UPDATE_MACROS")
+	self:RunHooks("CreateMacro", name, nil, body, perCharacter) -- Blizzard_MacroIconSelector.lua:109
 	return m
+end
+
+function World:RunHooks(name, ...)
+	for _, hook in ipairs(self.hooks[name] or {}) do hook(...) end
 end
 
 function World:FindMacroByName(name)
@@ -1231,9 +1263,10 @@ end
 -- C_PetJournal.SummonPetByGUID, which /summonpet calls with the GUID (SlashCommands.lua:1620-1634):
 -- it puts away the pet that's out when given it (/dismisspet, SlashCommands.lua:1659-1669). A pet
 -- that can't be summoned isn't (the Pet Journal's Summon button is off for it,
--- Blizzard_PetCollection.lua:320). The pet that's out changing fires COMPANION_UPDATE with
--- "CRITTER", on which the Pet Journal redraws its list and Summon button
--- (Blizzard_PetCollection.lua:98, 271-275). Combat doesn't stop it: the Pet Journal's Summon button
+-- Blizzard_PetCollection.lua:320). The Pet Journal's Summon button calls it and redraws nothing
+-- itself (Blizzard_PetCollection.xml:1602); its Summon or Dismiss text and its list follow the pet
+-- that's out on COMPANION_UPDATE with "CRITTER" (Blizzard_PetCollection.lua:98, 271-275, 322-323),
+-- so the pet that's out changing fires it. Combat doesn't stop it: the Pet Journal's Summon button
 -- calls it from a plain button's OnClick with no combat check (Blizzard_PetCollection.xml:1602).
 function World:SummonPet(guid)
 	if self.summonedPet == guid then
@@ -1271,8 +1304,10 @@ function World:SecureAction(frame, button)
 				if m.name == spell then id, mounted = m.spell, m end
 			end
 			-- The player is on it: GetMountInfoByID's isActive (MountJournalDocumentation.lua). The
-			-- Mount Journal redraws its list on COMPANION_UPDATE without reading its argument
-			-- (Blizzard_MountCollection.lua:140, 414).
+			-- Mount Journal's button calls SummonByID and redraws nothing itself
+			-- (Blizzard_MountCollection.lua:882), while its list shows isActive (:329-354) and
+			-- redraws on COMPANION_UPDATE without reading its argument (:139, 414): so mounting
+			-- fires it.
 			if mounted then
 				for _, m in pairs(self.mounts) do m.active = false end
 				mounted.active = true
@@ -1560,6 +1595,27 @@ function World:BuildEnv()
 		table.insert(world.prints, table.concat(parts, " "))
 	end
 	env.InCombatLockdown = function() return world.combat end
+	-- hooksecurefunc([table,] name, hook): the hook "is invoked after the original function, and
+	-- receives the same parameters; return values from hookfunc are discarded", and hooking again
+	-- "only adds more hooks" (warcraft.wiki.gg API hooksecurefunc). A fake that stands for the game
+	-- calling one (World:EditMacroInUI) runs its hooks itself.
+	world.hooks = {}
+	env.hooksecurefunc = function(tbl, name, hook)
+		if type(tbl) == "string" then tbl, name, hook = env, tbl, name end
+		assert(tbl == env, "hooksecurefunc on a table the stubs don't hook: " .. tostring(name))
+		if not world.hooks[name] then
+			local original = assert(env[name], "hooksecurefunc: no function " .. tostring(name))
+			world.hooks[name] = {}
+			env[name] = function(...)
+				local results = { n = 0 }
+				local function Keep(...) results = { n = select("#", ...), ... } end
+				Keep(original(...))
+				world:RunHooks(name, ...)
+				return unpack(results, 1, results.n)
+			end
+		end
+		table.insert(world.hooks[name], hook)
+	end
 	-- Milliseconds, for timing (warcraft.wiki.gg API debugprofilestop): the test's own clock.
 	env.debugprofilestop = function() return os.clock() * 1000 end
 	env.SlashCmdList = {}
@@ -2040,10 +2096,15 @@ function World:BuildEnv()
 	-- Tooltips as data (TooltipInfoDocumentation.lua; a TooltipData's lines, each with leftText and
 	-- rightText, Structure.lua in Ketho's annotations, as TooltipUtil.lua:55 reads them): the entry's
 	-- name, then its own tooltip text (a toy's, spell's, item's, mount's or pet's species' tooltip
-	-- field); nothing while its data is loading.
+	-- field); nothing while its data is loading. Each entry's tooltip has its own dataInstanceID, which
+	-- TOOLTIP_DATA_UPDATE names when a lookup it waited on resolves (World:ResolveTooltip).
 	local function Tooltip(t, name)
 		if t and not t.loading then
-			return { lines = { { leftText = name or t.name, rightText = "" }, { leftText = t.tooltip or "", rightText = "" } } }
+			if not world.tooltipInstances[t] then
+				world.tooltipInstances[t] = world:NextTooltipInstance()
+			end
+			return { dataInstanceID = world.tooltipInstances[t],
+				lines = { { leftText = name or t.name, rightText = "" }, { leftText = t.tooltip or "", rightText = "" } } }
 		end
 	end
 	env.C_TooltipInfo = {
@@ -2230,8 +2291,12 @@ function World:BuildEnv()
 	env.BaseScrollBoxEvents = { OnScroll = "OnScroll", OnAllowScrollChanged = "OnAllowScrollChanged" }
 
 	-- Macros: general (account) macros at 1..120, character macros from 121. Names are capped at
-	-- 16 characters; bodies longer than 255 are cut (warcraft.wiki.gg API_EditMacro). Every
-	-- change fires UPDATE_MACROS; none is allowed in combat.
+	-- 16 characters; bodies longer than 255 are cut (warcraft.wiki.gg API_EditMacro). None is
+	-- allowed in combat. UPDATE_MACROS is documented (UIMacrosDocumentation.lua) and the /macro
+	-- window refreshes on it (Blizzard_MacroUI.lua:94, 115), but that window also redraws itself
+	-- after its own calls (:294-303, Blizzard_MacroIconSelector.lua:109-117): no Blizzard source
+	-- shows CreateMacro, EditMacro or DeleteMacro fires it, so these don't; Clicky hooks them
+	-- (Macros.lua).
 	env.Constants = { MacroConsts = { MAX_ACCOUNT_MACROS = MAX_ACCOUNT, MAX_CHARACTER_MACROS = MAX_CHARACTER } }
 	local function NoCombat(what)
 		if world.combat then error("ADDON_ACTION_BLOCKED: " .. what .. " in combat", 3) end
@@ -2257,7 +2322,6 @@ function World:BuildEnv()
 		local m = { name = name, icon = icon, body = body:sub(1, 255) }
 		table.insert(list, m)
 		local index = SortMacros(list, m)
-		world:Fire("UPDATE_MACROS")
 		return perCharacter and MAX_ACCOUNT + index or index
 	end
 	env.EditMacro = function(i, name, icon, body)
@@ -2268,14 +2332,12 @@ function World:BuildEnv()
 		m.name, m.icon, m.body = name, icon or m.icon, body and body:sub(1, 255) or m.body
 		local perCharacter = i > MAX_ACCOUNT
 		local index = SortMacros(perCharacter and world.characterMacros or world.macros, m)
-		world:Fire("UPDATE_MACROS")
 		return perCharacter and MAX_ACCOUNT + index or index
 	end
 	env.DeleteMacro = function(i)
 		NoCombat("DeleteMacro")
 		assert(MacroAt(i), "no macro " .. tostring(i))
 		table.remove(i > MAX_ACCOUNT and world.characterMacros or world.macros, i > MAX_ACCOUNT and i - MAX_ACCOUNT or i)
-		world:Fire("UPDATE_MACROS")
 	end
 	env.PickupMacro = function(i)
 		world.cursor = assert(MacroAt(i), "no macro " .. tostring(i))

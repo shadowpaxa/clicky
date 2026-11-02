@@ -58,7 +58,7 @@ local TABS_X = 58 -- the first tab, from the window's left edge
 local TABS_WIDTH = 703 - SEARCH_RIGHT - SEARCH_WIDTH - TABS_X - (#SECTIONS - 1) * 3
 local WHEEL_ROWS = 3 -- as one notch scrolls a message frame's three (ScrollUtil.lua:198-203)
 local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
--- Toy names arrive one event at a time (GET_ITEM_INFO_RECEIVED) and drawing the grid is costlier
+-- Toy names arrive one event at a time (CLAUDE.md, WoW constraints) and drawing the grid is costlier
 -- than the panel, so refreshes wait this long and run once.
 local REFRESH_DELAY = 0.2
 

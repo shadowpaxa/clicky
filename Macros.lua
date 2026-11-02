@@ -540,7 +540,7 @@ local syncing, again = false, false
 
 function ns.Sync(reason)
 	if syncing then
-		again = true -- e.g. UPDATE_MACROS from our own write
+		again = true -- e.g. the macro hooks or UPDATE_MACROS after our own write
 		return
 	end
 	syncing = true
@@ -841,6 +841,18 @@ end)
 ns.RegisterEvent("UPDATE_MACROS", function()
 	ns.Sync("macros changed")
 end)
+
+-- No Blizzard source shows CreateMacro, EditMacro or DeleteMacro fire UPDATE_MACROS: the /macro
+-- window redraws itself after its own calls (Blizzard_MacroUI.lua:294-303,
+-- Blizzard_MacroIconSelector.lua:109-117). So a macro changed in /macro or by another addon is read
+-- after the call itself: a post hook runs after the function with its arguments (warcraft.wiki.gg
+-- API hooksecurefunc). Clicky's own writes run it too: inside ns.Sync it only asks for another pass,
+-- and after a change the player asked for it reads the macros before that change's own ns.Sync.
+for _, name in ipairs({ "CreateMacro", "EditMacro", "DeleteMacro" }) do
+	hooksecurefunc(name, function()
+		ns.Sync(name)
+	end)
+end
 
 ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
 	SetUpAgain()

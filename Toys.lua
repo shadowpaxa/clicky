@@ -104,8 +104,8 @@ function ns.ToyIcon(itemID)
 	return icon
 end
 
--- A name the game hasn't cached has to be loaded from the server; GET_ITEM_INFO_RECEIVED (below)
--- refreshes the views when it arrives.
+-- A name the game hasn't cached has to be loaded from the server; its arrival (below) refreshes
+-- the views.
 function ns.ToyName(itemID)
 	local _, name = C_ToyBox.GetToyInfo(itemID)
 	if not name then
@@ -156,11 +156,13 @@ ns.RegisterEntryKind("toy", {
 ns.RegisterEvent("NEW_TOY_ADDED", ns.Changed)
 ns.RegisterEvent("TOYS_UPDATED", ns.Changed)
 
-ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemID, success)
-	-- A toy's name may have just loaded. This fires for every item, so ignore the rest. A failed
-	-- load (success false, ItemDocumentation.lua) brought no name, and refreshing would only ask
-	-- for it again.
+-- A toy's name may have just loaded, with either event (CLAUDE.md, WoW constraints). They also come
+-- for other items, so ignore those. A failed load (success false, ItemDocumentation.lua) brought no
+-- name, and refreshing would only ask for it again.
+local function ItemLoaded(itemID, success)
 	if success and itemID and list.index[itemID] ~= nil then
 		ns.Changed()
 	end
-end)
+end
+ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", ItemLoaded)
+ns.RegisterEvent("ITEM_DATA_LOAD_RESULT", ItemLoaded)

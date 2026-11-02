@@ -65,8 +65,8 @@ function ns.Trace(format, ...)
 end
 
 ------------------------------------------------------------------------------------------
--- Views. A burst of changes (toy names arrive one GET_ITEM_INFO_RECEIVED at a time) refreshes a
--- shown view once, after its delay; a hidden one draws itself when shown.
+-- Views. A burst of changes (toy names arrive one event at a time, CLAUDE.md, WoW constraints)
+-- refreshes a shown view once, after its delay; a hidden one draws itself when shown.
 
 local views = {}
 

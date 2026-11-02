@@ -355,8 +355,15 @@ ns.RegisterEntryKind("pet", {
 	end,
 })
 
--- The player's pets changed: learned, caged, released, renamed or starred.
-ns.RegisterEvent("PET_JOURNAL_LIST_UPDATE", function()
+-- The player's pets changed. The Pet Journal redraws its list on PET_JOURNAL_LIST_UPDATE
+-- (Blizzard_PetCollection.lua:262) and on PET_JOURNAL_PET_DELETED, which carries the GUID of a pet
+-- it caged (:246-252; the cage is requested at :54). NEW_PET_ADDED announces a pet just collected
+-- (AlertFrames.lua:699). Clicky keeps GUIDs, so a caged pet's must go and a new pet's must come.
+local function PetsChanged(event)
+	ns.Trace("[pets] %s, forgetting the pets read", event)
 	looks = nil
 	ns.Changed()
-end)
+end
+ns.RegisterEvent("PET_JOURNAL_LIST_UPDATE", function() PetsChanged("PET_JOURNAL_LIST_UPDATE") end)
+ns.RegisterEvent("PET_JOURNAL_PET_DELETED", function() PetsChanged("PET_JOURNAL_PET_DELETED") end)
+ns.RegisterEvent("NEW_PET_ADDED", function() PetsChanged("NEW_PET_ADDED") end)

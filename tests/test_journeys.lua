@@ -2122,7 +2122,8 @@ describe("journeys", function()
 
 		it("Entries: a spell's or item's name arriving, and a spell learned or a bag changed, refresh the views", function()
 			local world = MixedWorld({ spells = { { id = 500, name = "Path of the Fire", icon = 5000, loading = true } },
-				items = { { id = 600, name = "Hearth Ring", icon = 6000, loading = true } } })
+				items = { { id = 600, name = "Hearth Ring", icon = 6000, loading = true },
+					{ id = 602, name = "Hearth Band", icon = 6020, loading = true } } })
 			local ns = world.ns
 			local view = CountingView(ns, "test", 0)
 			local asked = {}
@@ -2130,7 +2131,8 @@ describe("journeys", function()
 			world.env.C_Item.RequestLoadItemDataByID = function(id) asked["i" .. id] = true end
 			eq(ns.EntryName(FIRE), "", "no name yet")
 			eq(ns.EntryName(RING), "")
-			list(asked, Set({ FIRE, RING }), "both are asked for")
+			eq(ns.EntryName("i602"), "")
+			list(asked, Set({ FIRE, RING, "i602" }), "all are asked for")
 			world:LoadSpell(500)
 			world:Advance(1)
 			eq(view.refreshes, 1, "a spell's name arriving")
@@ -2143,11 +2145,17 @@ describe("journeys", function()
 			eq(view.refreshes, 2, "an item nobody asked for doesn't")
 			world:Fire("GET_ITEM_INFO_RECEIVED", 600, true)
 			world:Advance(1)
-			eq(view.refreshes, 2, "nor does the same one twice")
+			eq(view.refreshes, 2, "nor does the same one twice, by the other event")
+			-- An item's name arrives with either event (CLAUDE.md, WoW constraints).
+			world.items[602].loading = false
+			world:Fire("GET_ITEM_INFO_RECEIVED", 602, true)
+			world:Advance(1)
+			eq(view.refreshes, 3, "an item's name arriving with GET_ITEM_INFO_RECEIVED")
+			eq(ns.EntryName("i602"), "Hearth Band")
 			for i, event in ipairs({ "SPELLS_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED" }) do
 				world:Fire(event)
 				world:Advance(1)
-				eq(view.refreshes, 2 + i, event)
+				eq(view.refreshes, 3 + i, event)
 			end
 		end)
 
@@ -2449,6 +2457,7 @@ describe("journeys", function()
 			ok(Refreshes(function() ns.UnwrapEntry("p40:300") end), "opening a gift-wrapped pet")
 			ok(not ns.IsEntryWrapped("p40:300"), "the Cat is open")
 			ok(Refreshes(function() world:Fire("GET_ITEM_INFO_RECEIVED", HAT, true) end), "a toy's name arriving")
+			ok(Refreshes(function() world:Fire("ITEM_DATA_LOAD_RESULT", HAT, true) end), "or arriving by the other event")
 			ok(Refreshes(function() world:LoadToys() end), "the player's toys arriving")
 			ok(Refreshes(function() assert(ns.DeleteMacro(macro)) end), "deleting a macro")
 		end)
@@ -4108,6 +4117,20 @@ describe("journeys", function()
 			eq(#world:TakeErrors(), 0)
 		end)
 
+		it("the search shown redraws when an item's tooltip data arrives, though its name was already in", function()
+			local world = GridWorld()
+			local search = world.env.ClickyGridSearch
+			world.items[600].tooltip = "A plain band."
+			ClickTab(world, ITEMS_TAB)
+			search:SetText("glows")
+			list(ShownKeys(world), {}, "the tooltip as first read doesn't say it")
+			world.items[600].tooltip = "A plain band. It glows."
+			world:Fire("GET_ITEM_INFO_RECEIVED", 600, true)
+			world:Advance(1)
+			list(ShownKeys(world), { RING }, "no key typed: Items.lua refreshes only for names it asked for")
+			eq(#world:TakeErrors(), 0)
+		end)
+
 		it("the professions' active spells are on the Spells tab, from the Professions book, and go in macros", function()
 			local FIRE_COOK, FISH, SURVEY = "s520", "s521", "s522"
 			local world = GridWorld({
@@ -4903,7 +4926,37 @@ describe("journeys", function()
 			world:Fire("GET_ITEM_INFO_RECEIVED", PIRATE, true)
 			world:Advance(1)
 			list(Shown(world), { PIRATE }, "read again once its data arrived")
+			search:SetText("parrot")
+			world.toys[PIRATE].tooltip = world.toys[PIRATE].tooltip .. " Parrot included."
+			world:Fire("ITEM_DATA_LOAD_RESULT", PIRATE, true)
+			world:Advance(1)
+			list(Shown(world), { PIRATE }, "or once it arrived by the other event (CLAUDE.md, WoW constraints)")
 			ok(Debug(world):find("search: %d+ tooltips kept"), "/clicky debug says how many")
+		end)
+
+		it("15. the search finds a toy's Use: text that arrived after its tooltip was first read", function()
+			local world = PetWorld()
+			world.toys[PIRATE].tooltip = "A fine hat for sailing."
+			world.toys[ORB].tooltip = "A glowing orb."
+			local search = world.env.ClickyGridSearch
+			search:SetText("sailing")
+			list(Shown(world), { PIRATE }, "the flavor text, as first read")
+			search:SetText("parrot")
+			list(Shown(world), {}, "the Use: line hasn't arrived")
+			world:ResolveTooltip(world.toys[PIRATE], " Use: Summons a parrot to sit on your shoulder.")
+			world:ResolveTooltip(world.toys[ORB], " Use: Lights up the night.")
+			world:Advance(1)
+			list(Shown(world), { PIRATE }, "read again once the game says the tooltip's lookup resolved")
+			search:SetText("lights up")
+			list(Shown(world), { ORB }, "each tooltip by its own dataInstanceID")
+			-- Without a dataInstanceID, any tooltip may have changed.
+			search:SetText("squawks")
+			list(Shown(world), {}, "not in the tooltip yet")
+			world.toys[PIRATE].tooltip = world.toys[PIRATE].tooltip .. " Squawks."
+			world:Fire("TOOLTIP_DATA_UPDATE")
+			world:Advance(1)
+			list(Shown(world), { PIRATE }, "every kept tooltip read again")
+			eq(#world:TakeErrors(), 0)
 		end)
 
 		it("/clicky debug checks each tab against its Blizzard window, with the window's own filters, entry by entry", function()
@@ -5084,6 +5137,7 @@ describe("journeys", function()
 			AddTo(world, BLUE_CAT, "Pets")
 			PutOnBar(world, "Pets", 1)
 			world:CagePet(CAT1)
+			eq(select(3, world.ns.EntryAction(BLUE_CAT)), "/summonpet " .. CAT2, "the caged Cat isn't offered")
 			local summoned = {}
 			for _ = 1, 20 do
 				world:PressBar(1)
