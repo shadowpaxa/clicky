@@ -1,9 +1,9 @@
 # Clicky
 
-A World of Warcraft retail addon (Interface 120105, Midnight 12.x): buttons for Toy Box favorites
-and for macros the player makes of toys, mounts, pets, spells and items from the bags. A click uses
-a random one from the macro; a right-click opens a drawer of what it holds, and clicking one there
-uses it.
+A World of Warcraft retail addon (Interface 120105, Midnight 12.x): buttons for the favorites of
+the Toy Box, the Mount Journal and the Pet Journal, and for macros the player makes of toys,
+mounts, pets, spells and items from the bags. A click uses a random one from the macro; a
+right-click opens a drawer of what it holds, and clicking one there uses it.
 
 - `docs/macros-user-journeys.md`: what players see and do. Check every change against it.
 - `README.md`: for players. Keep it true when behavior changes; it isn't repeated here.
@@ -11,8 +11,9 @@ uses it.
   Keep those lists current; they're the code map.
 
 Players see only "macros", never "sets". Messages, panel counts and README call what a macro holds
-"items" (a toy, a mount, a pet, a spell or a thing from the bags); Favorites holds only toys, so its
-messages say "toys" (`ns.MacroNoun`).
+"items" (a toy, a mount, a pet, a spell or a thing from the bags); each built-in macro (Favorite
+Toys, Favorite Mounts, Favorite Pets) holds one kind, so its messages say "toys", "mounts" or
+"pets" (`ns.MacroNoun`).
 
 ## Rules
 
@@ -26,16 +27,17 @@ fails on any such call.
 
 **One code path per behavior.**
 - Every change the player asks for goes through `SetEntry`, `MakeMacro`, `RenameMacro`,
-  `SetMacroIcon` or `DeleteMacro` (and `PickupMacro`, which makes Favorites' macro), and every
-  automatic write (separating copies) through `ns.Sync` (Macros.lua); every macro read or write
-  through MacroStore.lua; every UI refresh through `ns.Changed()` (a view registers its refresh with
-  `ns.RegisterView`, Core.lua), except the grid's own redraws (Grid.lua's header lists them),
-  which redraw only the grid. An entry's menu is `ns.OpenEntryMenu` in the grid and
-  `ns.OpenMacroEntryMenu` for an item under a macro in the panel (Menu.lua). An entry's (a toy's,
-  mount's, pet's, spell's or item's) name, sort order, icon, tooltip, cooldown, count, owned and
-  usable test, star and secure action are its kind's owner file's (Toys.lua, Mounts.lua, Pets.lua,
-  Spells.lua, Items.lua), reached through Entries.lua, for the panel, the drawers, the macro
-  buttons and the grid alike; which entries a macro holds is `ns.MacroEntries` (Macros.lua).
+  `SetMacroIcon` or `DeleteMacro` (and `PickupMacro`, which makes a built-in macro's macro), and
+  every automatic write (separating copies, and giving a macro holding a reserved code its own)
+  through `ns.Sync` (Macros.lua); every macro read or write through MacroStore.lua; every UI refresh
+  through `ns.Changed()` (a view registers its refresh with `ns.RegisterView`, Core.lua), except the
+  grid's own redraws (Grid.lua's header lists them), which redraw only the grid. An entry's menu is
+  `ns.OpenEntryMenu` in the grid and `ns.OpenMacroEntryMenu` for an item under a macro in the panel
+  (Menu.lua). An entry's (a toy's, mount's, pet's, spell's or item's) name, sort order, icon,
+  tooltip, cooldown, count, owned and usable test, star and secure action are its kind's owner
+  file's (Toys.lua, Mounts.lua, Pets.lua, Spells.lua, Items.lua), reached through Entries.lua, for
+  the panel, the drawers, the macro buttons and the grid alike; which entries a macro holds is
+  `ns.MacroEntries` (Macros.lua).
 - Refusals return `nil, reason`; the caller shows the reason.
 - Extend the owning file's `ns` API rather than reaching into another file's locals. A new
   concern gets a new file, added to the `.toc`.
@@ -43,16 +45,20 @@ fails on any such call.
 **Don't break players' bars or data.**
 - A macro is the only copy of its items. Clicky has no saved variables.
 - Every macro's line is `/click [btn:2]ClickyP<code>;Clicky<code>`, 36 characters: the code is
-  four random consonants (`BCDFGHJKLMNPQRSTVWXZ`). Favorites' is
-  `/click [btn:2]ClickyPFVRT;ClickyFVRT` (`FVRT` is reserved, no macro is given it), and its macro
-  is found by that line, not its name.
+  four random consonants (`BCDFGHJKLMNPQRSTVWXZ`). The built-in macros have reserved codes, which
+  no macro is given: `FVRT` (Favorite Toys, which earlier releases called Favorites, so its line
+  is `/click [btn:2]ClickyPFVRT;ClickyFVRT`), `FVMT` (Favorite Mounts) and `FVPT` (Favorite Pets).
+  A built-in macro's macro is found by that line with no `#clicky` line, not by its name; a macro
+  with a `#clicky` line and a reserved code (an earlier Clicky could draw `FVMT` and `FVPT`) gets
+  a code of its own, as a copy does.
   Never rename the `Clicky<code>` or `ClickyP<code>` buttons or change that line, except to give
-  a copied macro its own code (both buttons). Any other `/click` line isn't a Clicky macro's.
+  a copied macro, or one holding a reserved code, its own code (both buttons). Any other `/click`
+  line isn't a Clicky macro's.
 - Changing the `#clicky` format means a new format version in Codec.lua. Macros are written in
   format 1 (with a checksum), the only format read; a later format reads as saved by a newer
   Clicky, anything else as damaged. A later format keeps the first character as its number and the
   checksum at the end: that's how an earlier release tells it from a damaged line. An unreleased
-  format may change in place. Favorites' macro has no `#clicky` line.
+  format may change in place. The built-in macros' macros have no `#clicky` line.
 - **A release never breaks players' macros.** Every later version reads format 1 and the places in
   `ToyList.lua`; a new format is read alongside format 1, never instead of it.
 - An entry's number in a macro (a toy, mount, pet look, spell or item: Entries.lua) is its place in
@@ -152,8 +158,8 @@ start again from step 1. Done means one full pass with no findings.
 1. **What the player sees.** Make a list of every difference a player can see or do, by walking
    each journey in docs/macros-user-journeys.md at the base and now, and by diffing every string
    the player can see (messages, refusals, labels, tooltips, slash command output) between the
-   base and now. Include what changed for Favorites, for other computers, for older and newer
-   Clicky versions, in combat, and across patches.
+   base and now. Include what changed for the built-in macros, for other computers, for older and
+   newer Clicky versions, in combat, and across patches.
 2. **The changelog.** The release's `CHANGELOG.md` section is short: what a player has to do
    (remake macros, update other computers), what they lose (a limit lowered, a feature removed),
    the new features, one bullet each, and fixes to bugs a player would have hit. Details that

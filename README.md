@@ -30,7 +30,8 @@ from the drawer.
 - **Hearthstones:** a click picks one that's off cooldown.
 - **Portal:** portal toys, your "Path of the ..." spells and a teleport cloak, all on one button.
 - **Laser:** the pets that chase the Laser Pointer.
-- **Favorites:** it's already in the panel. Star toys in the Toy Box, then drag Favorites to a bar.
+- **Favorites:** Favorite Toys, Favorite Mounts and Favorite Pets are already in the panel. They
+  hold what you star in the Toy Box and the journals, so star a few and drag one to a bar.
 
 ![The Hearthstone macro's drawer, open above its button](https://raw.githubusercontent.com/shadowpaxa/clicky/main/docs/images/drawer.png)
 
@@ -95,7 +96,7 @@ drawer instead.
 
 **Clicking a macro does nothing but say "No usable items in" and the macro's name.** Nothing in it
 can be used right now: you don't have it, it's on cooldown, it's gear, or it doesn't work where you
-are (Favorites says "toys").
+are (Favorite Toys says "toys", Favorite Mounts "mounts" and Favorite Pets "pets").
 
 **A macro is greyed out with "?" for its item count.** Hover over it to see why:
 

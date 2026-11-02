@@ -94,9 +94,9 @@ local function ShowMacroTooltip(owner, data)
 	end
 	GameTooltip:AddLine("Drag to an action bar.", 1, 1, 1)
 	if not data.unreadable then
-		-- Favorites holds only toys (ns.MacroNoun).
-		GameTooltip:AddLine(("On the bar, right-click it to choose %s."):format(data.macro.builtin and "a toy" or "an item"),
-			1, 1, 1)
+		-- A built-in macro holds one kind (ns.MacroNoun).
+		GameTooltip:AddLine(("On the bar, right-click it to choose %s."):format(data.macro.builtin
+			and data.macro.one or "an item"), 1, 1, 1)
 		if ns.InMacroUI(data.macro) and #ns.GetMacroEntries(data.macro, true) > 0 then
 			GameTooltip:AddLine(("To change this icon, right-click one of its %s."):format(ns.MacroNoun(data.macro)),
 				1, 1, 1)
@@ -215,12 +215,12 @@ local function PanelRows()
 				data[#data + 1] = { kind = "entry", key = key, macro = m, owned = ns.IsEntryOwned(key) }
 			end
 			if #entries == 0 then
-				data[#data + 1] = { kind = "note", text = m.builtin and "Star toys to add them."
+				data[#data + 1] = { kind = "note", text = m.builtin and ("Star %s to add them."):format(m.noun)
 					or "Right-click a toy, mount, pet, spell or item to add it." }
 			end
 		end
 	end
-	if #macros == 1 then
+	if #macros == #ns.BUILTINS then
 		data[#data + 1] = { kind = "note", text = "Right-click a toy, mount, pet, spell or item to make one." }
 	end
 	return data

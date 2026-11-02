@@ -71,8 +71,8 @@ local function DebugLines()
 		end
 		local macro
 		if m.builtin then
-			local fav = ns.FindFavoritesMacro()
-			macro = ("%s, state %s%s"):format(fav and tostring(fav.index) or "none", tostring(m.state),
+			local rec = ns.FindBuiltinMacro(m.id)
+			macro = ("%s, state %s%s"):format(rec and tostring(rec.index) or "none", tostring(m.state),
 				m.reason and (" (" .. m.reason .. ")") or "")
 		else
 			macro = ("%s, state %s%s, data %d chars, %s"):format(tostring(m.index),

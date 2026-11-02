@@ -1,5 +1,6 @@
--- Clicky's macros: Favorites, plus every macro with a "#clicky" line. WoW keeps macros on its
--- servers (warcraft.wiki.gg Macro), so a macro is the only copy of its entries that every computer
+-- Clicky's macros: the built-in ones (Favorite Toys, Favorite Mounts, Favorite Pets), plus every
+-- macro with a "#clicky" line. WoW keeps macros on its servers (warcraft.wiki.gg Macro), so a
+-- macro is the only copy of its entries that every computer
 -- sees: they're read from it (ns.Sync) and written back to it on every change. Each macro has a
 -- hidden secure button its /click line clicks, and a drawer its right-click opens (Drawer.lua). A
 -- click uses a random entry from the macro; the drawer uses the entry clicked in it. An entry is a
@@ -10,19 +11,21 @@
 --   ns.HasEntry(m, key), ns.MacroEntries(m)  the macro's entries (key -> true), not to be changed
 --   ns.GetMacroEntries(m, all)             the keys the player has (all of them if all), by name
 --   ns.NoEntriesMessage(m)                 why a click or right-click finds nothing to use
---   ns.MacroNoun(m)                        what the player's messages call m's entries: "toys" for
---                                          Favorites, which holds only toys, "items" for the rest
+--   ns.MacroNoun(m)                        what the player's messages call m's entries: a built-in
+--                                          macro's noun ("toys", "mounts", "pets"), "items" for the
+--                                          rest
 --   ns.GetCandidates(m, allowRepeat)       the keys a click can pick from now
---   ns.SetEntry(m, key, inMacro)           -> true | nil, reason   Favorites: a toy's star is set or
---                                          cleared (works in combat); anything else is refused
+--   ns.SetEntry(m, key, inMacro)           -> true | nil, reason   a built-in macro: the star of an
+--                                          entry of its kind is set or cleared (works in combat);
+--                                          another kind, or a star Clicky can't change, is refused
 --   ns.MakeMacro(name, key)                -> macro | nil, reason
 --   ns.RenameMacro(m, name), ns.DeleteMacro(m)   -> true | nil, reason
 --   ns.SetMacroIcon(m, key)                -> true | nil, reason   m's icon in /macro becomes entry
 --                                          key's; the macro's items and name stay as they are
 --   ns.PickupMacro(m)                      puts the macro on the cursor
 --   ns.OpenMacroInUI(m)                    opens /macro on General with the macro selected
---   ns.InMacroUI(m)                        whether the macro exists in /macro (Favorites' only
---                                          once made)
+--   ns.InMacroUI(m)                        whether the macro exists in /macro (a built-in one's
+--                                          only once made)
 --   ns.COMBAT_ERROR                        why a change to a macro is refused in combat
 --   ns.Unreadable(m)                       why m's entries can't be used or changed (for the
 --                                          player), or nil
@@ -34,8 +37,10 @@
 --   "newer"      saved by a newer Clicky, or holding an entry this Clicky's list doesn't have yet
 --   "unreadable" damaged: anything but format 1
 -- reason says why. Unreadable macros load nothing onto their buttons and can't have entries changed.
--- Favorites (id ns.FAVORITES_ID, builtin): its toys are the Toy Box stars, and its macro is found
--- by its /click line (ns.FindFavoritesMacro); it may not exist yet, and it holds no data.
+-- A built-in macro (builtin, from ns.BUILTINS: Favorite Toys, Favorite Mounts, Favorite Pets): its
+-- entries are the stars of its kind (the Toy Box's, the Mount Journal's, the Pet Journal's), and
+-- its macro is found by its /click line (ns.FindBuiltinMacro); it may not exist yet, and it holds
+-- no data.
 -- A macro's id is its code (four random letters, NewCode).
 --
 -- Rules every write follows: nothing is written in combat (macros and secure attributes are
@@ -48,7 +53,7 @@ local NEWER_MESSAGE = "This macro was saved by a newer version of Clicky. Update
 local UNREADABLE_MESSAGE = "Clicky can't read this macro's items. Delete it and make it again."
 local UNKNOWN_ENTRY_MESSAGE = "Clicky doesn't know this item yet. Update Clicky."
 local EMPTY_MESSAGE = "%s has no items. Right-click a toy, mount, pet, spell or item in the Toy Box to add it."
-local EMPTY_FAVORITES_MESSAGE = "%s has no toys. Star toys in the Toy Box to add them."
+local EMPTY_BUILTIN_MESSAGE = "%s has no %s. Star %s in the %s to add them."
 
 -- Runs inside the button's click, before the entry is used, in WoW's restricted environment. In
 -- combat Clicky's own code can't set the button's action, so this picks an entry with random from
@@ -90,14 +95,19 @@ local COMBAT_PICK = [[
 	self:SetAttribute("lastentry", entry)
 ]]
 
-local favorites = {
-	id = ns.FAVORITES_ID,
-	icon = ns.FAVORITES_ICON,
-	builtin = true,
-	state = "ready",
-}
-favorites.name = ns.FAVORITES_MACRO
-local macros = { [ns.FAVORITES_ID] = favorites }
+-- The built-in macros, in the panel's order; each is in macros under its id from the start.
+local builtins = {}
+local macros = {}
+for _, b in ipairs(ns.BUILTINS) do
+	local m = { id = b.id, kind = b.kind, noun = b.noun, one = b.one, journal = b.journal, name = b.name,
+		icon = b.icon, builtin = true, state = "ready" }
+	builtins[#builtins + 1] = m
+	macros[b.id] = m
+end
+local DEFAULTS = {}
+for _, b in ipairs(ns.BUILTINS) do
+	DEFAULTS[b.id] = b
+end
 -- id -> button. Buttons can't be destroyed, so an id's button outlives its macro (and is reused
 -- if a macro is ever given that id again).
 local buttons = {}
@@ -110,17 +120,28 @@ local function HasEntry(m, key)
 end
 ns.HasEntry = HasEntry
 
--- The macro's entries (key -> true), for whoever needs to go through them: Favorites' are read
--- live from the stars, so starring needs no event; another macro's are the ones read from it. The
--- caller doesn't change it.
+-- The keys a built-in macro looks for stars among: every toy in Clicky's list, or the mounts and
+-- pet looks in it the player has (only those have a star).
+local function StarCandidates(kind)
+	if kind == "toy" then
+		return ns.GetToyList().ids
+	elseif kind == "mount" then
+		return ns.ListedMountEntries(false)
+	end
+	return ns.ListedPetEntries(false)
+end
+
+-- The macro's entries (key -> true), for whoever needs to go through them: a built-in macro's are
+-- read live from the stars, so starring needs no event; another macro's are the ones read from it.
+-- The caller doesn't change it.
 local function MacroEntries(m)
 	if not m.builtin then
 		return m.entries or {}
 	end
 	local entries = {}
-	for _, itemID in ipairs(ns.GetToyList().ids) do
-		if C_ToyBox.GetIsFavorite(itemID) then
-			entries[itemID] = true
+	for _, key in ipairs(StarCandidates(m.kind)) do
+		if ns.IsEntryFavorite(key) then
+			entries[key] = true
 		end
 	end
 	return entries
@@ -144,15 +165,25 @@ function ns.Unreadable(m)
 end
 
 -- Messages call what a macro holds "items": a toy, a mount, a pet, a spell or an item from the
--- bags. Favorites holds only toys (the Toy Box's stars), so its messages say "toys".
+-- bags. A built-in macro holds one kind, so its messages say "toys", "mounts" or "pets".
 function ns.MacroNoun(m)
-	return m.builtin and "toys" or "items"
+	return m.builtin and m.noun or "items"
 end
 
--- Why a click, or a right-click for the drawer, finds nothing to use.
+-- Why a click, or a right-click for the drawer, finds nothing to use. A built-in macro's empty
+-- message names its journal, where the game stars its kind (Clicky's grid, on the Toy Box, stars
+-- them too).
 function ns.NoEntriesMessage(m)
-	local empty = CountEntries(m) == 0 and (m.builtin and EMPTY_FAVORITES_MESSAGE or EMPTY_MESSAGE)
-	return ns.Unreadable(m) or (empty or ("No usable " .. ns.MacroNoun(m) .. " in %s.")):format(m.name)
+	local unreadable = ns.Unreadable(m)
+	if unreadable then
+		return unreadable
+	elseif CountEntries(m) == 0 then
+		if m.builtin then
+			return EMPTY_BUILTIN_MESSAGE:format(m.name, m.noun, m.noun, m.journal)
+		end
+		return EMPTY_MESSAGE:format(m.name)
+	end
+	return ("No usable %s in %s."):format(ns.MacroNoun(m), m.name)
 end
 
 -- The macro's entries sorted by name: the ones the player has (the drawer), or all of them (the
@@ -370,10 +401,10 @@ local function Decode(m, data)
 	ns.Trace("[%s] read %d entries", m.name, #d.positions)
 end
 
--- A new code: four random letters that aren't Favorites', and aren't the id of a macro bound or
--- just read (records: ns.ReadMacros()). Clicky keeps no saved data, so it can't know a deleted
--- macro's code: a new macro could draw it again (1 in 160,000 for a given one), which would
--- send a /click line the player copied from the deleted macro to the new one.
+-- A new code: four random letters that aren't the id of a macro bound (the built-in ones are
+-- bound from the start) or just read (records: ns.ReadMacros()). Clicky keeps no saved data, so
+-- it can't know a deleted macro's code: a new macro could draw it again (1 in 160,000 for a given
+-- one), which would send a /click line the player copied from the deleted macro to the new one.
 local function NewCode(records)
 	local taken = {}
 	for _, rec in ipairs(records or ns.ReadMacros()) do
@@ -385,7 +416,7 @@ local function NewCode(records)
 			local at = math.random(#ns.CODE_LETTERS)
 			code = code .. ns.CODE_LETTERS:sub(at, at)
 		end
-		if code ~= ns.FAVORITES_ID and not taken[code] and not macros[code] then
+		if not taken[code] and not macros[code] then
 			return code
 		end
 	end
@@ -434,17 +465,17 @@ local function Save(m, rec, entries)
 	return true
 end
 
--- Favorites' macro, made if it doesn't exist yet (as dragging Favorites does).
-local function FavoritesRecord()
-	local rec = ns.FindFavoritesMacro()
+-- A built-in macro's macro, made if it doesn't exist yet (as dragging it does).
+local function BuiltinRecord(m)
+	local rec = ns.FindBuiltinMacro(m.id)
 	if rec then
 		return rec
 	end
-	local _, err = ns.MakeFavoritesMacro(favorites.name)
+	local _, err = ns.MakeBuiltinMacro(m.id, m.name, DEFAULTS[m.id].icon)
 	if err then
 		return nil, err
 	end
-	return ns.FindFavoritesMacro()
+	return ns.FindBuiltinMacro(m.id)
 end
 
 ------------------------------------------------------------------------------------------
@@ -456,11 +487,15 @@ local function Wait(what)
 end
 
 -- Two macros clicking the same button (a copy, or one pasted from elsewhere): the original keeps
--- the button, each other one gets a new code written into its /click line.
+-- the button, each other one gets a new code written into its /click line. A macro with a #clicky
+-- line whose code is a built-in macro's (made before FVMT and FVPT were reserved, or typed by hand)
+-- has no original: it gets a new code too, and isn't the built-in macro's (ns.FindBuiltinMacro).
 local function SeparateCopies(records, canWrite)
 	local live = {}
 	for _, rec in ipairs(records) do
-		live[rec.id] = live[rec.id] or Original(records, rec.id)
+		if not ns.IsBuiltinID(rec.id) then
+			live[rec.id] = live[rec.id] or Original(records, rec.id)
+		end
 	end
 	for _, rec in ipairs(records) do
 		if live[rec.id] ~= rec then
@@ -484,7 +519,10 @@ end
 
 -- Runtime macros for what was read; ones whose macro is gone are dropped.
 local function Bind(live)
-	local seen = { [ns.FAVORITES_ID] = true }
+	local seen = {}
+	for _, b in ipairs(builtins) do
+		seen[b.id] = true
+	end
 	for id, rec in pairs(live) do
 		local m = macros[id]
 		if not m then
@@ -497,13 +535,15 @@ local function Bind(live)
 		end
 		seen[id] = true
 	end
-	-- Favorites is there with or without its macro.
-	local fav = ns.FindFavoritesMacro()
-	if fav then
-		favorites.name, favorites.icon, favorites.index = fav.name, fav.icon, fav.index
-	else
-		-- Its old name goes with its macro, as it would at the next login.
-		favorites.name, favorites.icon, favorites.index = ns.FAVORITES_MACRO, ns.FAVORITES_ICON, nil
+	-- A built-in macro is there with or without its macro.
+	for _, b in ipairs(builtins) do
+		local rec = ns.FindBuiltinMacro(b.id)
+		if rec then
+			b.name, b.icon, b.index = rec.name, rec.icon, rec.index
+		else
+			-- Its old name goes with its macro, as it would at the next login.
+			b.name, b.icon, b.index = DEFAULTS[b.id].name, DEFAULTS[b.id].icon, nil
+		end
 	end
 	for id, m in pairs(macros) do
 		if not seen[id] then
@@ -566,11 +606,12 @@ end
 
 ------------------------------------------------------------------------------------------
 
--- Favorites first, then the player's macros by name.
+-- The built-in macros first (Favorite Toys, Favorite Mounts, Favorite Pets), then the player's
+-- macros by name.
 function ns.GetMacros()
 	local list = {}
-	for id, m in pairs(macros) do
-		if id ~= ns.FAVORITES_ID then
+	for _, m in pairs(macros) do
+		if not m.builtin then
 			list[#list + 1] = m
 		end
 	end
@@ -580,7 +621,9 @@ function ns.GetMacros()
 		end
 		return a.id < b.id
 	end)
-	table.insert(list, 1, favorites)
+	for i, m in ipairs(builtins) do
+		table.insert(list, i, m)
+	end
 	return list
 end
 
@@ -614,23 +657,33 @@ local function Changeable(m)
 	return true
 end
 
--- The record of m's macro, to write to: Favorites' is made if it doesn't exist yet.
+-- The record of m's macro, to write to: a built-in one's is made if it doesn't exist yet.
 local function Record(m)
 	if m.builtin then
-		return FavoritesRecord()
+		return BuiltinRecord(m)
 	end
 	return FindRecord(m)
+end
+
+-- A built-in macro's own macro, looked for, not made.
+local function FindBuiltinRecord(m)
+	return ns.FindBuiltinMacro(m.id), "That macro is gone."
 end
 
 function ns.SetEntry(m, key, inMacro)
 	inMacro = inMacro and true or false
 	if m.builtin then
-		if ns.EntryKind(key) ~= "toy" then
-			return nil, "Favorites' toys are the toys you star in the Toy Box."
+		if ns.EntryKind(key) ~= m.kind then
+			return nil, ("%s holds only the %s you star in the %s."):format(m.name, m.noun, m.journal)
 		end
-		-- Favorites is the Toy Box's stars, so this is a star, not a macro write: it works in
+		-- A built-in macro is the game's stars, so this is a star, not a macro write: it works in
 		-- combat, as the grid's star does.
 		if ns.IsEntryFavorite(key) ~= inMacro then
+			local ok, err = ns.CanFavoriteEntry(key)
+			if not ok then
+				ns.Trace("[%s] star %s refused: %s", m.name, tostring(key), err)
+				return nil, err
+			end
 			ns.SetEntryFavorite(key, inMacro)
 		end
 		return true
@@ -720,7 +773,8 @@ function ns.RenameMacro(m, name)
 end
 
 -- The icon is the macro's own in /macro, which every later write keeps (rec.icon), so other
--- computers see it too. Favorites' macro is looked for, not made: its entry exists only once it does.
+-- computers see it too. A built-in macro's is looked for, not made: its entry exists only once it
+-- does.
 function ns.SetMacroIcon(m, key)
 	if InCombatLockdown() then
 		return nil, ns.COMBAT_ERROR
@@ -732,7 +786,7 @@ function ns.SetMacroIcon(m, key)
 	end
 	local rec, err
 	if m.builtin then
-		rec, err = ns.FindFavoritesMacro(), "That macro is gone."
+		rec, err = FindBuiltinRecord(m)
 	else
 		rec, err = FindRecord(m)
 	end
@@ -759,9 +813,9 @@ function ns.DeleteMacro(m)
 	end
 	local rec, err
 	if m.builtin then
-		rec = ns.FindFavoritesMacro()
+		rec = ns.FindBuiltinMacro(m.id)
 		if not rec then
-			return true -- nothing to delete; Favorites stays in the panel
+			return true -- nothing to delete; a built-in macro stays in the panel
 		end
 	else
 		rec, err = FindRecord(m)
@@ -796,7 +850,7 @@ end
 -- Opens /macro as Blizzard's /macro does, then selects the macro as clicking it there does
 -- (Blizzard_MacroUI.lua, MacroFrameMacroButtonSelectedCallback), so edits to the macro that was
 -- selected are saved first, as Blizzard saves them. That save is an EditMacro, refused in combat.
--- Favorites' macro isn't made for this.
+-- A built-in macro's macro isn't made for this.
 function ns.OpenMacroInUI(m)
 	if InCombatLockdown() then
 		ns.ShowError(ns.COMBAT_ERROR)
@@ -804,7 +858,7 @@ function ns.OpenMacroInUI(m)
 	end
 	local rec, err
 	if m.builtin then
-		rec, err = ns.FindFavoritesMacro(), "That macro is gone."
+		rec, err = FindBuiltinRecord(m)
 	else
 		rec, err = FindRecord(m)
 	end

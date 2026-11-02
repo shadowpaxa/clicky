@@ -158,7 +158,9 @@ local function Run(seed, steps)
 		for _, m in ipairs(world.macros) do
 			local id = m.body:match("Clicky(" .. ("[BCDFGHJKLMNPQRSTVWXZ]"):rep(4) .. ")%f[%W]")
 			local data = m.body:match("\n#clicky (%S+)")
-			if id and data and id ~= "FVRT" then
+			-- A macro with items and a built-in macro's code has a code of its own by now (Macros.lua).
+			if id and data then
+				assert(not ns.IsBuiltinID(id), where .. ": " .. m.name .. " still has " .. id)
 				assert(not seen[id], where .. ": two macros share " .. id .. "\n" .. table.concat(log, "\n"))
 				seen[id] = m
 				local rt = ns.GetMacro(id)
@@ -369,11 +371,12 @@ local function Run(seed, steps)
 			end
 		end,
 		function()
-			L("favorites op")
+			local builtin = ns.GetMacro(Pick(ns.BUILTINS).id)
+			L("built-in op " .. builtin.name)
 			local k = math.random(3)
-			if k == 1 then ns.PickupMacro(ns.GetMacro(ns.FAVORITES_ID))
-			elseif k == 2 then ns.RenameMacro(ns.GetMacro(ns.FAVORITES_ID), Pick(names))
-			else ns.DeleteMacro(ns.GetMacro(ns.FAVORITES_ID)) end
+			if k == 1 then ns.PickupMacro(builtin)
+			elseif k == 2 then ns.RenameMacro(builtin, Pick(names))
+			else ns.DeleteMacro(builtin) end
 			world:TakeErrors()
 		end,
 		function()
@@ -592,7 +595,9 @@ local function Run(seed, steps)
 			if world.combat then return end
 			L("combat")
 			local expect = {}
-			for _, m in pairs({ns.GetMacro(ns.FAVORITES_ID), unpack(Clicky())}) do
+			local all = Clicky()
+			for _, b in ipairs(ns.BUILTINS) do all[#all + 1] = ns.GetMacro(b.id) end
+			for _, m in pairs(all) do
 				if m.button and m.setUp then
 					local c = ns.GetCandidates(m, true)
 					table.sort(c, ByText)
@@ -657,7 +662,7 @@ local function Run(seed, steps)
 		end,
 		function()
 			local c = Clicky()
-			c[#c + 1] = ns.GetMacro(ns.FAVORITES_ID)
+			c[#c + 1] = ns.GetMacro(Pick(ns.BUILTINS).id)
 			local m = Pick(c)
 			if not m.button then return end
 			local before, wornBefore = #world.used, #world.equipped

@@ -3,8 +3,9 @@
 -- deletes them; Macros.lua decides what to write. Macros can't be created, edited or deleted in
 -- combat; callers check first.
 --   ns.ReadMacros()      records (see below)
---   ns.FindFavoritesMacro()                   -> { index, name, icon, body } | nil
---   ns.MakeFavoritesMacro(name)               -> index | nil, reason
+--   ns.FindBuiltinMacro(id)                   -> { index, name, icon, body } | nil   a built-in
+--                                             macro's (ns.BUILTINS, Core.lua), by its /click line
+--   ns.MakeBuiltinMacro(id, name, icon)       -> index | nil, reason
 --   ns.CreateGeneralMacro(name, icon, body)   -> index | nil, reason
 --   ns.EditMacroAt(index, name, icon, body)   -> index | nil, reason
 --   ns.DeleteMacroAt(index)
@@ -21,10 +22,10 @@
 -- /click with no mouse button clicks with "LeftButton" (SlashCommands.lua, SLASH_COMMAND.CLICK),
 -- so [btn:2] is the button the player clicked the macro with: a right-click goes to ClickyP<code>,
 -- which opens the macro's drawer (Drawer.lua), anything else to Clicky<code>, which uses a toy.
--- Favorites' macro is the general macro whose line is /click [btn:2]ClickyPFVRT;ClickyFVRT, with
--- no data line (FVRT is its reserved code). The /click line is what players' bars depend on: it's
--- only rewritten to give a copied macro a code of its own. A /click line naming any other button
--- isn't a Clicky macro's.
+-- A built-in macro (Favorite Toys, Favorite Mounts, Favorite Pets) is the general macro whose line
+-- is /click [btn:2]ClickyP<id>;Clicky<id> for its reserved id (FVRT, FVMT, FVPT), with no data
+-- line. The /click line is what players' bars depend on: it's only rewritten to give a copied
+-- macro a code of its own. A /click line naming any other button isn't a Clicky macro's.
 
 local _, ns = ...
 
@@ -147,8 +148,9 @@ function ns.ReadMacros()
 	for index = 1, GetNumMacros() do
 		local name, icon, body = GetMacroInfo(index)
 		local id, data = ParseBody(body)
-		-- A hand-typed Favorites line with a data line must not take Favorites' place.
-		if id and data and id ~= ns.FAVORITES_ID then
+		-- One with a built-in macro's code is read too: Macros.lua gives it a new code
+		-- (SeparateCopies).
+		if id and data then
 			records[#records + 1] = { index = index, name = name, icon = icon, body = body, id = id, data = data }
 		end
 	end
@@ -197,20 +199,25 @@ function ns.DeleteMacroAt(index)
 end
 
 ------------------------------------------------------------------------------------------
--- Favorites' macro: found by its /click line, whatever its name.
+-- A built-in macro: found by its /click line, whatever its name. One with a #clicky line is a
+-- macro of the player's waiting for a code of its own (ReadMacros), not the built-in one.
 
-function ns.FindFavoritesMacro()
+function ns.FindBuiltinMacro(id)
+	local want = ClickLine(id)
 	for index = 1, GetNumMacros() do
 		local name, icon, body = GetMacroInfo(index)
-		for _, line in ipairs(Lines(body or "")) do
-			if strtrim(line) == ClickLine(ns.FAVORITES_ID) then
-				return { index = index, name = name, icon = icon, body = body }
+		local _, data = ParseBody(body)
+		if not data then
+			for _, line in ipairs(Lines(body or "")) do
+				if strtrim(line) == want then
+					return { index = index, name = name, icon = icon, body = body }
+				end
 			end
 		end
 	end
 	return nil
 end
 
-function ns.MakeFavoritesMacro(name)
-	return ns.CreateGeneralMacro(name, ns.FAVORITES_ICON, ClickLine(ns.FAVORITES_ID))
+function ns.MakeBuiltinMacro(id, name, icon)
+	return ns.CreateGeneralMacro(name, icon, ClickLine(id))
 end

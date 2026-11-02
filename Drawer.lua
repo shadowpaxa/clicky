@@ -1,8 +1,8 @@
--- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyPFVRT for
--- Favorites), which opens a grid of the macro's entries (any kind; Entries.lua) the player has, at
--- the mouse, in the panel's order, an item with how many the player carries when more than one.
--- Clicking one uses it. The drawer closes when an entry is chosen, on Escape, on a second
--- right-click, and when the mouse leaves it.
+-- Every macro's drawer: its /click line sends a right-click to ClickyP<id> (ClickyPFVRT,
+-- ClickyPFVMT and ClickyPFVPT for the built-in macros), which opens a grid of the macro's entries
+-- (any kind; Entries.lua) the player has, at the mouse, in the panel's order, an item with how many
+-- the player carries when more than one. Clicking one uses it. The drawer closes when an entry is
+-- chosen, on Escape, on a second right-click, and when the mouse leaves it.
 --   ns.SetUpDrawer(m)   makes m's opener and drawer if they don't exist yet (out of combat only)
 --   ns.FillDrawer(m)    fills m's drawer with its entries, once SetUpDrawer has made it (out of
 --                       combat only)

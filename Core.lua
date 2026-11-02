@@ -6,14 +6,19 @@
 -- The macro runs it with /click. The button gets a random entry from the macro before each click
 -- (PreClick out of combat, a secure snippet in combat); a right-click opens the macro's drawer.
 --
--- Favorites is a built-in macro backed by the Toy Box star. Every other Clicky macro is a general
--- macro that holds its own entries in a "#clicky" line (Macros.lua), so it follows the player to
--- any computer.
+-- Three built-in macros are backed by the game's stars: Favorite Toys (the Toy Box's), Favorite
+-- Mounts (the Mount Journal's) and Favorite Pets (the Pet Journal's). Every other Clicky macro is a
+-- general macro that holds its own entries in a "#clicky" line (Macros.lua), so it follows the
+-- player to any computer.
 --
 -- Files load in .toc order and share one namespace table, ns. Each file keeps its state local
 -- and puts on ns only what other files call; the list is at the top of each file. This one has
 -- the shared names, messages, tracing, change notification and event wiring:
---   ns.FAVORITES_ID, ns.FAVORITES_MACRO, ns.FAVORITES_ICON
+--   ns.FAVORITES_ID, ns.FAVORITES_ICON   Favorite Toys' code, and the icon a new macro falls
+--                                  back to
+--   ns.BUILTINS                    the built-in macros in the panel's order: { id, kind, noun, one,
+--                                  name, icon, journal }
+--   ns.IsBuiltinID(id)             whether id is a built-in macro's reserved code
 --   ns.BUTTON_PREFIX, ns.DRAWER_BUTTON_PREFIX
 --   ns.Print(msg), ns.ShowError(msg)
 --   ns.Trace(format, ...), ns.IsTracing(), ns.SetTracing(on)
@@ -26,11 +31,31 @@ local addonName, ns = ...
 
 -- Players' macros /click these buttons by name, so the button names can't change.
 -- A macro's id is four random consonants (its "code", Macros.lua); its buttons are
--- Clicky<id> (an entry) and ClickyP<id> (drawer). Favorites has the reserved id FVRT, which no new
--- macro is given.
+-- Clicky<id> (an entry) and ClickyP<id> (drawer). Each built-in macro has a reserved id, which no
+-- new macro is given: Favorite Toys FVRT (reserved since 1.0.0, when it was called Favorites),
+-- Favorite Mounts FVMT, Favorite Pets FVPT.
 ns.FAVORITES_ID = "FVRT"
-ns.FAVORITES_MACRO = "Favorites" -- its macro's name when Clicky makes it
 ns.FAVORITES_ICON = "Trade_Archaeology_ChestofTinyGlassAnimals" -- the Toy Box portrait
+-- In the panel's order. kind is the entry kind it holds (Entries.lua); noun and one are what its
+-- messages call its entries and one of them; name is its macro's name when Clicky makes it (a
+-- macro made earlier keeps the name it has); icon is its journal's portrait (SetPortraitToAsset in
+-- Blizzard_ToyBox.lua, Blizzard_MountCollection.lua, Blizzard_PetCollection.lua); journal is where
+-- the game stars its entries.
+ns.BUILTINS = {
+	{ id = ns.FAVORITES_ID, kind = "toy", noun = "toys", one = "a toy", name = "Favorite Toys",
+		icon = ns.FAVORITES_ICON, journal = "Toy Box" },
+	{ id = "FVMT", kind = "mount", noun = "mounts", one = "a mount", name = "Favorite Mounts",
+		icon = "MountJournalPortrait", journal = "Mount Journal" },
+	{ id = "FVPT", kind = "pet", noun = "pets", one = "a pet", name = "Favorite Pets",
+		icon = "PetJournalPortrait", journal = "Pet Journal" },
+}
+local builtinIDs = {}
+for _, b in ipairs(ns.BUILTINS) do
+	builtinIDs[b.id] = true
+end
+function ns.IsBuiltinID(id)
+	return builtinIDs[id] == true
+end
 ns.BUTTON_PREFIX = "Clicky" -- followed by the macro's id: a click uses an entry
 ns.DRAWER_BUTTON_PREFIX = "ClickyP" -- followed by the id: right-click opens the drawer
 

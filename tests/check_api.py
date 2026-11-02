@@ -71,7 +71,6 @@ REVIEWED_EVENTS = {
     ],
     "MountJournal": [
         "MOUNT_EQUIPMENT_APPLY_RESULT",  # Clicky applies no mount equipment
-        "MOUNT_JOURNAL_SEARCH_UPDATED",  # the Mount Journal's own search; Clicky's grid has its own
     ],
     "PetJournalInfo": [
         # Battle loadout, trap level and name prompts; Clicky shows none of them.
@@ -84,11 +83,6 @@ REVIEWED_EVENTS = {
         "PET_JOURNAL_CAGE_FAILED",
         # No Blizzard window in the UI source handles these.
         "PET_JOURNAL_PET_RESTORED", "PET_JOURNAL_PET_REVOKED",
-        # Learned and unlearned companions: Blizzard's Collections button and Mount Journal redraw on
-        # them (MainMenuBarMicroButtons.lua:1433, Blizzard_MountCollection.lua:414); Clicky takes what
-        # was learned from NEW_MOUNT_ADDED and NEW_PET_ADDED, and reads a mount's state from the game
-        # when it draws (Mounts.lua keeps none), so an unlearned mount shows as such at the next redraw.
-        "COMPANION_LEARNED", "COMPANION_UNLEARNED",
     ],
     "RestrictedActions": [
         # Blizzard's reports of blocked actions; Clicky checks InCombatLockdown before acting.

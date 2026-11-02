@@ -126,7 +126,7 @@ describe("README.md", function()
 		assert(handled > 0, "found no commands in Commands.lua")
 	end)
 
-	it("Troubleshooting: the message when no items are usable, and Favorites saying toys", function()
+	it("Troubleshooting: the message when no items are usable", function()
 		local phrase = Says('say "([^"]+)" and the macro\'s%s+name', "the no-usable-toys message")
 		local world = World()
 		local m = assert(world.ns.MakeMacro("Illusion", PIRATE))
@@ -139,13 +139,22 @@ describe("README.md", function()
 		eq(shown:sub(1, #phrase + 1 + #m.name), phrase .. " " .. m.name, "README's message, then the macro's name")
 	end)
 
-	it("Troubleshooting: the message for a Favorites with no usable toy says toys", function()
-		Says('%(Favorites says "toys"%)', "Favorites saying toys")
-		local world = World()
+	it("Troubleshooting: the built-in macros' message when none is usable says toys, mounts or pets", function()
+		Says('%(Favorite Toys says "toys", Favorite Mounts "mounts" and Favorite Pets "pets"%)',
+			"the built-in macros' nouns")
+		local world = wow.New({
+			toys = { { id = PIRATE, name = "Pirate's Costume", icon = 1001 } },
+			toyList = { PIRATE, "m6", "p40:300" },
+			mounts = { { id = 6, name = "Brown Horse", spell = 458, icon = 7006, favorite = true, usable = false } },
+			pets = { { guid = "BattlePet-0-000000000A01", species = 40, display = 300, name = "Cat", favorite = true } },
+		})
 		world.env.C_ToyBox.SetIsFavorite(PIRATE, true)
 		world.toys[PIRATE].usable = false
 		world.ns.Sync("test")
-		eq(world.ns.NoEntriesMessage(world.ns.GetMacro(world.ns.FAVORITES_ID)), "No usable toys in Favorites.")
+		local ns = world.ns
+		eq(ns.NoEntriesMessage(ns.GetMacro("FVRT")), "No usable toys in Favorite Toys.")
+		eq(ns.NoEntriesMessage(ns.GetMacro("FVMT")), "No usable mounts in Favorite Mounts.")
+		eq(ns.NoEntriesMessage(ns.GetMacro("FVPT")), "No usable pets in Favorite Pets.")
 	end)
 
 	it("Wearable items: a click never picks gear; the drawer wears it, and uses it once worn", function()

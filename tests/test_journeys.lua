@@ -90,7 +90,7 @@ end
 
 local BODY_LIMIT = 255 -- WoW's (MacroFrameText letters="255")
 
-local function Favorites(world)
+local function FavoriteToys(world)
 	return world.ns.GetMacro(world.ns.FAVORITES_ID)
 end
 
@@ -235,7 +235,7 @@ local function ClickInDrawer(world, name, itemID)
 	error("not in the drawer: " .. itemID, 2)
 end
 
--- A macro's /click line, from its code (ns.FAVORITES_ID for Favorites).
+-- A macro's /click line, from its code (ns.FAVORITES_ID for Favorite Toys).
 local function Line(code)
 	return ("/click [btn:2]ClickyP%s;Clicky%s"):format(code, code)
 end
@@ -253,10 +253,11 @@ local function Code(world, name)
 end
 
 describe("journeys", function()
-	it("1. Discover macros: the panel lists Favorites, collapsed, and the hint", function()
+	it("1. Discover macros: the panel lists Favorite Toys, collapsed, and the hint", function()
 		local world = World()
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
-		eq(PanelRow(world, "Favorites").count, 2, "Favorites' count")
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+			"Right-click a toy, mount, pet, spell or item to make one." })
+		eq(PanelRow(world, "Favorite Toys").count, 2, "Favorite Toys' count")
 		world:LoadCollections()
 		eq(world.env.ClickyPanel.TitleContainer.TitleText:GetText(), "Macros", "the panel's title, in its top bar")
 	end)
@@ -376,7 +377,8 @@ describe("journeys", function()
 		local world = World()
 		list(MenuLabels(world, PIRATE), {}, "only Add to new macro... in the toy's menu")
 		MakeMacro(world, PIRATE, "Illusion")
-		list(PanelTexts(world), { "Favorites", "Illusion", "  Pirate's Costume" })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion",
+			"  Pirate's Costume" })
 		eq(#world.macros, 1)
 		local macro = world.macros[1]
 		eq(macro.name, "Illusion")
@@ -393,7 +395,7 @@ describe("journeys", function()
 		ok(code, "a code: " .. line)
 		eq(line, "/click [btn:2]ClickyP" .. code .. ";Clicky" .. code)
 		eq(#line, 36, "the line's length")
-		ok(code ~= "FVRT", "not Favorites'")
+		ok(code ~= "FVRT", "not Favorite Toys'")
 		ok(world.env["Clicky" .. code] and world.env["ClickyP" .. code], "both buttons exist")
 		eq(Code(world, "Illusion"), code, "the macro's id")
 	end)
@@ -413,32 +415,54 @@ describe("journeys", function()
 		eq(CodeOf(world:FindMacroByName("Illusion").body), first, "the first keeps its own")
 	end)
 
-	it("3. Make a macro: Favorites' code is never drawn", function()
-		local world = World()
-		local real = math.random
-		-- The first four draws spell FVRT (F, V, R, T are the 4th, 17th, 14th and 16th letters).
-		local draws = { 4, 17, 14, 16 }
-		rawset(math, "random", function(...)
-			if #draws > 0 then return table.remove(draws, 1) end
-			return real(...)
-		end)
-		local made, err = pcall(MakeMacro, world, PIRATE, "Illusion")
-		rawset(math, "random", real)
-		assert(made, err)
-		eq(#draws, 0, "FVRT was drawn")
-		ok(Code(world, "Illusion") ~= "FVRT", "and not used: " .. Code(world, "Illusion"))
+	it("3. Make a macro: a built-in macro's code is never drawn", function()
+		-- The first four draws spell the code (F, V, R, T, M, P are the 4th, 17th, 14th, 16th, 10th
+		-- and 12th letters).
+		for code, letters in pairs({ FVRT = { 4, 17, 14, 16 }, FVMT = { 4, 17, 10, 16 }, FVPT = { 4, 17, 12, 16 } }) do
+			local world = World()
+			local real = math.random
+			local draws = { unpack(letters) }
+			rawset(math, "random", function(...)
+				if #draws > 0 then return table.remove(draws, 1) end
+				return real(...)
+			end)
+			local made, err = pcall(MakeMacro, world, PIRATE, "Illusion")
+			rawset(math, "random", real)
+			assert(made, err)
+			eq(#draws, 0, code .. " was drawn")
+			ok(not world.ns.IsBuiltinID(Code(world, "Illusion")), code .. ": and not used: " .. Code(world, "Illusion"))
+			list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+				"Illusion", "  Pirate's Costume" },
+				code .. ": the new macro shown open, the built-in ones closed")
+		end
 	end)
 
-	it("3. Make a macro: a line typed with Favorites' code and toys doesn't take Favorites' place", function()
+	-- A Clicky before FVMT and FVPT were reserved could give a macro either code; FVRT only by hand.
+	it("3. Make a macro: a macro with items and a built-in macro's code gets a code of its own", function()
+		for _, code in ipairs({ "FVRT", "FVMT", "FVPT" }) do
+			local world = World()
+			local ns = world.ns
+			local builtin = ns.GetMacro(code)
+			world:CreateMacroInUI("Typed", Line(code) .. "\n#clicky " .. ns.EncodePlaces({ 0 }))
+			local typed = Macro(world, "Typed")
+			ok(not ns.IsBuiltinID(typed.id), code .. ": a code of its own: " .. typed.id)
+			eq(CodeOf(world:FindMacroByName("Typed").body), typed.id, code .. ": written into its line")
+			list(ns.GetMacroEntries(typed, true), { PIRATE }, code .. ": its items kept")
+			ok(builtin.builtin and not ns.InMacroUI(builtin), code .. ": the built-in macro still has no macro")
+			eq(#world.macros, 1, code .. ": nothing else made")
+		end
 		local world = World()
-		local ns = world.ns
-		world:CreateMacroInUI("Typed", "/click [btn:2]ClickyPFVRT;ClickyFVRT\n#clicky " .. ns.EncodePlaces({ 0 }))
-		local macros = ns.GetMacros()
-		eq(#macros, 1, "Favorites only")
-		ok(macros[1].builtin, "Favorites is still Favorites")
-		eq(macros[1].state, "ready")
-		eq(macros[1].data, nil, "no toys read from the typed line")
-		eq(PanelRow(world, macros[1].name).count, 2, "its toys are still the stars")
+		eq(PanelRow(world, "Favorite Toys").count, 2, "Favorite Toys' toys are still the stars")
+	end)
+
+	it("3. Make a macro: in combat, a macro with items and Favorite Mounts' code waits, and isn't Favorite Mounts'", function()
+		local body = Line("FVMT") .. "\n#clicky " .. World().ns.EncodePlaces({ 0 })
+		local world = World({ macros = { { name = "Typed", icon = "x", body = body } }, combat = true })
+		eq(world.macros[1].body, body, "nothing written in combat")
+		ok(not world.ns.InMacroUI(world.ns.GetMacro("FVMT")), "Favorite Mounts has no macro")
+		world:LeaveCombat()
+		ok(not world.ns.IsBuiltinID(CodeOf(world.macros[1].body)), "a code of its own once the fight ends")
+		list(world.ns.GetMacroEntries(Macro(world, "Typed"), true), { PIRATE }, "with its items")
 	end)
 
 	it("3. Make a macro: a toy whose data hasn't loaded yet still gives it its icon", function()
@@ -446,7 +470,7 @@ describe("journeys", function()
 		world.toys[PIRATE].loading = true
 		eq(world.ns.ToyName(PIRATE), "", "the game has no name for it yet")
 		MakeMacro(world, PIRATE, "Illusion")
-		eq(world.macros[1].icon, 1001, "the Pirate's Costume's icon, not Favorites'")
+		eq(world.macros[1].icon, 1001, "the Pirate's Costume's icon, not Favorite Toys'")
 	end)
 
 	it("3. Make a macro: names are cut to 16 characters, however many bytes they take", function()
@@ -463,7 +487,7 @@ describe("journeys", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
 		list({ world.ns.MakeMacro("illusion", ORB) }, { nil, "There's already a macro called Illusion." })
-		list({ world.ns.MakeMacro("Favorites", ORB) }, { nil, "There's already a macro called Favorites." })
+		list({ world.ns.MakeMacro("Favorite Toys", ORB) }, { nil, "There's already a macro called Favorite Toys." })
 		list({ world.ns.MakeMacro("  ", ORB) }, { nil, "Give the macro a name." })
 		eq(#world.macros, 1, "no macro made")
 	end)
@@ -484,8 +508,9 @@ describe("journeys", function()
 		AddTo(world, ORB, "Illusion")
 		AddTo(world, ORB, "Illusion mod")
 		list(MenuLabels(world, ORB), { "[x] Illusion", "[x] Illusion mod" })
-		list(PanelTexts(world), { "Favorites", "Illusion", "  Orb of Deception", "  Pirate's Costume",
-			"Illusion mod", "  Orb of Deception", "  Pirate Hat" })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion",
+			"  Orb of Deception", "  Pirate's Costume", "Illusion mod", "  Orb of Deception",
+			"  Pirate Hat" })
 		-- The macro itself holds the toys: a computer with no saved data reads them back.
 		list(PanelToys(NextLogin(world), "Illusion"), { "Orb of Deception", "Pirate's Costume" })
 	end)
@@ -643,18 +668,20 @@ describe("journeys", function()
 		AddTo(world, GNOME, "Illusion")
 		AddTo(world, ORB, "Illusion")
 		world.ns.expanded[m.id] = nil
-		list(PanelTexts(world), { "Favorites", "Illusion" }, "closed")
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion" }, "closed")
 		eq(PanelRow(world, "Illusion").count, 3, "the toy count")
 		world.ns.expanded[m.id] = true
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
-		list(PanelTexts(world), { "Favorites", "  Fairy Wings", "  Treasure Chest", "Illusion",
-			"  Gnomish Gravity Well", "  Orb of Deception", "  Pirate's Costume" })
+		list(PanelTexts(world), { "Favorite Toys", "  Fairy Wings", "  Treasure Chest",
+			"Favorite Mounts", "Favorite Pets", "Illusion", "  Gnomish Gravity Well",
+			"  Orb of Deception", "  Pirate's Costume" })
 	end)
 
 	it("5. See a macro: macros start closed each session", function()
 		local world = World()
 		MakeMacro(world, PIRATE, "Illusion")
-		list(PanelTexts(NextLogin(world)), { "Favorites", "Illusion" })
+		list(PanelTexts(NextLogin(world)), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+			"Illusion" })
 	end)
 
 	it("5. See a macro: a copy of a macro starts closed", function()
@@ -664,14 +691,16 @@ describe("journeys", function()
 		world.env.DeleteMacro(Macro(world, "Illusion").index)
 		world:CreateMacroInUI("Hats 2", world:FindMacroByName("Hats").body)
 		ok(Code(world, "Hats 2") ~= Code(world, "Hats"), "the copy has a code of its own")
-		list(PanelTexts(world), { "Favorites", "Hats", "  Pirate Hat", "Hats 2" })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Hats",
+			"  Pirate Hat", "Hats 2" })
 	end)
 
-	it("5. See a macro: Favorites lists the starred toys, however they were starred", function()
+	it("5. See a macro: Favorite Toys lists the starred toys, however they were starred", function()
 		local world = World()
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
 		world.env.C_ToyBox.SetIsFavorite(PIRATE, true)
-		list(PanelTexts(world), { "Favorites", "  Fairy Wings", "  Pirate's Costume", "  Treasure Chest",
+		list(PanelTexts(world), { "Favorite Toys", "  Fairy Wings", "  Pirate's Costume",
+			"  Treasure Chest", "Favorite Mounts", "Favorite Pets",
 			"Right-click a toy, mount, pet, spell or item to make one." })
 	end)
 
@@ -682,7 +711,8 @@ describe("journeys", function()
 		world.env.C_ToyBox.SetIsFavorite(WINGS, false)
 		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
 		world.ns.expanded[world.ns.FAVORITES_ID] = true
-		list(PanelTexts(world), { "Favorites", "Star toys to add them.", "Illusion",
+		list(PanelTexts(world), { "Favorite Toys", "Star toys to add them.", "Favorite Mounts",
+			"Favorite Pets", "Illusion",
 			"Right-click a toy, mount, pet, spell or item to add it." })
 	end)
 
@@ -692,7 +722,8 @@ describe("journeys", function()
 		AddTo(world, ORB, "Illusion")
 		MakeMacro(world, ORB, "Tricks")
 		assert(world.ns.SetEntry(Macro(world, "Illusion"), ORB, false))
-		list(PanelTexts(world), { "Favorites", "Illusion", "  Pirate's Costume", "Tricks", "  Orb of Deception" })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion",
+			"  Pirate's Costume", "Tricks", "  Orb of Deception" })
 		list(PanelToys(NextLogin(world), "Illusion"), { "Pirate's Costume" }, "the macro itself changed")
 	end)
 
@@ -707,12 +738,12 @@ describe("journeys", function()
 		eq(world:LastUsed(), PIRATE)
 	end)
 
-	it("7. Put a macro on a bar: Favorites' macro is made once, and full slots get a message", function()
+	it("7. Put a macro on a bar: Favorite Toys' macro is made once, and full slots get a message", function()
 		local world = World()
-		PutOnBar(world, "Favorites", 1)
-		PutOnBar(world, "Favorites", 2)
+		PutOnBar(world, "Favorite Toys", 1)
+		PutOnBar(world, "Favorite Toys", 2)
 		eq(#world.macros, 1, "made once")
-		eq(world.macros[1].name, "Favorites")
+		eq(world.macros[1].name, "Favorite Toys")
 		eq(world.macros[1].body, FAVORITES_LINE)
 		world:PressBar(1)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "used a favorite")
@@ -720,7 +751,7 @@ describe("journeys", function()
 		local macros = {}
 		for i = 1, 120 do macros[i] = { name = "m" .. i, body = "/say " .. i } end
 		local full = World({ macros = macros })
-		full.ns.PickupMacro(Favorites(full))
+		full.ns.PickupMacro(FavoriteToys(full))
 		eq(full.cursor, nil, "nothing to drop")
 		list(full:TakeErrors(), { FULL })
 	end)
@@ -729,47 +760,57 @@ describe("journeys", function()
 		local world = World()
 		world.env.C_ToyBox.SetIsFavorite(WINGS, false)
 		world.env.C_ToyBox.SetIsFavorite(CHEST, false)
-		PutOnBar(world, "Favorites", 1)
+		PutOnBar(world, "Favorite Toys", 1)
 		local m = MakeMacro(world, PIRATE, "Illusion")
 		assert(world.ns.SetEntry(m, PIRATE, false))
 		PutOnBar(world, "Illusion", 2)
 		world:TakeErrors()
 		world:PressBar(1)
 		world:PressBar(2)
-		list(world:TakeErrors(), { "Favorites has no toys. Star toys in the Toy Box to add them.",
+		list(world:TakeErrors(), { "Favorite Toys has no toys. Star toys in the Toy Box to add them.",
 			"Illusion has no items. Right-click a toy, mount, pet, spell or item in the Toy Box to add it." })
 	end)
 
-	it("7. Put a macro on a bar: Favorites uses its existing macro, whatever it's called", function()
+	it("7. Put a macro on a bar: Favorite Toys uses its existing macro, whatever it's called", function()
 		local world = World({ macros = { { name = "Stars", icon = "x", body = "#showtooltip\n" .. FAVORITES_LINE } } })
-		eq(PanelRow(world, "Stars").macro, Favorites(world), "Favorites, by its macro's name")
+		eq(PanelRow(world, "Stars").macro, FavoriteToys(world), "Favorite Toys, by its macro's name")
 		PutOnBar(world, "Stars", 1)
 		eq(#world.macros, 1, "no second macro")
 		world:PressBar(1)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "used a favorite")
 	end)
 
-	it("7. Put a macro on a bar: a player's macro named Favorites isn't Favorites'", function()
-		local world = World({ macros = { { name = "Favorites", icon = "x", body = "/say hi" } } })
+	it("7. Put a macro on a bar: the Favorites macro an earlier Clicky made keeps its name; a new one is Favorite Toys", function()
+		local world = World({ macros = { { name = "Favorites", icon = "x", body = FAVORITES_LINE } } })
+		eq(PanelRow(world, "Favorites").macro, FavoriteToys(world), "Favorite Toys, under the name it has")
+		eq(world.macros[1].name, "Favorites", "not renamed")
+		assert(world.ns.DeleteMacro(FavoriteToys(world)))
+		eq(FavoriteToys(world).name, "Favorite Toys")
+		PutOnBar(world, "Favorite Toys", 1)
+		eq(world.macros[1].name, "Favorite Toys")
+	end)
+
+	it("7. Put a macro on a bar: a player's macro named Favorite Toys isn't Favorite Toys'", function()
+		local world = World({ macros = { { name = "Favorite Toys", icon = "x", body = "/say hi" } } })
 		MakeMacro(world, PIRATE, "Clicky")
 		PutOnBar(world, "Clicky", 1)
-		PutOnBar(world, "Favorites", 2)
-		eq(#world.macros, 3, "Favorites gets its own macro")
+		PutOnBar(world, "Favorite Toys", 2)
+		eq(#world.macros, 3, "Favorite Toys gets its own macro")
 		local bodies = {}
 		for _, macro in ipairs(world.macros) do bodies[#bodies + 1] = macro.body end
 		has(bodies, "/say hi", "the player's macro is untouched")
 		world:PressBar(2)
-		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "the Favorites button uses a favorite")
+		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "the Favorite Toys button uses a favorite")
 		world:PressBar(1)
 		eq(world:LastUsed(), PIRATE)
 	end)
 
-	it("7. Put a macro on a bar: a player's macro clicking Favorites' button another way isn't Favorites'", function()
+	it("7. Put a macro on a bar: a player's macro clicking Favorite Toys' button another way isn't Favorite Toys'", function()
 		local mine = "/click ClickyFVRT\n/say Party time!"
 		local world = World({ macros = { { name = "Party", icon = "x", body = mine } } })
-		world.ns.PickupMacro(Favorites(world))
-		eq(#world.macros, 2, "Favorites gets its own macro")
-		eq(world.cursor, world:FindMacroByName("Favorites"))
+		world.ns.PickupMacro(FavoriteToys(world))
+		eq(#world.macros, 2, "Favorite Toys gets its own macro")
+		eq(world.cursor, world:FindMacroByName("Favorite Toys"))
 		eq(world.cursor.body, FAVORITES_LINE)
 		eq(world:FindMacroByName("Party").body, mine, "the player's macro is untouched")
 	end)
@@ -794,7 +835,8 @@ describe("journeys", function()
 		local code = Code(world, "Illusion")
 		eq(DrawerCount(world, code), 1)
 		assert(world.ns.DeleteMacro(Macro(world, "Illusion")))
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+			"Right-click a toy, mount, pet, spell or item to make one." })
 		eq(#world.macros, 0, "the macro is gone")
 		eq(world.env["Clicky" .. code]:GetAttribute("type"), nil, "its button is emptied")
 		world.env["ClickyP" .. code]:Click("LeftButton", false) -- a copy left in character macros
@@ -841,7 +883,8 @@ describe("journeys", function()
 		MakeMacro(world, PIRATE, "Illusion")
 		PutOnBar(world, "Illusion", 1)
 		world:EditMacroInUI(1, "Costumes")
-		list(PanelTexts(world), { "Favorites", "Costumes", "  Pirate's Costume" })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Costumes",
+			"  Pirate's Costume" })
 		world:PressBar(1)
 		eq(world:LastUsed(), PIRATE)
 		world:EditMacroInUI(1, nil, "#showtooltip\n" .. world.macros[1].body)
@@ -849,7 +892,8 @@ describe("journeys", function()
 		ok(world.macros[1].body:find("^#showtooltip\n/click"), "the player's own lines are kept")
 		eq(#UsedToys(world, 1), 2, "and it still works")
 		world.env.DeleteMacro(1)
-		list(PanelTexts(world), { "Favorites", "Right-click a toy, mount, pet, spell or item to make one." })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+			"Right-click a toy, mount, pet, spell or item to make one." })
 	end)
 
 	it("8. Upkeep: every macro change is refused in combat", function()
@@ -1003,7 +1047,7 @@ describe("journeys", function()
 		list(UsedToys(back, 1), { PIRATE, 400 }, "and it reads again with the newer list")
 	end)
 
-	it("10. Update Clicky: spells and items in Clicky's list change no toy's place, macro, Favorites or count", function()
+	it("10. Update Clicky: spells and items in Clicky's list change no toy's place, macro, Favorite Toys or count", function()
 		local ENTRIES = { PIRATE, ORB, GNOME, HAT, WINGS, CHEST, "s500", "i600" }
 		local world = World({ toyList = ALL_TOYS })
 		MakeMacro(world, PIRATE, "Illusion")
@@ -1016,7 +1060,7 @@ describe("journeys", function()
 		local later = NextLogin(world, { toyList = ENTRIES })
 		eq(later.macros[1].body, before, "the macro isn't rewritten")
 		list(UsedToys(later, 1), { PIRATE, HAT }, "and reads the same toys")
-		list(later.ns.GetMacroEntries(Favorites(later), true), world.ns.GetMacroEntries(Favorites(world), true), "Favorites' toys")
+		list(later.ns.GetMacroEntries(FavoriteToys(later), true), world.ns.GetMacroEntries(FavoriteToys(world), true), "Favorite Toys' toys")
 		list({ later.ns.GridSections({ toys = filters }, "") }, grid, "the grid's toys")
 		list(later.ns.GetToyList().ids, ALL_TOYS, "the toys, without the spell and the item")
 		eq(later.ns.CountOwnedToys(), 6)
@@ -1133,7 +1177,7 @@ describe("journeys", function()
 		-- A macro of the player's own: a random Illusion toy, then a spell.
 		world.bars[2] = world:CreateMacroInUI("Disguise", "/click Clicky" .. Code(world, "Illusion") .. "\n/cast Fireball")
 		list(UsedToys(world, 2), { PIRATE, ORB }, "a random toy from Illusion")
-		eq(#world.ns.GetMacros(), 2, "Favorites and Illusion: the player's macro isn't a Clicky macro")
+		eq(#world.ns.GetMacros(), 4, "the built-in macros and Illusion: the player's macro isn't a Clicky macro")
 	end)
 
 	it("12. Copy a macro: a copy in character macros isn't read; it clicks the original's button", function()
@@ -1143,7 +1187,8 @@ describe("journeys", function()
 		local body = world.macros[1].body
 		local copy = world:CreateMacroInUI("Mine", body, true)
 		world.bars[1] = copy
-		list(PanelTexts(world), { "Favorites", "Illusion", "  Orb of Deception", "  Pirate's Costume" })
+		list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion",
+			"  Orb of Deception", "  Pirate's Costume" })
 		list(UsedToys(world, 1), { PIRATE, ORB }, "Illusion's toys")
 		eq(copy.body, body, "left as it is")
 	end)
@@ -1157,7 +1202,7 @@ describe("journeys", function()
 		table.insert(world.account.macros, { name = "Illusion 2", body = before })
 		local later = NextLogin(world, { combat = true })
 		later.bars[2] = later.macros[2]
-		ok(Debug(later):find("\nwaiting: buttons to make: 2, copies to separate: 1\n", 1, true))
+		ok(Debug(later):find("\nwaiting: buttons to make: 4, copies to separate: 1\n", 1, true))
 		eq(later.macros[1].body, before, "nothing written in combat")
 		eq(later.macros[2].body, before)
 		later:LeaveCombat()
@@ -1226,13 +1271,13 @@ describe("journeys", function()
 		eq(world.macros[1].body, body)
 	end)
 
-	it("14. Favorites' drawer: the starred toys; clicking one uses it", function()
+	it("14. Favorite Toys' drawer: the starred toys; clicking one uses it", function()
 		local world = World()
-		PutOnBar(world, "Favorites", 1)
+		PutOnBar(world, "Favorite Toys", 1)
 		eq(world.macros[1].body, FAVORITES_LINE)
 		world:PressBar(1, "RightButton")
-		list(DrawerToys(world, "Favorites"), { WINGS, CHEST }, "Fairy Wings, Treasure Chest")
-		ClickInDrawer(world, "Favorites", CHEST)
+		list(DrawerToys(world, "Favorite Toys"), { WINGS, CHEST }, "Fairy Wings, Treasure Chest")
+		ClickInDrawer(world, "Favorite Toys", CHEST)
 		eq(world:LastUsed(), CHEST)
 		eq(world.macros[1].body, FAVORITES_LINE, "nothing saved")
 	end)
@@ -1242,15 +1287,20 @@ describe("journeys", function()
 		MakeMacro(desktop, PIRATE, "Illusion")
 		AddTo(desktop, ORB, "Illusion")
 		PutOnBar(desktop, "Illusion", 1)
-		PutOnBar(desktop, "Favorites", 2)
+		PutOnBar(desktop, "Favorite Toys", 2)
 		local later = NextLogin(desktop)
 		local code = Code(later, "Illusion")
 		ok(later.env["ClickyP" .. code] and later.env.ClickyPFVRT, "the openers exist")
 		eq(DrawerCount(later, code), 0, "not filled yet")
-		later:Advance(0.1)
-		local filled = (DrawerCount(later, code) > 0 and 1 or 0) + (DrawerCount(later, later.ns.FAVORITES_ID) > 0 and 1 or 0)
-		eq(filled, 1, "one drawer per FILL_DELAY (Drawer.lua), not all at once")
-		later:Advance(1)
+		-- Four drawers queued (the three built-in macros' and Illusion's), in no set order; Favorite
+		-- Mounts' and Favorite Pets' are empty here.
+		local filled = 0
+		for _ = 1, #later.ns.GetMacros() do
+			later:Advance(0.1)
+			local now = (DrawerCount(later, code) > 0 and 1 or 0) + (DrawerCount(later, later.ns.FAVORITES_ID) > 0 and 1 or 0)
+			ok(now - filled <= 1, "one drawer per FILL_DELAY (Drawer.lua), not all at once")
+			filled = now
+		end
 		eq(DrawerCount(later, code), 2, "filled soon after login")
 		eq(DrawerCount(later, later.ns.FAVORITES_ID), 2)
 		local fight = NextLogin(desktop)
@@ -1283,22 +1333,22 @@ describe("journeys", function()
 		list(world:OverrideKeys(), {}, "and when it hides by itself")
 	end)
 
-	it("8. Rename or delete: Favorites' macro like any other; it's found by its line", function()
+	it("8. Rename or delete: Favorite Toys' macro like any other; it's found by its line", function()
 		local world = World()
-		PutOnBar(world, "Favorites", 1)
-		assert(world.ns.RenameMacro(Favorites(world), "Stars"))
+		PutOnBar(world, "Favorite Toys", 1)
+		assert(world.ns.RenameMacro(FavoriteToys(world), "Stars"))
 		eq(world.macros[1].name, "Stars", "renamed")
 		eq(world.ns.PanelRows()[1].macro.name, "Stars", "still first in the panel")
 		world:PressBar(1)
 		ok(world:LastUsed() == WINGS or world:LastUsed() == CHEST, "still works on the bar")
 		list({ world.ns.MakeMacro("stars", PIRATE) }, { nil, "There's already a macro called Stars." })
-		assert(world.ns.DeleteMacro(Favorites(world)))
+		assert(world.ns.DeleteMacro(FavoriteToys(world)))
 		eq(#world.macros, 0, "deleted")
-		eq(world.ns.PanelRows()[1].macro, Favorites(world), "Favorites stays in the panel")
-		eq(world.ns.PanelRows()[1].macro.name, "Favorites", "under its first name, as after a login")
-		PutOnBar(world, "Favorites", 2)
+		eq(world.ns.PanelRows()[1].macro, FavoriteToys(world), "Favorite Toys stays in the panel")
+		eq(world.ns.PanelRows()[1].macro.name, "Favorite Toys", "under its first name, as after a login")
+		PutOnBar(world, "Favorite Toys", 2)
 		eq(#world.macros, 1, "made again when dragged")
-		eq(world.macros[1].name, "Favorites")
+		eq(world.macros[1].name, "Favorite Toys")
 		eq(world.macros[1].body, FAVORITES_LINE)
 	end)
 
@@ -1332,7 +1382,7 @@ describe("journeys", function()
 		Says(Printed("grid"), { "not made" })
 		eq(Printed("waiting"), "waiting: nothing")
 		eq(Printed("views"), "views: panel hidden; grid hidden")
-		Says(Printed("Favorites ("), { "(ClickyFVRT): 2 items", "unusable: 0, on cooldown: 0", "drawer 2 items",
+		Says(Printed("Favorite Toys ("), { "(ClickyFVRT): 2 items", "unusable: 0, on cooldown: 0", "drawer 2 items",
 			"macro: none, state ready" })
 		Says(Printed("Broken ("), { "(ClickyBCDF): 0 items", "drawer 0 items", "macro: 1",
 			"state unreadable (damaged)", "data 6 chars", "no items" })
@@ -1347,7 +1397,9 @@ describe("journeys", function()
 		end
 		list(status, {
 			"6 toys owned.",
-			"Favorites: 2 toys owned, 2 ready to use here.",
+			"Favorite Toys: 2 toys owned, 2 ready to use here.",
+			"Favorite Mounts: 0 mounts owned, 0 ready to use here.",
+			"Favorite Pets: 0 pets owned, 0 ready to use here.",
 			"Broken: " .. UNREADABLE,
 			"Illusion: 3 items owned, 1 ready to use here.",
 		})
@@ -1368,7 +1420,7 @@ describe("journeys", function()
 		local all = Debug(world)
 		ok(all:find("views: panel hidden; grid hidden; test shown, refresh pending\n", 1, true), all)
 		ok(all:find("Illusion %(Clicky%u+%): 2 items %(.-%), ready for combat 2, drawer 2 items, open, macro: "), all)
-		ok(all:find("Favorites %(ClickyFVRT%): 2 items %(.-%), ready for combat 2, drawer 2 items, macro: "), all)
+		ok(all:find("Favorite Toys %(ClickyFVRT%): 2 items %(.-%), ready for combat 2, drawer 2 items, macro: "), all)
 	end)
 
 	-- Chat can't be copied from, so the state and the trace are in a window whose text can be, made
@@ -2386,7 +2438,7 @@ describe("journeys", function()
 		world:Advance(1)
 		world.ns.SetTracing(true)
 		world.prints = {}
-		local row = world.ns.PanelRows()[2]
+		local row = world.ns.PanelRows()[#world.ns.BUILTINS + 1]
 		local rowFrame
 		for _, shown in ipairs(world.scrollList.rows) do
 			if shown:IsShown() and shown.name:GetText() == "Illusion" then rowFrame = shown end
@@ -2484,6 +2536,11 @@ describe("journeys", function()
 			ok(Refreshes(function() world:Fire("GET_ITEM_INFO_RECEIVED", HAT, true) end), "a toy's name arriving")
 			ok(Refreshes(function() world:Fire("ITEM_DATA_LOAD_RESULT", HAT, true) end), "or arriving by the other event")
 			ok(Refreshes(function() world:LoadToys() end), "the player's toys arriving")
+			-- A star set in the Mount Journal: each event its list redraws on but COMPANION_UPDATE (Mounts.lua).
+			for _, event in ipairs({ "MOUNT_JOURNAL_SEARCH_UPDATED", "MOUNT_JOURNAL_USABILITY_CHANGED",
+				"COMPANION_LEARNED", "COMPANION_UNLEARNED" }) do
+				ok(Refreshes(function() world:Fire(event) end), event)
+			end
 			ok(Refreshes(function() assert(ns.DeleteMacro(macro)) end), "deleting a macro")
 		end)
 	end)
@@ -2598,19 +2655,23 @@ describe("journeys", function()
 			OpenPanel(world)
 			local shown = PanelShown(world)
 			-- A macro the player just made is open.
-			list(Names(shown), { "Favorites", "Illusion", "Orb of Deception", "Pirate's Costume", "Wand" })
+			list(Names(shown), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion",
+				"Orb of Deception", "Pirate's Costume", "Wand" })
 			eq(shown[1].count, 2, "the two stars")
-			eq(shown[2].count, 3)
-			eq(shown[2].row.arrow.texture, "Interface\\Buttons\\UI-MinusButton-Up")
-			ok(shown[2].row.macroIcon:IsShown() and not shown[2].row.toyIcon:IsShown())
-			ok(not shown[2].row.macroIcon.warning:IsShown(), "no warning on a macro Clicky can read")
-			shown[2].row.macroIcon.scripts.OnEnter(shown[2].row.macroIcon)
+			eq(shown[4].count, 3)
+			eq(shown[4].row.arrow.texture, "Interface\\Buttons\\UI-MinusButton-Up")
+			ok(shown[4].row.macroIcon:IsShown() and not shown[4].row.toyIcon:IsShown())
+			ok(not shown[4].row.macroIcon.warning:IsShown(), "no warning on a macro Clicky can read")
+			shown[4].row.macroIcon.scripts.OnEnter(shown[4].row.macroIcon)
 			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose an item.",
 				"To change this icon, right-click one of its items." }, "the macro icon's tooltip")
 			shown[1].row.macroIcon.scripts.OnEnter(shown[1].row.macroIcon)
 			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose a toy." },
-				"Favorites holds only toys")
-			local orb, wand = shown[3].row, shown[5].row
+				"Favorite Toys holds only toys")
+			shown[2].row.macroIcon.scripts.OnEnter(shown[2].row.macroIcon)
+			list(world.tooltip.lines, { "Drag to an action bar.", "On the bar, right-click it to choose a mount." },
+				"Favorite Mounts holds only mounts")
+			local orb, wand = shown[5].row, shown[7].row
 			eq(orb.toyIcon.texture, 1002)
 			eq(orb.toyIcon.desaturated, false)
 			eq(wand.toyIcon.texture, 4001)
@@ -2628,21 +2689,22 @@ describe("journeys", function()
 			list(menus, {}, "a left click on a toy does nothing")
 			orb.scripts.OnClick(orb, "RightButton")
 			list(menus, { { orb, ORB, "Illusion" } }, "a right click opens the toy's menu for that macro")
-			shown[2].row.scripts.OnClick(shown[2].row, "RightButton")
-			list(menus[2], { shown[2].row, "Illusion" }, "and on a macro, the macro's")
+			shown[4].row.scripts.OnClick(shown[4].row, "RightButton")
+			list(menus[2], { shown[4].row, "Illusion" }, "and on a macro, the macro's")
 
-			shown[2].row.scripts.OnClick(shown[2].row, "LeftButton")
+			shown[4].row.scripts.OnClick(shown[4].row, "LeftButton")
 			world:Advance(1)
-			list(Names(PanelShown(world)), { "Favorites", "Illusion" }, "a click closes it")
-			eq(PanelShown(world)[2].row.arrow.texture, "Interface\\Buttons\\UI-PlusButton-Up")
+			list(Names(PanelShown(world)), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+				"Illusion" }, "a click closes it")
+			eq(PanelShown(world)[4].row.arrow.texture, "Interface\\Buttons\\UI-PlusButton-Up")
 			world.scrollList.scrolledTo = nil
-			shown[2].row.scripts.OnClick(shown[2].row, "LeftButton")
+			shown[4].row.scripts.OnClick(shown[4].row, "LeftButton")
 			world:Advance(1)
-			eq(#PanelShown(world), 5, "and opens it again")
-			eq(world.scrollList.scrolledTo, 2, "scrolled to show the macro's row")
+			eq(#PanelShown(world), 7, "and opens it again")
+			eq(world.scrollList.scrolledTo, 4, "scrolled to show the macro's row")
 			assert(ns.RenameMacro(Macro(world, "Illusion"), "Dress up"))
 			world:Advance(1)
-			eq(Names(PanelShown(world))[2], "Dress up", "a rename shows")
+			eq(Names(PanelShown(world))[4], "Dress up", "a rename shows")
 			list(world:TakeErrors(), {})
 		end)
 
@@ -2654,12 +2716,13 @@ describe("journeys", function()
 			MakeMacro(world, PIRATE, "Illusion")
 			AddTo(world, ORB, "Illusion")
 			OpenPanel(world)
-			local row = PanelShown(world)[2].row
+			local row = PanelShown(world)[#world.ns.BUILTINS + 1].row
 			world:MouseClick(row.macroIcon, "RightButton")
 			list(menus, { { row, "Illusion" } }, "a right click on the icon opens the macro's menu")
 			world:MouseClick(row.macroIcon)
 			world:Advance(1)
-			list(Names(PanelShown(world)), { "Favorites", "Illusion" }, "a left click closes it, as on the row")
+			list(Names(PanelShown(world)), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+				"Illusion" }, "a left click closes it, as on the row")
 			world:Drag(row.macroIcon)
 			eq(world.cursor, world:FindMacroByName("Illusion"), "the drag picks up the macro itself")
 		end)
@@ -2756,23 +2819,23 @@ describe("journeys", function()
 			list(world:TakeErrors(), {})
 		end)
 
-		it("5. See a macro: Favorites offers the icon only once its macro exists", function()
+		it("5. See a macro: Favorite Toys offers the icon only once its macro exists", function()
 			local world = World()
 			local ns = world.ns
 			ns.expanded[ns.FAVORITES_ID] = true
 			ns.Changed()
 			OpenPanel(world)
 			world:MouseClick(EntryRow(world, WINGS), "RightButton")
-			eq(Has(MenuTexts(world), "Use as icon for Favorites"), false, "no macro to change yet")
+			eq(Has(MenuTexts(world), "Use as icon for Favorite Toys"), false, "no macro to change yet")
 			eq(#world.macros, 0, "and opening the menu made none")
-			list({ ns.SetMacroIcon(Favorites(world), WINGS) }, { nil, "That macro is gone." }, "asking anyway is refused")
+			list({ ns.SetMacroIcon(FavoriteToys(world), WINGS) }, { nil, "That macro is gone." }, "asking anyway is refused")
 			eq(#world.macros, 0, "and makes none")
-			ns.PickupMacro(Favorites(world))
+			ns.PickupMacro(FavoriteToys(world))
 			world:Advance(1)
 			world:MouseClick(EntryRow(world, WINGS), "RightButton")
-			world:ChooseMenuEntry("Use as icon for Favorites")
+			world:ChooseMenuEntry("Use as icon for Favorite Toys")
 			eq(world.macros[1].icon, 2002, "Fairy Wings' icon")
-			eq(world.macros[1].body, FAVORITES_LINE, "Favorites' line is as it was")
+			eq(world.macros[1].body, FAVORITES_LINE, "Favorite Toys' line is as it was")
 			list(world:TakeErrors(), {})
 		end)
 
@@ -2826,7 +2889,7 @@ describe("journeys", function()
 			eq(#world.macros, 0, "and nothing was made")
 		end)
 
-		it("6. Remove an item from a macro: Remove from Favorites unstars the toy, in combat too, and makes no macro", function()
+		it("6. Remove an item from a macro: Remove from Favorite Toys unstars the toy, in combat too, and makes no macro", function()
 			local world = World()
 			local ns = world.ns
 			ns.expanded[ns.FAVORITES_ID] = true
@@ -2834,27 +2897,27 @@ describe("journeys", function()
 			OpenPanel(world)
 			eq(ns.IsEntryFavorite(WINGS), true)
 			world:MouseClick(EntryRow(world, WINGS), "RightButton")
-			list(MenuTexts(world), { "Remove from Favorites" }, "Favorites' macro doesn't exist yet")
+			list(MenuTexts(world), { "Remove from Favorite Toys" }, "Favorite Toys' macro doesn't exist yet")
 			world:EnterCombat()
-			world:ChooseMenuEntry("Remove from Favorites")
+			world:ChooseMenuEntry("Remove from Favorite Toys")
 			list(world:TakeErrors(), {})
 			eq(ns.IsEntryFavorite(WINGS), false, "unstarred")
 			world:LeaveCombat()
 			world:Advance(1)
 			for _, row in ipairs(ns.PanelRows()) do
-				ok(not (row.kind == "entry" and row.key == WINGS), "it left Favorites' rows")
+				ok(not (row.kind == "entry" and row.key == WINGS), "it left Favorite Toys' rows")
 			end
 			eq(#world.macros, 0, "and no macro was made")
 		end)
 
-		it("6. Remove an item from a macro: SetEntry on Favorites stars a toy, and still refuses anything else", function()
+		it("6. Remove an item from a macro: SetEntry on Favorite Toys stars a toy, and still refuses anything else", function()
 			local world = World()
 			local ns = world.ns
 			eq(ns.IsEntryFavorite(HAT), false)
-			eq(ns.SetEntry(Favorites(world), HAT, true), true)
+			eq(ns.SetEntry(FavoriteToys(world), HAT, true), true)
 			eq(ns.IsEntryFavorite(HAT), true, "starred")
-			eq(ns.SetEntry(Favorites(world), HAT, true), true, "again is fine")
-			eq(ns.SetEntry(Favorites(world), HAT, false), true)
+			eq(ns.SetEntry(FavoriteToys(world), HAT, true), true, "again is fine")
+			eq(ns.SetEntry(FavoriteToys(world), HAT, false), true)
 			eq(ns.IsEntryFavorite(HAT), false)
 			eq(#world.macros, 0, "no macro was made")
 		end)
@@ -2875,10 +2938,10 @@ describe("journeys", function()
 				end
 			end
 			eq(Hint("Illusion"), "To change this icon, right-click one of its items.")
-			ok(not Hint("Favorites"):find("change this icon", 1, true), "Favorites has no macro yet")
-			ns.PickupMacro(Favorites(world))
+			ok(not Hint("Favorite Toys"):find("change this icon", 1, true), "Favorite Toys has no macro yet")
+			ns.PickupMacro(FavoriteToys(world))
 			world:Advance(1)
-			eq(Hint("Favorites"), "To change this icon, right-click one of its toys.")
+			eq(Hint("Favorite Toys"), "To change this icon, right-click one of its toys.")
 			assert(ns.SetEntry(Macro(world, "Illusion"), PIRATE, false))
 			world:Advance(1)
 			ok(not Hint("Illusion"):find("change this icon", 1, true), "an empty macro has none")
@@ -2891,9 +2954,9 @@ describe("journeys", function()
 			world:CreateMacroInUI("Broken", ns.NewBody("BRKN", data:sub(1, -2) .. (data:sub(-1) == "A" and "B" or "A")))
 			OpenPanel(world)
 			local shown = PanelShown(world)
-			list(Names(shown), { "Favorites", "Broken" })
-			local row = shown[2].row
-			eq(shown[2].count, "?")
+			list(Names(shown), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Broken" })
+			local row = shown[4].row
+			eq(shown[4].count, "?")
 			ok(row.macroIcon.warning:IsShown(), "the warning mark")
 			eq(row.macroIcon.texture.desaturated, true)
 			row.scripts.OnEnter(row)
@@ -2905,7 +2968,7 @@ describe("journeys", function()
 			list(world.tooltip.lines, { UNREADABLE, "Drag to an action bar." }, "and offers no way to change the icon")
 			row.scripts.OnClick(row, "LeftButton")
 			list(world:TakeErrors(), { UNREADABLE }, "a click shows the reason")
-			ok(not ns.expanded[ns.GetMacros()[1].id], "and doesn't open it")
+			ok(not ns.expanded[ns.GetMacros()[4].id], "and doesn't open it")
 			row.macroIcon.scripts.OnLeave(row.macroIcon)
 			local favorites = shown[1].row
 			favorites.scripts.OnEnter(favorites)
@@ -2968,7 +3031,8 @@ describe("journeys", function()
 			world:LoadCollections()
 			world.env.SetUIPanelAttribute = function() error("no window manager") end
 			ok(not pcall(world.OpenToyBox, world), "the error reaches the game")
-			list(Names(PanelShown(world)), { "Favorites", "Illusion", "Pirate's Costume" })
+			list(Names(PanelShown(world)), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+				"Illusion", "Pirate's Costume" })
 		end)
 
 		it("14. The panel: shown and hidden in combat, it leaves the window manager alone", function()
@@ -2978,7 +3042,8 @@ describe("journeys", function()
 			world:EnterCombat()
 			world:OpenToyBox()
 			world:Advance(1)
-			list(Names(PanelShown(world)), { "Favorites", "Illusion", "Pirate's Costume" })
+			list(Names(PanelShown(world)), { "Favorite Toys", "Favorite Mounts", "Favorite Pets",
+				"Illusion", "Pirate's Costume" })
 			world:CloseToyBox()
 			list(world:TakeErrors(), {})
 		end)
@@ -3002,7 +3067,7 @@ describe("journeys", function()
 			local body = world.macros[1].body
 			assert(world.ns.DeleteMacro(m))
 			world:CreateMacroInUI("Illusion", body)
-			list(PanelTexts(world), { "Favorites", "Illusion" })
+			list(PanelTexts(world), { "Favorite Toys", "Favorite Mounts", "Favorite Pets", "Illusion" })
 		end)
 
 		it("4. The menus: renaming, deleting and making a macro from a toy are refused in combat, with the reason", function()
@@ -3094,15 +3159,15 @@ describe("journeys", function()
 			eq(world.env.MacroFrame, nil)
 		end)
 
-		it("8. Open in /macro: Favorites has it only once its macro is made", function()
+		it("8. Open in /macro: Favorite Toys has it only once its macro is made", function()
 			local world = World()
-			world.ns.OpenMacroMenu(world.env.UIParent, Favorites(world))
+			world.ns.OpenMacroMenu(world.env.UIParent, FavoriteToys(world))
 			eq(MenuHas(world, "Open in /macro"), false)
 			eq(MenuHas(world, "Rename"), true)
 			eq(#world.macros, 0)
-			world.ns.PickupMacro(Favorites(world))
-			OpenInMacro(world, Favorites(world))
-			eq(world.env.MacroFrame:GetSelectedIndex(), GeneralIndex(world, Favorites(world).name))
+			world.ns.PickupMacro(FavoriteToys(world))
+			OpenInMacro(world, FavoriteToys(world))
+			eq(world.env.MacroFrame:GetSelectedIndex(), GeneralIndex(world, FavoriteToys(world).name))
 		end)
 
 		it("3, 8. The menus' dialogs: a new macro from a toy, Rename, Copy /click line and Delete do what they say; a refused name keeps the dialog open", function()
@@ -3157,7 +3222,7 @@ describe("journeys", function()
 			local world = World()
 			MakeMacro(world, PIRATE, "Illusion")
 			OpenPanel(world)
-			local row = PanelShown(world)[2].row
+			local row = PanelShown(world)[#world.ns.BUILTINS + 1].row
 			row.scripts.OnClick(row, "LeftButton")
 			world:Advance(1)
 			world.scrollList.scrolledTo = nil
@@ -3417,7 +3482,7 @@ describe("journeys", function()
 			eq(world.tooltip, nil, "the one that lost its toy hides it")
 		end)
 
-		it("a check mark on the toys in a Clicky macro, not Favorites, whose toys have their star, kept up to date", function()
+		it("a check mark on the toys in a Clicky macro, not Favorite Toys, whose toys have their star, kept up to date", function()
 			local world = GridWorld(20)
 			local function Marked()
 				world:Advance(1)
@@ -3428,7 +3493,7 @@ describe("journeys", function()
 				table.sort(marked)
 				return marked
 			end
-			list(Marked(), {}, "the favorite, 1007, is in Favorites and has no mark")
+			list(Marked(), {}, "the favorite, 1007, is in Favorite Toys and has no mark")
 			local macro = MakeMacro(world, 1002, "Illusion")
 			list(Marked(), { 1002 }, "a toy in a new macro")
 			AddTo(world, 1003, "Illusion")
@@ -3695,7 +3760,7 @@ describe("journeys", function()
 			ok(byToy[1003].check:IsShown(), "a toy in a macro")
 			ok(not byToy[1002].check:IsShown())
 			ok(byToy[1007].star:IsShown(), "a favorite has the Toy Box's star")
-			ok(not byToy[1007].check:IsShown(), "and no check mark for Favorites")
+			ok(not byToy[1007].check:IsShown(), "and no check mark for Favorite Toys")
 			ok(not byToy[1002].star:IsShown())
 			ok(byToy[1010].cooldown.start ~= nil, "a toy on cooldown")
 			ok(byToy[1011].cooldown.start == nil)
@@ -4413,7 +4478,7 @@ describe("journeys", function()
 			ok(not ButtonFor(world, FIRE).check:IsShown(), "taken out")
 		end)
 
-		it("a spell's or an item's menu has the macros and no star; Favorites takes no spell or item", function()
+		it("a spell's or an item's menu has the macros and no star; Favorite Toys takes no spell or item", function()
 			local world = GridWorld()
 			MakeMacro(world, PIRATE, "Portal")
 			for _, key in ipairs({ FIRE, RING }) do
@@ -4429,7 +4494,7 @@ describe("journeys", function()
 			local texts = {}
 			for _, entry in ipairs(world.menu.entries) do texts[#texts + 1] = entry.text or entry.kind end
 			has(texts, "Favorite", "a toy still has its star")
-			list({ world.ns.SetEntry(Favorites(world), FIRE, true) }, { nil, "Favorites' toys are the toys you star in the Toy Box." })
+			list({ world.ns.SetEntry(FavoriteToys(world), FIRE, true) }, { nil, "Favorite Toys holds only the toys you star in the Toy Box." })
 			eq(#world:TakeErrors(), 0)
 		end)
 
@@ -4591,7 +4656,9 @@ describe("journeys", function()
 			local debug = Debug(world)
 			ok(debug:find("pets: 5 pets owned in 4 looks, 1 of them with a look Clicky's list doesn't have, under their species' other looks (p40:302); the Pet Journal lists 0 with its own filters", 1, true),
 				"/clicky debug says so: " .. debug)
-			world.pets[3].favorite = true -- the white Cat starred in the Pet Journal
+			-- The white Cat starred in the Pet Journal. No Blizzard source shows which event that
+			-- fires; this is one the journal redraws its list on (Pets.lua).
+			world.pets[3].favorite = true
 			world:Fire("PET_JOURNAL_LIST_UPDATE")
 			world:Advance(1)
 			list(Shown(world), { WHITE_CAT, OTHER_CAT, BLUE_CAT, DOG }, "a starred look first")
@@ -5091,6 +5158,116 @@ describe("journeys", function()
 			list(MenuTexts(world, BLUE_CAT), { "Unfavorite", "Add to new macro..." })
 			world:ChooseMenuEntry("Unfavorite")
 			list({ world:Pet(CAT1).favorite, world:Pet(CAT2).favorite }, { false, false }, "every Cat of the look loses its star")
+		end)
+
+		it("1, 2, 14. Favorite Mounts and Favorite Pets: the starred mounts and looks, however starred; a click summons one, in combat too", function()
+			local world = PetWorld()
+			local ns = world.ns
+			local mounts, pets = ns.GetMacro("FVMT"), ns.GetMacro("FVPT")
+			list({ mounts.name, pets.name }, { "Favorite Mounts", "Favorite Pets" })
+			list(ns.GetMacroEntries(mounts, true), { RAM }, "the Ram, starred in the Mount Journal")
+			list(ns.GetMacroEntries(pets, true), {}, "no pet starred yet")
+			-- The white Cat starred in the Pet Journal. No Blizzard source shows which event that
+			-- fires; this is one the journal redraws its list on (Pets.lua).
+			world:Pet(CAT3).favorite = true
+			world:Fire("PET_JOURNAL_LIST_UPDATE")
+			list(ns.GetMacroEntries(pets, true), { WHITE_CAT })
+			ns.OpenEntryMenu(world.env.UIParent, HORSE)
+			world:ChooseMenuEntry("Favorite") -- the Horse starred in Clicky's grid
+			list(ns.GetMacroEntries(mounts, true), { RAM, HORSE }, "by name: Black Ram, Brown Horse")
+			eq(PanelRow(world, "Favorite Mounts").count, 2)
+			list(ns.GetMacroEntries(ns.GetMacro("FVRT"), true), {}, "no mount or pet in Favorite Toys")
+			ClickTab(world, MOUNTS_TAB)
+			world:Advance(1)
+			list(Starred(world), { RAM, HORSE })
+			-- The Horse unstarred in the Mount Journal. No Blizzard source shows which event that fires;
+			-- this is one the journal redraws its list on (Mounts.lua).
+			world.mounts[6].favorite = false
+			world:Fire("MOUNT_JOURNAL_SEARCH_UPDATED")
+			world:Advance(1)
+			list(Starred(world), { RAM }, "the grid follows the Mount Journal's star")
+			list(ns.GetMacroEntries(mounts, true), { RAM })
+			world.mounts[6].favorite = true
+			world:Fire("MOUNT_JOURNAL_SEARCH_UPDATED")
+
+			PutOnBar(world, "Favorite Mounts", 1)
+			PutOnBar(world, "Favorite Pets", 2)
+			local made = {}
+			for i, m in ipairs(world.macros) do made[i] = { m.name, m.icon, m.body } end
+			list(made, { { "Favorite Mounts", "MountJournalPortrait", Line("FVMT") },
+				{ "Favorite Pets", "PetJournalPortrait", Line("FVPT") } }, "their macros, made when dragged")
+			local cast = {}
+			for _ = 1, 30 do
+				world:PressBar(1)
+				cast[world:LastUsed()] = true
+			end
+			list(cast, { s458 = true, s6777 = true }, "the Horse and the Ram")
+			world:PressBar(2)
+			eq(world:LastUsed(), CAT3, "the white Cat")
+			world:PressBar(1, "RightButton")
+			list(DrawerToys(world, "Favorite Mounts"), { RAM, HORSE }, "the drawer")
+			world:MouseAway()
+
+			world.summonedPet = nil -- put away, so the fight's list has the white Cat (journey 2)
+			world:EnterCombat()
+			world:PressBar(2)
+			eq(world.summonedPet, CAT3, "in combat too")
+			local before = #world.used
+			world:PressBar(1)
+			eq(#world.used, before + 1, "a mount in combat too")
+			list(world:TakeErrors(), {})
+		end)
+
+		it("2, 5. Favorite Mounts and Favorite Pets with nothing starred say how to add some", function()
+			local world = PetWorld({ mounts = { { id = 6, name = "Brown Horse", spell = 458, icon = 7006 } } })
+			local ns = world.ns
+			ns.expanded.FVMT, ns.expanded.FVPT = true, true
+			list(PanelToys(world, "Favorite Mounts"), {}, "nothing starred")
+			has(PanelTexts(world), "Star mounts to add them.")
+			has(PanelTexts(world), "Star pets to add them.")
+			PutOnBar(world, "Favorite Mounts", 1)
+			PutOnBar(world, "Favorite Pets", 2)
+			world:TakeErrors()
+			world:PressBar(1)
+			world:PressBar(2)
+			list(world:TakeErrors(), { "Favorite Mounts has no mounts. Star mounts in the Mount Journal to add them.",
+				"Favorite Pets has no pets. Star pets in the Pet Journal to add them." })
+			eq(#world.used, 0)
+		end)
+
+		it("6. Remove from Favorite Mounts or Pets takes the star off; a mount the journal's filters hide, or a wrapped look, says why", function()
+			local mounts = {
+				{ id = 3, name = "Black Ram", spell = 6777, icon = 7003, favorite = true },
+				{ id = 15, name = "Kodo", spell = 18990, icon = 7015, shown = false, favorite = true }, -- the journal's filters hide it
+			}
+			local world = WrappedWorld()
+			world:Pet(CAT2).favorite = true -- the blue look: CAT1 is still wrapped
+			world:Pet(CAT3).favorite = true
+			world:Fire("PET_JOURNAL_LIST_UPDATE")
+			local ns = world.ns
+			local function Remove(m, key)
+				ns.OpenMacroEntryMenu(world.env.UIParent, m, key)
+				world:ChooseMenuEntry("Remove from " .. m.name)
+				return world:TakeErrors()
+			end
+			local pets = ns.GetMacro("FVPT")
+			list(Remove(pets, BLUE_CAT), { "Open that pet's gift wrap first: click it in the grid." })
+			eq(ns.IsEntryFavorite(BLUE_CAT), true, "still starred")
+			list(Remove(pets, WHITE_CAT), {})
+			eq(world:Pet(CAT3).favorite, false, "unstarred")
+
+			world = PetWorld({ mounts = mounts })
+			ns = world.ns
+			local fav = ns.GetMacro("FVMT")
+			list(Remove(fav, KODO), { "The Mount Journal's filters hide that mount, so Clicky can't change its star." })
+			eq(world.mounts[15].favorite, true, "still starred")
+			world:EnterCombat()
+			list(Remove(fav, RAM), {}, "in combat too, like the star")
+			eq(world.mounts[3].favorite, false, "unstarred")
+			list(ns.GetMacroEntries(fav, true), { KODO })
+			list({ ns.SetEntry(fav, PIRATE, true) }, { nil, "Favorite Mounts holds only the mounts you star in the Mount Journal." })
+			list({ ns.SetEntry(ns.GetMacro("FVPT"), RAM, true) }, { nil, "Favorite Pets holds only the pets you star in the Pet Journal." })
+			eq(#world.macros, 0, "no macro made")
 		end)
 
 		it("2. a click summons a mount that can be used here, by its spell; none usable says so", function()

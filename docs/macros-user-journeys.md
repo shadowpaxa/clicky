@@ -5,16 +5,19 @@ a macro uses a random one of them, and right-clicking it opens a drawer of what 
 from. Macros are managed from the right-click menu of a toy, mount, pet, spell or item in Clicky's
 grid, which takes the place of the Toy Box's own, and from a Clicky panel docked to the Toy Box's
 right edge.
-Favorites (the Toy Box star) is always first; it holds the starred toys, and only toys.
-Messages, panel counts and these journeys call everything a macro holds an *item*; the grid's
-**Items** tab lists the things in the bags or worn. Favorites' messages say toys.
+Three built-in macros are always first: Favorite Toys, Favorite Mounts and Favorite Pets. Each
+holds what has the star of its kind (the Toy Box's, the Mount Journal's, the Pet Journal's), and
+only that. Messages, panel counts and these journeys call everything a macro holds an *item*; the
+grid's **Items** tab lists the things in the bags or worn. The built-in macros' messages say toys,
+mounts or pets.
 
 ## Decisions
 
 Product decisions, so a change doesn't quietly undo one. Reviews check the code against them.
 - 2026-10-17: No Random/Pick switch and no saved pick. Every macro is random on a click and has a
   drawer on a right-click. The point is less code.
-- 2026-10-17: Favorites works like any other macro, with as few exceptions as possible.
+- 2026-10-17: Favorites (Favorite Toys since 2026-11-01, and the other built-in macros) works like
+  any other macro, with as few exceptions as possible.
 - 2026-10-30: A release never breaks players' macros: every later version reads format 1 and an
   entry's place in Clicky's list.
 - 2026-10-31: MIT license (LICENSE). Since 2026-10-29, help and bug reports go to the comments
@@ -35,16 +38,16 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
   them in the same grid, in sections after the toys: the spells the character knows that Clicky's
   list has (the spellbook's flyouts and the Professions book included), then the usable items in
   the bags or worn that the list has. The word for what a macro holds is "items" in messages,
-  panel counts and the README; Favorites holds only toys, so its messages say "toys". The grid has no "in a macro" filter or
-  section; the check mark is the only sign. Favorites holds toys only: it is the Toy Box's stars,
-  which only toys have. An item that can be worn is chosen only from the drawer: the game's item
+  panel counts and the README; each built-in macro holds one kind, so its messages say "toys",
+  "mounts" or "pets". The grid has no "in a macro" filter or section; the check mark is the only
+  sign. An item that can be worn is chosen only from the drawer: the game's item
   action wears it if it isn't worn instead of using it, so a click on the macro never picks it.
 - 2026-10-28: The grid's toys, spells and items are on tabs (Toys, Spells, Items), Blizzard's own,
   each with its count, as Appearances has Items and Sets; a tab shows its own entries, and the
   search looks at every tab. The filters are the toys' only, on the Toys tab (since 2026-10-29
-  Mounts and Pets have their own, below). Favorites come first
-  with the Toy Box's star and run straight into the rest, as in the Toy Box; the check mark leaves
-  out Favorites, whose toys have their star. Not Collected lists the same toys as the Toy Box's.
+  Mounts and Pets have their own, below). Starred toys come first with the Toy Box's star and run
+  straight into the rest, as in the Toy Box; the check mark leaves out the built-in macros, whose
+  entries have their star. Not Collected lists the same toys as the Toy Box's.
 - 2026-10-29: Mounts and pets go in macros too, in the same list, with a tab each after Toys (Toys,
   Mounts, Pets, Spells, Items). A mount is one entry. A pet entry is a species and one of its looks
   (colors), not one particular pet: three Cats in three colors are three entries, two Cats of one
@@ -56,8 +59,7 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
   has none left (a Clicky update listed their look), that entry stands for all the species' pets,
   so a macro holding it keeps working. A species whose pets take a random look each
   summon has only that one entry. The tabs list starred first, with the journal's star, which the
-  menu can set as it can a toy's. Favorites stays the Toy Box's stars, toys only: the game has its
-  own random favorite mount and pet buttons.
+  menu can set as it can a toy's.
 - 2026-10-29: Toys, Mounts and Pets each have their own Filter menu, the same as the Toy Box's, the
   Mount Journal's and the Pet Journal's (entries, order, labels, the sources and types offered),
   each tab keeping its own settings as those windows do; Blizzard's code and the game's API are
@@ -69,24 +71,28 @@ Product decisions, so a change doesn't quietly undo one. Reviews check the code 
   ("rested" found none of the heirlooms whose set bonus mentions rested experience, seen in play): a
   name, a source, an expansion, a mount type or a pet family as the filter menus call them, or any
   text in the tooltip.
+- 2026-11-01: Favorite Mounts and Favorite Pets join Favorites, which becomes Favorite Toys: three
+  built-in macros of the Toy Box's, the Mount Journal's and the Pet Journal's stars. This reverses
+  2026-10-29, when Favorites stayed toys only. A built-in macro's macro made earlier keeps its
+  name.
 
 A Clicky macro is an ordinary general macro (in /macro) whose items are written into it, so it
 follows the player to any computer they play on, like the rest of their macros. Every macro follows
-the same fixed rule: it holds up to 100 items, in any mix (Favorites, whose toys are the stars, has
-no limit). Clicky carries its own list of every toy, mount, pet look, spell and item in the game
-that a macro can hold, which only grows at the end, so a patch never changes which items a macro
-holds.
+the same fixed rule: it holds up to 100 items, in any mix (the built-in macros, which are the stars,
+have no limit). Clicky carries its own list of every toy, mount, pet look, spell and item in the
+game that a macro can hold, which only grows at the end, so a patch never changes which items a
+macro holds.
 
 ## 1. Discover macros
 *Goal: find out how to make a macro.*
 1. Type /clicky (or open the Toy Box).
 
 *Result:* the Toy Box opens showing Clicky's grid (journey 15) and the Clicky panel, titled
-**Macros**, listing Favorites, collapsed, and the hint "Right-click a toy, mount, pet, spell or item
-to make one.", shown while Favorites is the only macro. In a fight, `/clicky` says "Can't open the
-Toy Box in combat." instead. An arrow beside the grid's Filter button hides the panel and brings it
-back, as the world map's arrow does its quest log; the panel is shown again
-each session.
+**Macros**, listing Favorite Toys, Favorite Mounts and Favorite Pets, collapsed, and the hint
+"Right-click a toy, mount, pet, spell or item to make one.", shown while they are the only macros.
+In a fight, `/clicky` says "Can't open the Toy Box in combat." instead. An arrow beside the grid's
+Filter button hides the panel and brings it back, as the world map's arrow does its quest log; the
+panel is shown again each session.
 
 ## 2. Dress up in a few clicks
 *Goal: look like a random costumed character, then add random extras on top.*
@@ -98,10 +104,11 @@ each session.
 it's the only one that can be used. Items that can't be used right now are skipped (and so is gear
 that can be worn: journey 14), and if none can be used the player sees "No usable items in
 Illusion." A macro with nothing in it says how to add some: "Illusion has no items. Right-click a
-toy, mount, pet, spell or item in the Toy Box to add it." Favorites says toys, as it holds only
-toys: "Favorites has no toys. Star toys in the Toy Box to add them." and "No usable toys in
-Favorites." An item that only turns out to fail when it's used shows WoW's error, and the next click
-picks again.
+toy, mount, pet, spell or item in the Toy Box to add it." A built-in macro says what it holds:
+"Favorite Toys has no toys. Star toys in the Toy Box to add them." ("Favorite Mounts has no
+mounts. Star mounts in the Mount Journal to add them.", and the same for pets in the Pet Journal)
+and "No usable toys in Favorite Toys." An item that only turns out to fail when it's used shows
+WoW's error, and the next click picks again.
 
 In combat macros keep working, picking from the items that were ready when the fight started.
 That list can't change until the fight ends: an item that comes off cooldown during the fight waits
@@ -145,54 +152,60 @@ combat."
 doesn't have (a toy not owned, a mount not collected, a pet look the player has no pet of, a spell
 not known, an item not carried) greyed out (they can still be removed), and hovering over one shows
 its tooltip. Every macro's items are hidden by default; each macro shows its item count. An open
-macro with nothing in it says "Right-click a toy, mount, pet, spell or item to add it." (Favorites:
-"Star toys to add them."). Hovering over a macro's icon says to drag it to a bar and right-click it
-there, and, for a macro that has items and exists in /macro, that right-clicking one of its items
-changes the icon.
+macro with nothing in it says "Right-click a toy, mount, pet, spell or item to add it." (a built-in
+macro: "Star toys to add them.", or mounts, or pets). Hovering over a macro's icon says to drag it
+to a bar and right-click it there, and, for a macro that has items and exists in /macro, that
+right-clicking one of its items changes the icon.
 
 Right-clicking an item in an open macro offers only what concerns that macro: **Use as icon for
 Illusion** and **Remove from Illusion** (journey 6); the grid's menu holds the star and every
 macro. **Use as icon for Illusion** sets the macro's icon to that item's. The icon is the macro's
 own in /macro, so later changes to the macro keep it and other computers get it with the macro. It
-is refused in combat. Favorites offers it once its macro exists.
+is refused in combat. A built-in macro offers it once its macro exists.
 
 ## 6. Remove an item from a macro
 *Goal: take a toy (or mount, pet, spell or item) the player is tired of out of Illusion.*
 1. Right-click it in the panel and choose **Remove from Illusion** (or right-click it in the grid
    and untick **Illusion**).
 
-*Result:* it is gone from Illusion and stays in any other macros it's in. For Favorites, **Remove
-from Favorites** takes the toy's star off, as unstarring it in the Toy Box does, and works in
-combat like the star.
+*Result:* it is gone from Illusion and stays in any other macros it's in. For a built-in macro,
+**Remove from Favorite Toys** (or Mounts, or Pets) takes the star off, as unstarring it in the Toy
+Box or the journal does, and works in combat like the star. A mount the Mount Journal's filters
+hide can't have its star changed here (journey 15): "The Mount Journal's filters hide that mount,
+so Clicky can't change its star." A pet look still in its gift wrap says "Open that pet's gift
+wrap first: click it in the grid."
 
 ## 7. Put a macro on an action bar
 *Goal: get an Illusion button.*
 1. In the Clicky panel, drag Illusion's icon onto an action bar (or drag it from /macro).
 
-*Result:* an Illusion button on the bar. Other characters can put the same macro on their own
-bars. Favorites' macro ("Favorites") is made the first time it's dragged or renamed; if all
-general macro slots are full, a message says so.
-To use a macro's items from a macro of the player's own, its right-click menu in the panel has
-**Copy /click line**, which shows `/click Clicky<code>` selected to copy. The code is four random
-capital letters (consonants only), different from every other macro's; Favorites' is `FVRT`, so
-its line is `/click ClickyFVRT`. In the player's own macro, that line uses a random item whichever
-mouse button the macro is clicked with (`/click` sends a left click when it names no button,
-SlashCommands.lua), and `/click ClickyP<code>` opens the macro's drawer, on either button too.
+*Result:* an Illusion button on the bar. Other characters can put the same macro on their own bars.
+A built-in macro's macro (called Favorite Toys, Favorite Mounts or Favorite Pets) is made the first
+time it's dragged or renamed; if all general macro slots are full, a message says so. Favorite Toys'
+macro made by an earlier Clicky keeps the name it has (that Clicky called it Favorites). To use a
+macro's items from a macro of the player's own, its right-click menu in the panel has **Copy /click
+line**, which shows `/click Clicky<code>` selected to copy. The code is four random capital letters
+(consonants only), different from every other macro's; the built-in macros' are `FVRT` (Favorite
+Toys), `FVMT` (Favorite Mounts) and `FVPT` (Favorite Pets), so Favorite Toys' line is `/click
+ClickyFVRT`. A macro an earlier Clicky gave `FVMT` or `FVPT` gets a code of its own, as a copy does
+(journey 12). In the player's own macro, that line uses a random item whichever mouse button the
+macro is clicked with (`/click` sends a left click when it names no button, SlashCommands.lua), and
+`/click ClickyP<code>` opens the macro's drawer, on either button too.
 
 ## 8. Rename, delete or edit a macro
 *Goal: tidy up macros.*
 1. Right-click the macro in the panel and choose **Rename**, **Delete** or **Open in /macro**.
 
 *Result:* a renamed macro keeps working on the bars. Deleting asks for confirmation, then removes
-the macro and its bar buttons. Favorites can be renamed and deleted too; once its macro is
-deleted, Favorites stays in the panel, called Favorites again, and its macro is made again when
-it's next dragged.
+the macro and its bar buttons. A built-in macro can be renamed and deleted too; once its macro is
+deleted, it stays in the panel as Favorite Toys, Favorite Mounts or Favorite Pets, and its macro
+is made again when it's next dragged.
 Renaming or deleting the macro in /macro does the same, and the panel follows. A menu or dialog
 left open on a macro deleted in /macro refuses to change it with "That macro is gone."
 **Open in /macro** opens the /macro window on its General tab with the macro selected, for the
 player to edit it there. Text the player typed in the macro selected there before is saved first,
-as clicking another macro in /macro does. It's refused in combat, and Favorites has it once its
-macro has been made.
+as clicking another macro in /macro does. It's refused in combat, and a built-in macro has it once
+its macro has been made.
 
 ## 9. Play on another computer
 *Goal: use Illusion on a laptop.*
@@ -200,7 +213,8 @@ macro has been made.
 
 *Result:* Illusion is there with its items, in the panel and on the bars, as WoW brings the
 player's macros to every computer. Nothing needs copying; it works as soon as the laptop has
-loaded the player's toys.
+loaded the player's toys. On a computer whose Clicky is 1.1.1 or older, Favorite Mounts and
+Favorite Pets do nothing when clicked: that Clicky has no buttons for them.
 
 ## 10. New toys
 *Goal: keep playing after learning toys, and after patches add toys to the game.*
@@ -289,7 +303,7 @@ same message as a left click (journey 2).
    character knows that Clicky has (the spellbook's flyouts and the Professions book included), the
    Items tab the items in
    the bags or worn that it has, each by name. A check mark shows an entry is in one of the
-   player's Clicky macros; Favorites' toys have their star instead.
+   player's Clicky macros; what the built-in macros hold has its star instead.
 2. Hover over a toy for its name. Click it to use it (a mount is summoned, a pet summoned, a spell
    cast, an item used; an item that can be worn and isn't is worn). Drag it to an action bar for a
    button of its own, or shift-click it to link it in chat. Right-click one the player owns for its
@@ -378,7 +392,8 @@ left, the color stays greyed out (journey
 
 *Result:* a click summons a random one of its mounts that can be used where the player is: a mount
 the game says can't be used there is skipped, and with none usable the player sees "No usable items
-in Ride." The drawer shows them all to choose from.
+in Ride." The drawer shows them all to choose from. For every starred mount instead, drag
+Favorite Mounts to a bar: it holds the mounts starred in the Mount Journal or the grid.
 
 ## Later
 - Adding many toys at once.

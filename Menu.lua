@@ -7,9 +7,9 @@
 --                                 for <m>" (once m exists in /macro and the icon is loaded) and
 --                                 "Remove from <m>";
 --                                 a macro's menu: Rename, Delete, Copy /click line, and Open in
---                                 /macro once the macro exists there (Favorites' may not yet).
---                                 Only toys, mounts and pets have the star (Entries.lua), and
---                                 Favorites is the Toy Box's stars
+--                                 /macro once the macro exists there (a built-in one's may not
+--                                 yet). Only toys, mounts and pets have the star (Entries.lua), and
+--                                 the built-in macros are those stars
 
 local _, ns = ...
 
@@ -62,8 +62,8 @@ function ns.OpenEntryMenu(owner, key)
 	end)
 end
 
--- The menu of an item listed under macro m in the panel. For Favorites, SetEntry takes the
--- toy's star off.
+-- The menu of an item listed under macro m in the panel. For a built-in macro, SetEntry takes the
+-- star off.
 function ns.OpenMacroEntryMenu(owner, m, key)
 	MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
 		if ns.InMacroUI(m) and ns.EntryIcon(key) then

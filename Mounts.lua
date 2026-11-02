@@ -121,8 +121,12 @@ ns.RegisterEntryKind("mount", {
 	-- wrapped mount's menu offers only Unwrap (Blizzard_MountCollection.lua:262-300).
 	canFavorite = function(mountID)
 		local at = DisplayIndex(mountID)
-		return at ~= nil and not C_MountJournal.NeedsFanfare(mountID)
-			and select(2, C_MountJournal.GetIsFavorite(at)) == true
+		if not at then
+			return false, "The Mount Journal's filters hide that mount, so Clicky can't change its star."
+		elseif C_MountJournal.NeedsFanfare(mountID) then
+			return false, "Open that mount's gift wrap first: click it in the grid."
+		end
+		return select(2, C_MountJournal.GetIsFavorite(at)) == true, "The Mount Journal can't star that mount."
 	end,
 	setFavorite = function(mountID, favorite)
 		local at = DisplayIndex(mountID)
@@ -141,3 +145,13 @@ ns.RegisterEntryKind("mount", {
 -- A mount learned, and where the player is changing which mounts can be used.
 ns.RegisterEvent("NEW_MOUNT_ADDED", ns.Changed)
 ns.RegisterEvent("MOUNT_JOURNAL_USABILITY_CHANGED", ns.Changed)
+-- A star set in the Mount Journal: its menu calls SetIsFavorite and redraws nothing itself
+-- (Blizzard_MountCollection.lua:293-305), and its list redraws on MOUNT_JOURNAL_SEARCH_UPDATED,
+-- MOUNT_JOURNAL_USABILITY_CHANGED, COMPANION_LEARNED, COMPANION_UNLEARNED, COMPANION_UPDATE and
+-- PLAYER_REGEN_ENABLED (:138-146, 413-421). No Blizzard source shows which one a star fires, so
+-- Clicky refreshes on each of them (on combat's end through ns.Sync, Macros.lua) but
+-- COMPANION_UPDATE, which comes with every mount and dismount and on which the grid redraws only
+-- its marks (Grid.lua).
+ns.RegisterEvent("MOUNT_JOURNAL_SEARCH_UPDATED", ns.Changed)
+ns.RegisterEvent("COMPANION_LEARNED", ns.Changed)
+ns.RegisterEvent("COMPANION_UNLEARNED", ns.Changed)

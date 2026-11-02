@@ -10,7 +10,8 @@
 --                                       tooltip(owner, id, anchor), link(id), pickup(id),
 --                                       action(id) -> type, attribute, value, and drawerOnly(id);
 --                                       a kind with a star (the game's favorite) also favorite(id),
---                                       canFavorite(id) and setFavorite(id, favorite); a kind
+--                                       canFavorite(id) -> true | false, reason, and
+--                                       setFavorite(id, favorite); a kind
 --                                       the player can be on or have out also active(id); a kind
 --                                       the game gift-wraps (a toy, a mount, a pet) also
 --                                       wrapped(id) and unwrap(id), and gift = true if its
@@ -30,7 +31,8 @@
 --   ns.EntryCount(key)                  how many the player carries; nil for a kind with no count
 --   ns.IsEntryOnCooldown(key)
 --   ns.IsEntryFavorite(key)             it has the game's star (a toy's, mount's or pet's)
---   ns.CanFavoriteEntry(key)            the star can be set or cleared from Clicky's menu
+--   ns.CanFavoriteEntry(key)            -> true | nil, reason   the star can be set or cleared from
+--                                       Clicky's menu
 --   ns.SetEntryFavorite(key, favorite)  sets or clears the star (the player picked it in the menu)
 --   ns.IsEntryWrapped(key)              it is still in its gift wrap (the game's "fanfare"), not
 --                                       opened yet; false for a kind the game doesn't wrap
@@ -135,7 +137,14 @@ end
 
 function ns.CanFavoriteEntry(key)
 	local kind, id = Of(key)
-	return kind.canFavorite ~= nil and kind.canFavorite(id) == true
+	if not kind.canFavorite then
+		return nil, "That has no star."
+	end
+	local ok, reason = kind.canFavorite(id)
+	if ok then
+		return true
+	end
+	return nil, reason
 end
 
 function ns.IsEntryActive(key)

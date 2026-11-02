@@ -309,7 +309,7 @@ function Refresh()
 	FitTabs(grid)
 	rows = ns.GridRows(sections[shown], COLUMNS)
 	grid.filterButton:SetShown(filters[SECTIONS[shown].name] ~= nil)
-	-- Favorites isn't counted: its toys are the favorites, which have their star.
+	-- The built-in macros aren't counted: what they hold is what's starred, which has its star.
 	inMacro = {}
 	for _, m in ipairs(ns.GetMacros()) do
 		if not m.builtin then

@@ -317,7 +317,14 @@ ns.RegisterEntryKind("pet", {
 		return false
 	end,
 	-- A wrapped pet's menu offers only Unwrap (Blizzard_PetCollection.lua:895-901).
-	canFavorite = function(id) return PetsOf(id)[1] ~= nil and not IsWrapped(id) end,
+	canFavorite = function(id)
+		if PetsOf(id)[1] == nil then
+			return false, "You have no pet of that look."
+		elseif IsWrapped(id) then
+			return false, "Open that pet's gift wrap first: click it in the grid."
+		end
+		return true
+	end,
 	-- A look is wrapped while any of its pets is; unwrapping opens each of them. PetNeedsFanfare and
 	-- ClearFanfare take the pet's GUID (Blizzard_PetCollection.lua:770-785, 895-901, 1443-1455); the
 	-- Blizzard documentation doesn't list them.
@@ -359,6 +366,9 @@ ns.RegisterEntryKind("pet", {
 -- (Blizzard_PetCollection.lua:262) and on PET_JOURNAL_PET_DELETED, which carries the GUID of a pet
 -- it caged (:246-252; the cage is requested at :54). NEW_PET_ADDED announces a pet just collected
 -- (AlertFrames.lua:699). Clicky keeps GUIDs, so a caged pet's must go and a new pet's must come.
+-- A star set in the Pet Journal: its menu calls SetFavorite and redraws nothing itself (:924-937).
+-- No Blizzard source shows which event that fires; Clicky reads stars live, and refreshes on each
+-- event the journal redraws its list on but COMPANION_UPDATE (as for mounts, Mounts.lua).
 local function PetsChanged(event)
 	ns.Trace("[pets] %s, forgetting the pets read", event)
 	looks = nil
