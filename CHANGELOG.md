@@ -1,5 +1,17 @@
 # Clicky
 
+## 1.2.0
+
+- **Favorite Mounts and Favorite Pets are new, and Favorites is now Favorite Toys.** Star mounts
+  and pets in their journals or in Clicky's grid, then drag Favorite Mounts or Favorite Pets to a
+  bar for a random favorite. If you already put Favorites on a bar, it keeps that name.
+- **Playing on more than one computer? Update Clicky on all of them.** An older Clicky doesn't
+  know Favorite Mounts and Favorite Pets, so clicking them there does nothing.
+- **The drawer shows how many you carry** of a thing from your bags, like a stack of flasks, when
+  you have more than one.
+- **Fixed: the search could miss words in a tooltip,** like a toy's "Use:" line, when the game
+  hadn't loaded them yet. Now the results update once they arrive.
+
 ## 1.1.1
 
 - **Fixed: clicking a macro did nothing when it picked a pet.** The drawer worked, but the random
